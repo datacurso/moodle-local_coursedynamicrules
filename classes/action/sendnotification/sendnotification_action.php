@@ -222,8 +222,49 @@ class sendnotification_action extends action {
      * @return string
      */
     public function get_description() {
-        $messagesubject = $this->params->messagesubject;
-        return get_string('sendnotification_description', 'local_coursedynamicrules', $messagesubject);
+        $messagesubject = $this->params->messagesubject ?? '';
+        $subjectpart = get_string('sendnotification_description', 'local_coursedynamicrules', $messagesubject);
+
+        // Same legacy param key fallbacks as execute().
+        $primaryroleids = $this->params->primaryroleids
+            ?? $this->params->observedroleids
+            ?? $this->params->roleids
+            ?? [];
+        $copyroleids = $this->params->copyroleids
+            ?? $this->params->observerroleids
+            ?? [];
+
+        $coursecontext = context_course::instance($this->courseid);
+        $rolenames = role_get_names($coursecontext, ROLENAME_ALIAS, true);
+
+        $messagebody = $this->params->messagebody ?? '';
+        $shortbody = shorten_text(trim(html_to_text($messagebody, 0, false)), 80);
+
+        $details = get_string('sendnotification_description_details', 'local_coursedynamicrules', (object) [
+            'primaryroles' => $this->get_role_names_string($primaryroleids, $rolenames),
+            'copyroles' => $this->get_role_names_string($copyroleids, $rolenames),
+            'body' => $shortbody,
+        ]);
+
+        return $subjectpart . ' ' . $details;
+    }
+
+    /**
+     * Builds a comma separated list of role names for the given role ids.
+     *
+     * @param array $roleids Role ids configured in the action.
+     * @param array $rolenames Localised role names indexed by role id.
+     * @return string
+     */
+    private function get_role_names_string($roleids, $rolenames) {
+        $names = [];
+        foreach ((array) $roleids as $roleid) {
+            if (isset($rolenames[$roleid])) {
+                $names[] = $rolenames[$roleid];
+            }
+        }
+
+        return $names ? implode(', ', $names) : get_string('none');
     }
 
     /**

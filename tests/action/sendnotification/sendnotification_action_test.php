@@ -226,4 +226,76 @@ final class sendnotification_action_test extends \advanced_testcase {
         $this->assertStringContainsString(fullname($student), $teachermessage->fullmessagehtml);
         $this->assertStringNotContainsString(fullname($teacher), $teachermessage->fullmessagehtml);
     }
+
+    /**
+     * Test description shows recipient roles, copy roles and a shortened plain text body.
+     */
+    public function test_get_description_shows_roles_and_body(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+
+        $teacherroleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $bodytail = 'and this final sentence keeps going well past the eighty character limit for sure';
+        $record = (object) [
+            'id' => 1,
+            'ruleid' => 1,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Grade alert',
+                'messagebody' => '<p>Hello <strong>student</strong>, your grade is low ' . $bodytail . '</p>',
+                'primaryroleids' => [$studentroleid],
+                'copyroleids' => [$teacherroleid],
+            ]),
+        ];
+
+        $action = new sendnotification_action($record, $course->id);
+        $description = $action->get_description();
+
+        $rolenames = role_get_names(\context_course::instance($course->id), ROLENAME_ALIAS, true);
+
+        $this->assertStringContainsString('Grade alert', $description);
+        $this->assertStringContainsString($rolenames[$studentroleid], $description);
+        $this->assertStringContainsString($rolenames[$teacherroleid], $description);
+        $this->assertStringContainsString('your grade is low', $description);
+        $this->assertStringNotContainsString('<p>', $description);
+        $this->assertStringNotContainsString('<strong>', $description);
+        $this->assertStringNotContainsString($bodytail, $description);
+    }
+
+    /**
+     * Test description resolves legacy role param keys and shows "none" when a role list is empty.
+     */
+    public function test_get_description_uses_legacy_role_keys_and_none(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $record = (object) [
+            'id' => 1,
+            'ruleid' => 1,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Legacy subject',
+                'messagebody' => 'Legacy body',
+                'observedroleids' => [$studentroleid],
+            ]),
+        ];
+
+        $action = new sendnotification_action($record, $course->id);
+        $description = $action->get_description();
+
+        $rolenames = role_get_names(\context_course::instance($course->id), ROLENAME_ALIAS, true);
+
+        $this->assertStringContainsString($rolenames[$studentroleid], $description);
+        $this->assertStringContainsString(get_string('none'), $description);
+    }
 }

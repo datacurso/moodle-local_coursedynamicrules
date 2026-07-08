@@ -259,21 +259,30 @@ class grade_in_activity_condition extends condition {
         global $DB;
 
         $gradeitems = json_decode($formdata->gradeitems, true);
+        if (!is_array($gradeitems)) {
+            throw new \invalid_parameter_exception('Invalid gradeitems data: expected a JSON object of grade conditions');
+        }
         $gradeitemsconditions = [];
         foreach ($gradeitems as $gradeitemkey => $gradeitem) {
-            $value = clean_param($gradeitem['value'], PARAM_FLOAT);
-            $disabled = $gradeitem['disabled'];
-
-            if (!empty($value) && !$disabled) {
-                $gradeitemkey = clean_param($gradeitemkey, PARAM_RAW);
-                $gradeitemid = clean_param($gradeitem['gradeitem'], PARAM_INT);
-                $gradeitemcondition = clean_param($gradeitem['condition'], PARAM_TEXT);
-                $gradeitemsconditions[$gradeitemkey] = [
-                    'gradeitem' => $gradeitemid,
-                    'condition' => $gradeitemcondition,
-                    'value' => $value,
-                ];
+            if (!is_array($gradeitem)) {
+                continue;
             }
+
+            $disabled = !empty($gradeitem['disabled']);
+            $rawvalue = $gradeitem['value'] ?? '';
+            // Emptiness is checked on the raw value so a legitimate threshold of 0 is preserved.
+            if ($disabled || $rawvalue === '' || $rawvalue === null) {
+                continue;
+            }
+
+            $gradeitemkey = clean_param($gradeitemkey, PARAM_RAW);
+            $gradeitemid = clean_param($gradeitem['gradeitem'], PARAM_INT);
+            $gradeitemcondition = clean_param($gradeitem['condition'], PARAM_TEXT);
+            $gradeitemsconditions[$gradeitemkey] = [
+                'gradeitem' => $gradeitemid,
+                'condition' => $gradeitemcondition,
+                'value' => clean_param($rawvalue, PARAM_FLOAT),
+            ];
         }
 
         $params = [
