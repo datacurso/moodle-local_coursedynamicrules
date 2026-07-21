@@ -45,7 +45,20 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
             $cmrecord = $DB->get_record('course_modules', ['id' => $cmid]);
-            $availability = json_decode($cmrecord->availability);
+            if (!$cmrecord) {
+                debugging('enableactivity: course module ' . $cmid . ' no longer exists; skipped', DEBUG_DEVELOPER);
+                continue;
+            }
+
+            $availability = $cmrecord->availability ? json_decode($cmrecord->availability) : null;
+
+            // The action only manages the user restriction it created at save time. If it is no longer
+            // present (a teacher cleared or replaced the module's restrictions) skip this module instead
+            // of raising a fatal error or corrupting a foreign availability condition.
+            if (!isset($availability->c[0]->type) || $availability->c[0]->type !== 'user') {
+                debugging('enableactivity: expected user restriction not found on cm ' . $cmid . '; skipped', DEBUG_DEVELOPER);
+                continue;
+            }
 
             $userids = $availability->c[0]->userids ?? [];
 
@@ -179,6 +192,9 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
             $cminfo = get_coursemodule_from_id(null, $cmid, $this->courseid);
+            if (!$cminfo) {
+                continue;
+            }
             $descriptionarray[] = ucfirst($cminfo->modname) . " - " . $cminfo->name;
         }
         return get_string(
@@ -200,6 +216,13 @@ class enableactivity_action extends action {
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
+
+            // If the module no longer exists there is nothing to restore; keep going so the rule
+            // stays deletable (set_coursemodule_visible() would otherwise fatal on a missing context).
+            if (!$DB->record_exists('course_modules', ['id' => $cmid])) {
+                continue;
+            }
+
             $initialvisible = $cm->visible;
             $initialvisibleoncoursepage = $cm->visibleoncoursepage;
 
