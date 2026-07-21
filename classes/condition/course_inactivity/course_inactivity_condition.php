@@ -125,6 +125,13 @@ class course_inactivity_condition extends condition {
         $courseid = $context->courseid;
         $userid = $context->userid;
 
+        // Guard against invalid stored data (e.g. legacy rules saved before validation existed):
+        // an interval of 0/non-numeric would raise a DivisionByZeroError and abort the whole task.
+        if (!$this->has_valid_intervals()) {
+            debugging('Invalid interval configuration in course_inactivity condition; condition skipped', DEBUG_DEVELOPER);
+            return false;
+        }
+
         $lastaccess = $this->get_user_last_access($courseid, $userid);
 
         $basedate = $this->get_basedate($courseid, $userid);
@@ -151,6 +158,59 @@ class course_inactivity_condition extends condition {
             'courseid' => $courseid,
             'userid' => $userid,
         ]);
+    }
+
+    /**
+     * Whether the stored interval configuration is valid for the current interval type.
+     *
+     * @return bool
+     */
+    private function has_valid_intervals() {
+        if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
+            return self::is_valid_custom_intervals($this->params->timeintervals);
+        }
+        if ($this->params->intervaltype == self::INTERVAL_RECURRING) {
+            return self::is_valid_recurring_interval($this->params->timeintervals);
+        }
+        return false;
+    }
+
+    /**
+     * Validate a recurring interval: a single positive integer.
+     *
+     * @param mixed $value The interval value.
+     * @return bool
+     */
+    public static function is_valid_recurring_interval($value) {
+        return ctype_digit((string) $value) && (int) $value >= 1;
+    }
+
+    /**
+     * Validate custom intervals: comma-separated positive integers in strict ascending order.
+     *
+     * @param mixed $value The comma-separated interval string.
+     * @return bool
+     */
+    public static function is_valid_custom_intervals($value) {
+        $value = (string) $value;
+        if ($value === '') {
+            return false;
+        }
+
+        $prev = 0;
+        foreach (explode(',', $value) as $token) {
+            $token = trim($token);
+            if (!ctype_digit($token) || (int) $token < 1) {
+                return false;
+            }
+            // Strict ascending order (also rejects duplicates).
+            if ((int) $token <= $prev) {
+                return false;
+            }
+            $prev = (int) $token;
+        }
+
+        return true;
     }
 
     /**
@@ -336,6 +396,13 @@ class course_inactivity_condition extends condition {
 
         $timeintervals = $formdata->intervaltype == self::INTERVAL_CUSTOM ?
             $formdata->customintervals : $formdata->recurringinterval;
+
+        $valid = $formdata->intervaltype == self::INTERVAL_CUSTOM
+            ? self::is_valid_custom_intervals($timeintervals)
+            : self::is_valid_recurring_interval($timeintervals);
+        if (!$valid) {
+            throw new \invalid_parameter_exception('Invalid interval configuration: expected positive integers');
+        }
 
         $params = [
             'intervaltype' => $formdata->intervaltype,
