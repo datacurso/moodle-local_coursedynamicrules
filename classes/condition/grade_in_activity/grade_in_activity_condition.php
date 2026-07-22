@@ -52,11 +52,6 @@ class grade_in_activity_condition extends condition {
         $cmid = $this->params->cmid;
         $gradeitemsconditions = $this->params->gradeitemsconditions;
 
-        // This is for evaluate the condition only for the course module obtained from event observer related data.
-        if (isset($context->cmid) && $context->cmid != $cmid) {
-            return false;
-        }
-
         $cminfo = get_coursemodule_from_id(null, $cmid, $courseid);
         if (!$cminfo || $cminfo->deletioninprogress) {
             return false;
