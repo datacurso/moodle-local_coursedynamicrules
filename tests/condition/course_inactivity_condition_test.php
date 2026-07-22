@@ -284,4 +284,90 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         // Verify the result.
         $this->assertEquals($expected, $result);
     }
+
+    /**
+     * Multiple enrolments with different start dates must not raise an exception.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_handles_multiple_enrolments(): void {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
+        $user = $this->getDataGenerator()->create_user();
+        $studentrole = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        // Two enrolments with DIFFERENT start dates (the case that currently throws).
+        $manual = enrol_get_plugin('manual');
+        $minstance = $DB->get_record('enrol', ['courseid' => $course->id, 'enrol' => 'manual'], '*', MUST_EXIST);
+        $manual->enrol_user($minstance, $user->id, $studentrole, $this->enrolltime);
+        $self = enrol_get_plugin('self');
+        $sinstanceid = $self->add_instance($course, ['status' => ENROL_INSTANCE_ENABLED, 'roleid' => $studentrole]);
+        $self->enrol_user($DB->get_record('enrol', ['id' => $sinstanceid], '*', MUST_EXIST),
+            $user->id, $studentrole, $this->enrolltime + (10 * DAYSECS));
+
+        $condition = $this->create_test_condition(
+            ['basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT, 'timeintervals' => '7'],
+            $this->currenttime
+        );
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertIsBool($result);
+    }
+
+    /**
+     * When the enrolment has timestart = 0 the base date must fall back to the enrolment creation
+     * time, not to the unix epoch.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_uses_timecreated_when_timestart_zero(): void {
+        global $DB;
+
+        $enroltime = strtotime('2025-01-10 08:00:00');
+
+        $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
+        $user = $this->getDataGenerator()->create_user();
+        $studentrole = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        // Enrol with timestart = 0, then pin timecreated to a known value.
+        $manual = enrol_get_plugin('manual');
+        $minstance = $DB->get_record('enrol', ['courseid' => $course->id, 'enrol' => 'manual'], '*', MUST_EXIST);
+        $manual->enrol_user($minstance, $user->id, $studentrole, 0);
+        $DB->set_field('user_enrolments', 'timecreated', $enroltime, ['userid' => $user->id]);
+
+        // Custom interval of 7 days from enrolment; evaluate one hour into the interval's window.
+        $currenttime = $enroltime + (7 * DAYSECS) + HOURSECS;
+        $condition = $this->create_test_condition(
+            [
+                'basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT,
+                'intervaltype' => course_inactivity_condition::INTERVAL_CUSTOM,
+                'timeintervals' => '7',
+                'intervalunit' => 'days',
+            ],
+            $currenttime
+        );
+
+        // User never accessed the course, so with a correct base date the condition must fire.
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertTrue($result);
+    }
+
+    /**
+     * A user with no enrolment must not raise an exception; the condition returns false.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_returns_false_without_enrolment(): void {
+        $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
+        $user = $this->getDataGenerator()->create_user();
+
+        $condition = $this->create_test_condition(
+            ['basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT],
+            $this->currenttime
+        );
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertFalse($result);
+    }
 }
