@@ -199,6 +199,7 @@ $string['passgrade'] = 'Activity completion with passing grade';
 $string['passgrade_condition_info'] = 'This condition will check which user has completed the selected activity module with a passing grade.';
 $string['passgrade_description'] = 'Users who have completed the course activity module \'{$a}\' with a passing grade';
 $string['period'] = 'Period';
+$string['privacy:metadata'] = 'The Course dynamic rules plugin does not store any personal data. It only stores course configuration (rules, conditions and actions).';
 $string['period_help'] = 'The minimum amount of time a user must go without accessing the course.';
 $string['plugin_disabled'] = 'This action requires the plugin <strong>{$a->pluginname}</strong> to be enabled. Please access to the <a href="{$a->enableurl}" target="_blank">{$a->enableurl}</a> page, search <strong>{$a->visiblename}</strong> and enable it.';
 $string['plugin_missing'] = 'This action requires the plugin <strong>{$a->pluginname}</strong> to be installed and enabled. Please download it from <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> and install it.';
