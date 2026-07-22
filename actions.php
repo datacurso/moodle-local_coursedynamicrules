@@ -51,7 +51,7 @@ $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
 
-if (!$DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid])) {
+if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid, $courseid)) {
     throw new moodle_exception('invalidruleid', 'local_coursedynamicrules');
 }
 

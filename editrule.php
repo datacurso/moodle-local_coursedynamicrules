@@ -43,15 +43,16 @@ $PAGE->set_url($url);
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 
-echo $OUTPUT->header();
-
 $rule = new stdClass();
 if ($ruleid) {
     $pagetitle = get_string('editrule', 'local_coursedynamicrules');
-    $rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid]);
+    // Ensure the rule belongs to this course before loading it (prevents cross-course access).
+    $rule = \local_coursedynamicrules\helper\ownership::get_rule($ruleid, $courseid);
 } else {
     $pagetitle = get_string('createrule', 'local_coursedynamicrules');
 }
+
+echo $OUTPUT->header();
 
 $PAGE->set_title($pagetitle);
 $PAGE->set_heading($pagetitle);
@@ -67,6 +68,8 @@ if ($ruleform->is_cancelled()) {
 } else if ($data = $ruleform->get_data()) {
     $data->timemodified = time();
     $data->active = $data->active ?? 0;
+    // Never trust the submitted course id: the rule always belongs to the current course.
+    $data->courseid = $courseid;
     if (empty($data->id)) {
         $data->timecreated = time();
         $DB->insert_record('local_coursedynamicrules_rule', $data);

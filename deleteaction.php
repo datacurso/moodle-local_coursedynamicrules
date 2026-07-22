@@ -53,7 +53,8 @@ $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
 
-$action = $DB->get_record('local_coursedynamicrules_action', ['id' => $id], '*', MUST_EXIST);
+// Ensure the action's rule belongs to this course before loading it.
+$action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid);
 
 $config = get_config('local_coursedynamicrules');
 
