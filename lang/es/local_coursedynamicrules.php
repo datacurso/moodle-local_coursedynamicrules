@@ -205,12 +205,12 @@ $string['passgrade_description'] = 'Usuarios que han completado el módulo de ac
 $string['period'] = 'Periodo';
 $string['period_help'] = 'La cantidad mínima de tiempo que un usuario debe pasar sin acceder al curso. Ingrese un número entero mayor que 0.';
 $string['plugin_disabled'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté habilitado. Acceda a la página <a href="{$a->enableurl}" target="_blank">{$a->enableurl}</a>, busque <strong>{$a->visiblename}</strong> y habilítelo.';
-$string['privacy:metadata'] = 'El plugin Reglas dinámicas de curso no almacena ningún dato personal. Solo almacena configuración del curso (reglas, condiciones y acciones).';
 $string['plugin_missing'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté instalado y habilitado. Descárguelo desde <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> e instálelo.';
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Este complemento no está disponible porque la licencia del producto ha caducado o no es válida. Vaya a <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> para renovarla o comprar una nueva.';
 $string['primaryrecipients'] = 'Destinatarios principales';
 $string['primaryrecipients_help'] = 'Selecciona los roles que recibirán la notificación principal cuando la condición se cumpla para un usuario de esos roles.';
+$string['privacy:metadata'] = 'El plugin Reglas dinámicas de curso no almacena ningún dato personal. Solo almacena configuración del curso (reglas, condiciones y acciones).';
 $string['provider_not_enabled_warning'] = 'Habilite las notificaciones con <strong>Datacurso Message Hub</strong> para que esta acción envíe notificaciones por WhatsApp y SMS utilizando proveedores como Twilio.
 Puede habilitarlo desde <a href="{$a}" target="_blank">Configuración de notificaciones</a> buscando <strong>Smart Rules AI notification</strong>.
 <br>
