@@ -58,7 +58,9 @@ class no_complete_activity_task extends \core\task\scheduled_task {
         );
 
         foreach ($rules as $rule) {
-            $users = enrol_get_course_users($rule->courseid);
+            // Deduplicated, active-only enrolled users (excludes suspended and deleted users, and
+            // collapses multiple enrolments of the same user so actions run once per user).
+            $users = get_enrolled_users(\context_course::instance($rule->courseid), '', 0, 'u.*', null, 0, 0, true);
             $ruleinstance = new rule($rule, $users);
             $conditions = $ruleinstance->get_conditions();
 
