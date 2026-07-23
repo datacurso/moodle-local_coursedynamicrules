@@ -135,7 +135,7 @@ class grade_in_activity_condition extends condition {
         $cmid = $this->params->cmid;
         $modinfo = get_fast_modinfo($courseid);
         $cms = $modinfo->get_cms();
-        $cminfo = $cms[$cmid];
+        $cminfo = $cms[$cmid] ?? null;
 
         if (!$cminfo) {
             return '';

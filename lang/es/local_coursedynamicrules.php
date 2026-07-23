@@ -127,6 +127,7 @@ $string['errorinvalidgradeitems'] = 'Los datos de las condiciones de calificaci�
 $string['errormaxgradeexceeded'] = 'La calificación no puede exceder la calificación máxima de la actividad.';
 $string['errornegativegrade'] = 'La calificación debe ser 0 o mayor.';
 $string['errornocoursemodule'] = 'Debe seleccionar una actividad de este curso.';
+$string['errornocoursestart'] = 'Este curso no tiene fecha de inicio, por lo que no se puede usar «desde el inicio del curso». Configure una fecha de inicio del curso o elija otra fecha base.';
 $string['errorperiodvalue'] = 'El período debe ser un número entero mayor que 0.';
 $string['errorrecurringinterval'] = 'El intervalo recurrente debe ser un número entero mayor que 0.';
 $string['errornogradeconditions'] = 'Habilite al menos una condición de calificación e ingrese un valor.';
@@ -203,8 +204,8 @@ $string['passgrade_condition_info'] = 'Esta condición comprobará qué usuario 
 $string['passgrade_description'] = 'Usuarios que han completado el módulo de actividad del curso "{$a}" con calificación aprobatoria';
 $string['period'] = 'Periodo';
 $string['period_help'] = 'La cantidad mínima de tiempo que un usuario debe pasar sin acceder al curso. Ingrese un número entero mayor que 0.';
-$string['privacy:metadata'] = 'El plugin Reglas dinámicas de curso no almacena ningún dato personal. Solo almacena configuración del curso (reglas, condiciones y acciones).';
 $string['plugin_disabled'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté habilitado. Acceda a la página <a href="{$a->enableurl}" target="_blank">{$a->enableurl}</a>, busque <strong>{$a->visiblename}</strong> y habilítelo.';
+$string['privacy:metadata'] = 'El plugin Reglas dinámicas de curso no almacena ningún dato personal. Solo almacena configuración del curso (reglas, condiciones y acciones).';
 $string['plugin_missing'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté instalado y habilitado. Descárguelo desde <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> e instálelo.';
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Este complemento no está disponible porque la licencia del producto ha caducado o no es válida. Vaya a <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> para renovarla o comprar una nueva.';

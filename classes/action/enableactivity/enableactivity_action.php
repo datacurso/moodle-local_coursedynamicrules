@@ -52,19 +52,21 @@ class enableactivity_action extends action {
 
             $availability = $cmrecord->availability ? json_decode($cmrecord->availability) : null;
 
-            // The action only manages the user restriction it created at save time. If it is no longer
-            // present (a teacher cleared or replaced the module's restrictions) skip this module instead
-            // of raising a fatal error or corrupting a foreign availability condition.
-            if (!isset($availability->c[0]->type) || $availability->c[0]->type !== 'user') {
+            // The action only manages the user restriction it created at save time. Locate it by type
+            // rather than by position: a teacher may add another restriction that shifts it off index 0.
+            // If it is no longer present (restrictions cleared or replaced) skip this module instead of
+            // raising a fatal error or corrupting a foreign availability condition.
+            $usercondition = $this->find_user_condition($availability);
+            if ($usercondition === null) {
                 debugging('enableactivity: expected user restriction not found on cm ' . $cmid . '; skipped', DEBUG_DEVELOPER);
                 continue;
             }
 
-            $userids = $availability->c[0]->userids ?? [];
+            $userids = $usercondition->userids ?? [];
 
             if (!in_array($userid, $userids)) {
                 $userids[] = $userid;
-                $availability->c[0]->userids = $userids;
+                $usercondition->userids = $userids;
 
                 $DB->set_field(
                     'course_modules',
@@ -76,6 +78,27 @@ class enableactivity_action extends action {
         }
 
         rebuild_course_cache($this->courseid, true);
+    }
+
+    /**
+     * Find the top-level user restriction node in a decoded availability tree.
+     *
+     * The returned node is the live object inside the tree, so mutating its properties updates the
+     * tree in place. Only the first level is searched, matching the flat tree the action creates.
+     *
+     * @param object|null $availability Decoded availability tree, or null.
+     * @return object|null The user condition node, or null if none is present.
+     */
+    private function find_user_condition($availability) {
+        if (!isset($availability->c) || !is_array($availability->c)) {
+            return null;
+        }
+        foreach ($availability->c as $condition) {
+            if (isset($condition->type) && $condition->type === 'user') {
+                return $condition;
+            }
+        }
+        return null;
     }
 
     /**

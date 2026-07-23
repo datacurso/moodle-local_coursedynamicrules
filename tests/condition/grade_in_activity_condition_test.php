@@ -238,6 +238,28 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * The description of a condition whose activity was deleted returns empty without a PHP warning.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_empty_when_activity_deleted(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $record = new stdClass();
+        $record->ruleid = 1;
+        $record->conditiontype = 'grade_in_activity';
+        $record->params = json_encode([
+            'cmid' => 999999,
+            'gradeitemsconditions' => [],
+        ]);
+        $condition = new grade_in_activity_condition($record, $course->id);
+
+        $this->assertSame('', $condition->get_description());
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
      * A user graded below the threshold satisfies the condition, without warnings.
      *
      * @covers ::evaluate

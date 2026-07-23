@@ -32,7 +32,11 @@
 - **Enrolment base date for course inactivity**
   The base date is resolved deterministically from the earliest effective enrolment start, so multiple enrolments no longer raise an exception and an unset start date no longer anchors intervals at the unix epoch.
 - **Enable activity action hardened against deleted or edited modules**
-  The action no longer fails fatally when a target module was deleted or its access restriction changed, and a rule referencing a deleted module can always be removed.
+  The action no longer fails fatally when a target module was deleted or its access restriction changed, it now locates its own user restriction by type instead of assuming it is the first restriction (so adding another restriction to the activity no longer stops it granting access), and a rule referencing a deleted module can always be removed.
+- **Grade event with a deleted grade no longer crashes the rule task**
+  Resolving the activity of a grade-triggered rule now returns nothing when the grade row no longer exists, so the rule is simply treated as not relevant instead of raising a fatal error the task cannot recover from.
+- **Inactivity "from course start" rejected on courses without a start date**
+  Configuring a course inactivity condition anchored to the course start date on a course that has no start date is now rejected on the form with a clear message, instead of being saved as a rule that silently never fires.
 
 ## Known limitations
 - **Repeated AI reinforcement activities on re-grading**

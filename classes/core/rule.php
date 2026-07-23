@@ -296,6 +296,8 @@ class rule {
             ]
         );
 
-        return $record->cmid;
+        // The grade row may have been deleted between the event dispatch and this run; degrade to
+        // null (handled as "not relevant") instead of dereferencing a false record.
+        return $record ? $record->cmid : null;
     }
 }

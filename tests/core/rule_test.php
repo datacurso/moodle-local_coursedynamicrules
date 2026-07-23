@@ -196,6 +196,30 @@ final class rule_test extends \advanced_testcase {
     }
 
     /**
+     * A grade event whose grade row no longer exists must not raise a PHP error.
+     *
+     * The grade row can be deleted between the event dispatch and the adhoc task run; resolving
+     * the cmid from a missing grade id must degrade to "not relevant" (rule does not fire) instead
+     * of dereferencing a false record and throwing an \Error the task cannot catch.
+     */
+    public function test_event_path_with_stale_gradeid_does_not_error(): void {
+        $this->resetAfterTest(true);
+        [$course, $student, $studentroleid] = $this->setup_course_student();
+        [$cm] = $this->create_completed_activity($course, $student->id);
+
+        $rule = $this->insert_rule($course->id, [
+            ['complete_activity', ['cmid' => $cm->id]],
+        ], $studentroleid);
+
+        // Event carries a grade id that does not resolve to any grade row.
+        $sink = $this->redirectMessages();
+        $ruleinstance = new rule($rule, [$student], self::EVENT_TYPES, ['gradeid' => 999999]);
+        $ruleinstance->execute();
+
+        $this->assertSame(0, $this->count_messages($sink, $student->id));
+    }
+
+    /**
      * An event on an unrelated activity must not fire a rule that does not reference it.
      */
     public function test_unrelated_event_does_not_fire(): void {

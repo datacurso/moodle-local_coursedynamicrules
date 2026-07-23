@@ -124,6 +124,13 @@ class course_inactivity_form extends condition_form {
             }
         }
 
+        // "From course start" cannot be anchored when the course has no start date: the rule would
+        // silently never fire. Reject it here so the user is told why instead of seeing nothing happen.
+        $basedatetype = $data['basedatetype'] ?? '';
+        if (!course_inactivity_condition::basedate_is_configurable($basedatetype, $this->courseid)) {
+            $errors['basedatetype'] = get_string('errornocoursestart', 'local_coursedynamicrules');
+        }
+
         return $errors;
     }
 }

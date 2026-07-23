@@ -101,6 +101,41 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * A "from course start" base date is not configurable when the course has no start date.
+     *
+     * @covers ::basedate_is_configurable
+     */
+    public function test_basedate_is_configurable_course_start_requires_startdate(): void {
+        global $DB;
+
+        $nostart = $this->getDataGenerator()->create_course()->id;
+        $DB->set_field('course', 'startdate', 0, ['id' => $nostart]);
+        $withstart = $this->getDataGenerator()->create_course(['startdate' => strtotime('2025-01-01')])->id;
+
+        $this->assertFalse(course_inactivity_condition::basedate_is_configurable(
+            course_inactivity_condition::DATE_FROM_COURSE_START, $nostart));
+        $this->assertTrue(course_inactivity_condition::basedate_is_configurable(
+            course_inactivity_condition::DATE_FROM_COURSE_START, $withstart));
+    }
+
+    /**
+     * Enrolment and now base dates are always configurable regardless of the course start date.
+     *
+     * @covers ::basedate_is_configurable
+     */
+    public function test_basedate_is_configurable_other_types_ignore_startdate(): void {
+        global $DB;
+
+        $nostart = $this->getDataGenerator()->create_course()->id;
+        $DB->set_field('course', 'startdate', 0, ['id' => $nostart]);
+
+        $this->assertTrue(course_inactivity_condition::basedate_is_configurable(
+            course_inactivity_condition::DATE_FROM_ENROLLMENT, $nostart));
+        $this->assertTrue(course_inactivity_condition::basedate_is_configurable(
+            course_inactivity_condition::DATE_FROM_NOW, $nostart));
+    }
+
+    /**
      * Test save_condition method.
      *
      * @covers ::save_condition

@@ -128,6 +128,7 @@ $string['errorinvalidgradeitems'] = 'The grade conditions data is invalid. Pleas
 $string['errormaxgradeexceeded'] = 'The grade cannot exceed the maximum grade for the activity.';
 $string['errornegativegrade'] = 'The grade must be 0 or greater.';
 $string['errornocoursemodule'] = 'You must select an activity from this course.';
+$string['errornocoursestart'] = 'This course has no start date, so "from course start" cannot be used. Set a course start date or choose a different base date.';
 $string['errorperiodvalue'] = 'The period must be a whole number greater than 0.';
 $string['errorrecurringinterval'] = 'The recurring interval must be a whole number greater than 0.';
 $string['errornogradeconditions'] = 'Enable at least one grade condition and enter a grade value.';
@@ -204,8 +205,8 @@ $string['passgrade_condition_info'] = 'This condition will check which user has 
 $string['passgrade_description'] = 'Users who have completed the course activity module \'{$a}\' with a passing grade';
 $string['period'] = 'Period';
 $string['period_help'] = 'The minimum amount of time a user must go without accessing the course. Enter a whole number greater than 0.';
-$string['privacy:metadata'] = 'The Course dynamic rules plugin does not store any personal data. It only stores course configuration (rules, conditions and actions).';
 $string['plugin_disabled'] = 'This action requires the plugin <strong>{$a->pluginname}</strong> to be enabled. Please access to the <a href="{$a->enableurl}" target="_blank">{$a->enableurl}</a> page, search <strong>{$a->visiblename}</strong> and enable it.';
+$string['privacy:metadata'] = 'The Course dynamic rules plugin does not store any personal data. It only stores course configuration (rules, conditions and actions).';
 $string['plugin_missing'] = 'This action requires the plugin <strong>{$a->pluginname}</strong> to be installed and enabled. Please download it from <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> and install it.';
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'This plugin is not available, because the product license has expired or is invalid. Please go to <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> to renew or purchase a new license.';

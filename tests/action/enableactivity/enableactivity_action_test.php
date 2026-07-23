@@ -81,6 +81,41 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * The user restriction is found and updated even when it is not the first condition.
+     *
+     * A teacher may add another restriction (e.g. a date restriction) that shifts the plugin's user
+     * restriction off index 0; the action must still locate it instead of silently skipping.
+     */
+    public function test_execute_finds_user_restriction_not_at_index_zero(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $user = $this->getDataGenerator()->create_user();
+
+        // A non-user restriction sits before the plugin's user restriction.
+        $tree = tree::get_root_json([
+            (object) ['type' => 'date', 'd' => '>=', 't' => 0],
+            (object) ['type' => 'user', 'userids' => []],
+        ], tree::OP_AND, false);
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $page->cmid]);
+
+        $action = $this->create_action(
+            [['id' => $page->cmid, 'visible' => 1, 'visibleoncoursepage' => 1]],
+            $course->id
+        );
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $availability = json_decode($DB->get_field('course_modules', 'availability', ['id' => $page->cmid]));
+        // The date restriction is untouched; the user is added to the user node.
+        $this->assertSame('date', $availability->c[0]->type);
+        $this->assertContains($user->id, $availability->c[1]->userids);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
      * A deleted module must be skipped without a fatal error, and later modules still processed.
      */
     public function test_execute_skips_deleted_module_and_continues(): void {

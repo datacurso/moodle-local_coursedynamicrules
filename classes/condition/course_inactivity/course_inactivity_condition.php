@@ -136,7 +136,10 @@ class course_inactivity_condition extends condition {
 
         $basedate = $this->get_basedate($courseid, $userid);
 
-        // Without a valid base date (e.g. the user has no enrolment) the intervals cannot be anchored.
+        // Without a valid base date the intervals cannot be anchored, so the condition cannot be met.
+        // This happens when the user has no enrolment (enrolment base date) or the course has no start
+        // date (course-start base date); the form now rejects the latter, but legacy rules may still
+        // carry it, so fail closed instead of anchoring intervals at the unix epoch.
         if (empty($basedate->timestart)) {
             return false;
         }
@@ -178,6 +181,25 @@ class course_inactivity_condition extends condition {
             return self::is_valid_recurring_interval($this->params->timeintervals);
         }
         return false;
+    }
+
+    /**
+     * Whether the chosen base date can be anchored for the given course at configuration time.
+     *
+     * "From course start" is only usable when the course has a start date; anchoring intervals at the
+     * unix epoch is meaningless, so such a condition would never fire. The other base dates (enrolment,
+     * now) do not depend on the course start date. This lets the form reject a configuration that would
+     * silently never fire instead of leaving the user with a rule that appears to do nothing.
+     *
+     * @param string $basedatetype One of the DATE_FROM_* constants.
+     * @param int $courseid Course id.
+     * @return bool True if the base date can be anchored for the course.
+     */
+    public static function basedate_is_configurable($basedatetype, $courseid) {
+        if ($basedatetype === self::DATE_FROM_COURSE_START) {
+            return !empty(get_course($courseid)->startdate);
+        }
+        return true;
     }
 
     /**
