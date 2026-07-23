@@ -46,7 +46,7 @@ $string['complete_activity_condition_info'] = 'Esta condición comprobará qué 
 $string['complete_activity_description'] = 'Usuarios que han completado el módulo de actividad del curso "{$a->moddescription}"';
 $string['completiondate'] = 'Fecha de finalización';
 $string['conditions'] = 'Condiciones';
-$string['conditions_help'] = 'Las condiciones se utilizan para definir los criterios que deben cumplirse para ejecutar las acciones de la regla';
+$string['conditions_help'] = 'Las condiciones definen los criterios que deben cumplirse para ejecutar las acciones de la regla. Todas las condiciones de una regla deben cumplirse (Y). Para ejecutar las acciones cuando se cumpla al menos uno de varios criterios (O), cree una regla separada por cada criterio con las mismas acciones.';
 $string['copiedtoclipboard'] = 'Copiado al portapapeles';
 $string['copyrecipients'] = 'Destinatarios en copia';
 $string['copyrecipients_help'] = 'Selecciona los roles que recibirán una copia informativa cuando la condición se cumpla para un destinatario principal.';
@@ -92,7 +92,7 @@ $string['createaiactivity_prompt_help'] = 'Escriba la instrucción que se enviar
 $string['createaiactivity_section'] = 'Sección del curso';
 $string['createrule'] = 'Crear regla';
 $string['customintervals'] = 'Intervalos personalizados';
-$string['customintervals_help'] = 'Ingrese números separados por comas que representen periodos de inactividad (p. ej., "7,14,30").';
+$string['customintervals_help'] = 'Ingrese números enteros mayores que 0 en orden ascendente, separados por comas (p. ej., "7,14,30"). Cada número es un punto de control de inactividad medido desde la fecha base.';
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'Desde la fecha de inicio del curso';
 $string['date_from_enrollment'] = 'Desde la fecha de matrícula';
@@ -198,7 +198,7 @@ $string['passgrade'] = 'Finalización de actividad con calificación aprobatoria
 $string['passgrade_condition_info'] = 'Esta condición comprobará qué usuario ha completado el módulo de actividad seleccionado con calificación aprobatoria.';
 $string['passgrade_description'] = 'Usuarios que han completado el módulo de actividad del curso "{$a}" con calificación aprobatoria';
 $string['period'] = 'Periodo';
-$string['period_help'] = 'La cantidad mínima de tiempo que un usuario debe pasar sin acceder al curso.';
+$string['period_help'] = 'La cantidad mínima de tiempo que un usuario debe pasar sin acceder al curso. Ingrese un número entero mayor que 0.';
 $string['plugin_disabled'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté habilitado. Acceda a la página <a href="{$a->enableurl}" target="_blank">{$a->enableurl}</a>, busque <strong>{$a->visiblename}</strong> y habilítelo.';
 $string['plugin_missing'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté instalado y habilitado. Descárguelo desde <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> e instálelo.';
 $string['pluginname'] = 'Smart Rules AI';
@@ -210,7 +210,7 @@ Puede habilitarlo desde <a href="{$a}" target="_blank">Configuración de notific
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Consulte la documentación para más información.</a>';
 $string['recurringinterval'] = 'Intervalo recurrente';
-$string['recurringinterval_help'] = 'Ingrese un valor numérico que represente un intervalo recurrente de inactividad (p. ej., "7" para cada 7 días de inactividad).';
+$string['recurringinterval_help'] = 'Ingrese un número entero mayor que 0 que represente un intervalo recurrente de inactividad (p. ej., "7" para cada 7 días de inactividad).';
 $string['rolestonotify'] = 'Roles a notificar';
 $string['rolestonotify_help'] = 'Seleccione los roles que el usuario debe tener para recibir la notificación. Debe seleccionar al menos uno.';
 $string['ruleactive'] = 'Activa';

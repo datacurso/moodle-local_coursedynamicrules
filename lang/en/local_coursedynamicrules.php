@@ -46,7 +46,7 @@ $string['complete_activity_condition_info'] = 'This condition will check which u
 $string['complete_activity_description'] = 'Users who have completed the course activity module \'{$a->moddescription}\'';
 $string['completiondate'] = 'Completion date';
 $string['conditions'] = 'Conditions';
-$string['conditions_help'] = 'Conditions are used to define the conditions that must be met for executing the rule actions';
+$string['conditions_help'] = 'Conditions define the criteria that must be met to run the actions of the rule. All conditions in a rule must be met (AND). To run the actions when at least one of several criteria is met (OR), create a separate rule for each criterion with the same actions.';
 $string['copiedtoclipboard'] = 'Copied to clipboard';
 $string['copyrecipients'] = 'Copy recipients';
 $string['copyrecipients_help'] = 'Select which roles receive an informational copy when the condition is met for a primary recipient.';
@@ -92,7 +92,7 @@ $string['createaiactivity_prompt_help'] = 'Write the instruction that will be se
 $string['createaiactivity_section'] = 'Course section';
 $string['createrule'] = 'Create Rule';
 $string['customintervals'] = 'Custom intervals';
-$string['customintervals_help'] = 'Enter comma-separated numbers representing inactivity periods (e.g., "7,14,30").';
+$string['customintervals_help'] = 'Enter whole numbers greater than 0 in ascending order, separated by commas (e.g., "7,14,30"). Each number is an inactivity checkpoint measured from the base date.';
 $string['datacurso'] = 'Datacurso';
 $string['datacurso_brand_alt'] = 'Datacurso logo';
 $string['date_from_course_start'] = 'From course start date';
@@ -199,7 +199,7 @@ $string['passgrade'] = 'Activity completion with passing grade';
 $string['passgrade_condition_info'] = 'This condition will check which user has completed the selected activity module with a passing grade.';
 $string['passgrade_description'] = 'Users who have completed the course activity module \'{$a}\' with a passing grade';
 $string['period'] = 'Period';
-$string['period_help'] = 'The minimum amount of time a user must go without accessing the course.';
+$string['period_help'] = 'The minimum amount of time a user must go without accessing the course. Enter a whole number greater than 0.';
 $string['plugin_disabled'] = 'This action requires the plugin <strong>{$a->pluginname}</strong> to be enabled. Please access to the <a href="{$a->enableurl}" target="_blank">{$a->enableurl}</a> page, search <strong>{$a->visiblename}</strong> and enable it.';
 $string['plugin_missing'] = 'This action requires the plugin <strong>{$a->pluginname}</strong> to be installed and enabled. Please download it from <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> and install it.';
 $string['pluginname'] = 'Smart Rules AI';
@@ -211,7 +211,7 @@ You can enable it from <a href="{$a}" target="_blank">Notification settings</a> 
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">See documentation for more information.</a>';
 $string['recurringinterval'] = 'Recurring interval';
-$string['recurringinterval_help'] = 'Enter an numeric value representing a recurring inactivity interval (e.g., "7" for every 7 days of inactivity).';
+$string['recurringinterval_help'] = 'Enter a whole number greater than 0 representing a recurring inactivity interval (e.g., "7" for every 7 days of inactivity).';
 $string['rolestonotify'] = 'Roles to notify';
 $string['rolestonotify_help'] = 'Select the roles the user must have to receive the notification. You must select at least one.';
 $string['ruleactive'] = 'Active';
