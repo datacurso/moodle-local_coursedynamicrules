@@ -136,6 +136,11 @@ class course_inactivity_condition extends condition {
 
         $basedate = $this->get_basedate($courseid, $userid);
 
+        // Without a valid base date (e.g. the user has no enrolment) the intervals cannot be anchored.
+        if (empty($basedate->timestart)) {
+            return false;
+        }
+
         if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
             return $this->check_inactivity_intervals($lastaccess, $basedate->timestart);
         } else if ($this->params->intervaltype == self::INTERVAL_RECURRING) {
@@ -214,22 +219,33 @@ class course_inactivity_condition extends condition {
     }
 
     /**
-     * Get user's enrollment details
+     * Get the base timestamp for a user's enrolment in a course.
+     *
+     * A user may have several enrolments (one per enrol method); the earliest effective start is
+     * used, so inactivity is measured from when the user first gained access. Each enrolment's
+     * effective start is its timestart, or its timecreated when timestart is unset (0).
+     *
      * @param int $userid User ID
      * @param int $courseid Course ID
-     * @return stdClass
+     * @return int|null Earliest effective enrolment start, or null if the user has no enrolment.
      */
-    private function get_user_enrollment($userid, $courseid) {
+    private function get_enrolment_basedate($userid, $courseid) {
         global $DB;
 
-        return $DB->get_record_sql(
-            "SELECT ue.timestart, ue.timecreated
+        $enrolments = $DB->get_records_sql(
+            "SELECT ue.id, ue.timestart, ue.timecreated
              FROM {user_enrolments} ue
              JOIN {enrol} e ON e.id = ue.enrolid
              WHERE ue.userid = :userid AND e.courseid = :courseid",
-            ['userid' => $userid, 'courseid' => $courseid],
-            MUST_EXIST
+            ['userid' => $userid, 'courseid' => $courseid]
         );
+
+        $starts = [];
+        foreach ($enrolments as $enrolment) {
+            $starts[] = $enrolment->timestart > 0 ? (int) $enrolment->timestart : (int) $enrolment->timecreated;
+        }
+
+        return $starts ? min($starts) : null;
     }
 
     /**
@@ -323,8 +339,7 @@ class course_inactivity_condition extends condition {
 
         switch ($basedatetype) {
             case self::DATE_FROM_ENROLLMENT:
-                $enrollment = $this->get_user_enrollment($userid, $courseid);
-                $basedate->timestart = $enrollment->timestart ?? $enrollment->timcreated;
+                $basedate->timestart = $this->get_enrolment_basedate($userid, $courseid);
                 break;
             case self::DATE_FROM_COURSE_START:
                 $course = get_course($courseid);

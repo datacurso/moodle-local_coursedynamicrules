@@ -20,7 +20,7 @@ use local_coursedynamicrules\condition\no_course_access\no_course_access_conditi
 use stdClass;
 
 /**
- * Tests for the no_course_access condition input validation.
+ * Tests for the no_course_access condition: input validation and "never accessed" semantics.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -43,6 +43,22 @@ final class no_course_access_condition_test extends \advanced_testcase {
         $record->params = json_encode($params);
 
         return new no_course_access_condition($record, $courseid);
+    }
+
+    /**
+     * Enrol a user with an explicit enrolment start time.
+     *
+     * @param int $courseid Course id.
+     * @param int $userid User id.
+     * @param int $timestart Enrolment start timestamp.
+     * @return void
+     */
+    private function enrol_at(int $courseid, int $userid, int $timestart): void {
+        global $DB;
+        $manual = enrol_get_plugin('manual');
+        $instance = $DB->get_record('enrol', ['courseid' => $courseid, 'enrol' => 'manual'], '*', MUST_EXIST);
+        $studentrole = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+        $manual->enrol_user($instance, $userid, $studentrole, $timestart);
     }
 
     /**
@@ -135,5 +151,67 @@ final class no_course_access_condition_test extends \advanced_testcase {
 
         $this->assertSame(30, $params->periodvalue);
         $this->assertSame('days', $params->periodunit);
+    }
+
+    /**
+     * A recently enrolled user who never accessed must NOT match before the period elapses.
+     *
+     * @covers ::evaluate
+     */
+    public function test_recent_enrolment_never_accessed_does_not_match(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user();
+        $this->enrol_at($course->id, $user->id, time() - (5 * DAYSECS)); // Enrolled 5 days ago.
+
+        $condition = $this->create_condition(
+            ['periodvalue' => '30', 'periodunit' => 'days', 'nexttimeperiod' => 0],
+            $course->id
+        );
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertFalse($result);
+    }
+
+    /**
+     * A long-enrolled user who never accessed must match once the period has elapsed.
+     *
+     * @covers ::evaluate
+     */
+    public function test_old_enrolment_never_accessed_matches(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user();
+        $this->enrol_at($course->id, $user->id, time() - (40 * DAYSECS)); // Enrolled 40 days ago.
+
+        $condition = $this->create_condition(
+            ['periodvalue' => '30', 'periodunit' => 'days', 'nexttimeperiod' => 0],
+            $course->id
+        );
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertTrue($result);
+    }
+
+    /**
+     * A user with no enrolment must not match (cannot measure the period).
+     *
+     * @covers ::evaluate
+     */
+    public function test_no_enrolment_does_not_match(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user(); // Not enrolled.
+
+        $condition = $this->create_condition(
+            ['periodvalue' => '30', 'periodunit' => 'days', 'nexttimeperiod' => 0],
+            $course->id
+        );
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertFalse($result);
     }
 }
