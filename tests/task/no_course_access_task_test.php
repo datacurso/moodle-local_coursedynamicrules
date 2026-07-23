@@ -83,6 +83,11 @@ final class no_course_access_task_test extends \advanced_testcase {
         $selfid = $self->add_instance($course, ['status' => ENROL_INSTANCE_ENABLED, 'roleid' => $studentroleid]);
         $self->enrol_user($DB->get_record('enrol', ['id' => $selfid], '*', MUST_EXIST), $student->id, $studentroleid);
 
+        // Last access was long ago so the no-access condition is genuinely met.
+        $DB->insert_record('user_lastaccess', (object) [
+            'userid' => $student->id, 'courseid' => $course->id, 'timeaccess' => time() - (40 * DAYSECS),
+        ]);
+
         $this->create_rule($course->id, $studentroleid);
 
         $sink = $this->redirectMessages();

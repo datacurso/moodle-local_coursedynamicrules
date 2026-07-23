@@ -151,11 +151,16 @@ final class rule_test extends \advanced_testcase {
      * On the event path a mixed rule fires when all conditions are met.
      */
     public function test_event_path_fires_when_all_met(): void {
+        global $DB;
+
         $this->resetAfterTest(true);
         [$course, $student, $studentroleid] = $this->setup_course_student();
         [$cm, $completionid] = $this->create_completed_activity($course, $student->id);
 
-        // Completion done (A true) and never accessed (no-access B true).
+        // Completion done (A true); last access was long ago so no-access (B) is also true.
+        $DB->insert_record('user_lastaccess', (object) [
+            'userid' => $student->id, 'courseid' => $course->id, 'timeaccess' => time() - (40 * DAYSECS),
+        ]);
         $rule = $this->insert_rule($course->id, [
             ['complete_activity', ['cmid' => $cm->id]],
             ['no_course_access', ['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]],
