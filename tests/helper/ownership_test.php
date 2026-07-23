@@ -126,4 +126,33 @@ final class ownership_test extends \advanced_testcase {
         $this->expectException(\dml_missing_record_exception::class);
         ownership::get_action($this->actionid, $this->courseb);
     }
+
+    /**
+     * A create (no submitted id) resolves to 0 so the caller inserts a new rule.
+     *
+     * @covers ::resolve_writable_ruleid
+     */
+    public function test_resolve_writable_ruleid_returns_zero_for_create(): void {
+        $this->assertSame(0, ownership::resolve_writable_ruleid(0, $this->coursea));
+        $this->assertSame(0, ownership::resolve_writable_ruleid('', $this->coursea));
+    }
+
+    /**
+     * An update targeting an owned rule resolves to that rule id.
+     *
+     * @covers ::resolve_writable_ruleid
+     */
+    public function test_resolve_writable_ruleid_returns_owned_id(): void {
+        $this->assertSame($this->ruleid, ownership::resolve_writable_ruleid($this->ruleid, $this->coursea));
+    }
+
+    /**
+     * An update targeting a foreign course's rule (tampered hidden id) is rejected.
+     *
+     * @covers ::resolve_writable_ruleid
+     */
+    public function test_resolve_writable_ruleid_rejects_foreign_course(): void {
+        $this->expectException(\dml_missing_record_exception::class);
+        ownership::resolve_writable_ruleid($this->ruleid, $this->courseb);
+    }
 }

@@ -56,6 +56,29 @@ class ownership {
     }
 
     /**
+     * Resolve the rule id a save operation is allowed to write to.
+     *
+     * The edit form carries the rule id in a client-controlled hidden field, so it must be
+     * re-checked against the course on submit: capability is granted for the requested course
+     * only, and the record write must target a rule that actually belongs to it. An empty id
+     * means a new rule is being created.
+     *
+     * @param int|string $submittedid Rule id submitted by the form (0/'' for a new rule).
+     * @param int $courseid Course id from the request.
+     * @return int 0 for a create, or the validated rule id for an update.
+     * @throws \dml_missing_record_exception If the submitted rule does not belong to the course.
+     */
+    public static function resolve_writable_ruleid($submittedid, $courseid) {
+        $submittedid = (int) $submittedid;
+        if (empty($submittedid)) {
+            return 0;
+        }
+        // Throws if the rule does not belong to this course (e.g. a tampered hidden id).
+        self::get_rule($submittedid, $courseid);
+        return $submittedid;
+    }
+
+    /**
      * Fetch a condition ensuring its rule belongs to the given course.
      *
      * @param int $conditionid Condition id.

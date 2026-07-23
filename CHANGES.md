@@ -6,7 +6,7 @@
 
 ## Security
 - **Cross-course access on rule management pages**
-  Rules, conditions and actions were loaded by id only while capabilities were checked against the requested course, allowing a user with management capability in one course to view, edit, delete or move another course's rules by tampering with the URL. A new ownership helper now confirms the object belongs to the requested course on the edit and delete pages, and the course id is forced when saving a rule.
+  Rules, conditions and actions were loaded by id only while capabilities were checked against the requested course, allowing a user with management capability in one course to view, edit, delete or move another course's rules by tampering with the URL or the edit form's hidden id. A new ownership helper now confirms the object belongs to the requested course on the edit and delete pages, the course id is forced when saving a rule, and the submitted rule id is re-validated against the course before an update so a tampered hidden id cannot overwrite or move another course's rule.
 
 ## Added
 - **Privacy provider**

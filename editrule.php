@@ -70,6 +70,9 @@ if ($ruleform->is_cancelled()) {
     $data->active = $data->active ?? 0;
     // Never trust the submitted course id: the rule always belongs to the current course.
     $data->courseid = $courseid;
+    // Never trust the submitted rule id either: a tampered hidden id must not update another
+    // course's rule. Re-validate the write target against the course (throws if foreign).
+    $data->id = \local_coursedynamicrules\helper\ownership::resolve_writable_ruleid($data->id ?? 0, $courseid);
     if (empty($data->id)) {
         $data->timecreated = time();
         $DB->insert_record('local_coursedynamicrules_rule', $data);
