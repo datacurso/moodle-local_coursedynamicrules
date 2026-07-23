@@ -151,4 +151,110 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
             $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition'));
         }
     }
+
+    /**
+     * Build a course with a graded quiz (automatic completion + require grade) and enrol a student.
+     *
+     * @return array [stdClass $course, cm_info-like $cm, int $gradeitemid, stdClass $student]
+     */
+    private function create_graded_quiz() {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $quiz = $this->getDataGenerator()->create_module('quiz', [
+            'course' => $course->id,
+            'grade' => 10,
+            'completion' => COMPLETION_TRACKING_AUTOMATIC,
+            'completionusegrade' => 1,
+        ]);
+        $cm = get_coursemodule_from_id('quiz', $quiz->cmid, $course->id, false, MUST_EXIST);
+        $gradeitem = \grade_item::fetch(['iteminstance' => $quiz->id, 'itemmodule' => 'quiz', 'itemtype' => 'mod']);
+        $student = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($student->id, $course->id);
+
+        return [$course, $cm, $gradeitem->id, $student];
+    }
+
+    /**
+     * Build a "grade less than" condition for the given cm / grade item.
+     *
+     * @param int $cmid Course module id.
+     * @param int $gradeitemid Grade item id.
+     * @param float $value Threshold.
+     * @param int $courseid Course id.
+     * @return grade_in_activity_condition
+     */
+    private function create_gradelt_condition($cmid, $gradeitemid, $value, $courseid) {
+        $record = new stdClass();
+        $record->ruleid = 1;
+        $record->conditiontype = 'grade_in_activity';
+        $record->params = json_encode([
+            'cmid' => $cmid,
+            'gradeitemsconditions' => [
+                'gradelt_' . $gradeitemid => ['gradeitem' => $gradeitemid, 'condition' => 'gradelt', 'value' => $value],
+            ],
+        ]);
+
+        return new grade_in_activity_condition($record, $courseid);
+    }
+
+    /**
+     * A user with no grade row must NOT satisfy a "grade less than" condition.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_false_when_user_has_no_grade(): void {
+        $this->resetAfterTest(true);
+
+        [$course, $cm, $gradeitemid, $student] = $this->create_graded_quiz();
+        $condition = $this->create_gradelt_condition($cm->id, $gradeitemid, 8, $course->id);
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $student->id]);
+
+        $this->assertFalse($result);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * A grade row with a null final grade must NOT satisfy a "grade less than" condition.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_false_when_finalgrade_is_null(): void {
+        $this->resetAfterTest(true);
+
+        [$course, $cm, $gradeitemid, $student] = $this->create_graded_quiz();
+
+        // Create an ungraded grade row (finalgrade null).
+        $gradeitem = \grade_item::fetch(['id' => $gradeitemid]);
+        $gradeitem->update_final_grade($student->id, null, 'gradebook');
+
+        $condition = $this->create_gradelt_condition($cm->id, $gradeitemid, 8, $course->id);
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $student->id]);
+
+        $this->assertFalse($result);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * A user graded below the threshold satisfies the condition, without warnings.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_true_when_grade_below_threshold(): void {
+        $this->resetAfterTest(true);
+
+        [$course, $cm, $gradeitemid, $student] = $this->create_graded_quiz();
+
+        $gradeitem = \grade_item::fetch(['id' => $gradeitemid]);
+        $gradeitem->update_final_grade($student->id, 5, 'gradebook');
+
+        $condition = $this->create_gradelt_condition($cm->id, $gradeitemid, 8, $course->id);
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $student->id]);
+
+        $this->assertTrue($result);
+        $this->assertDebuggingNotCalled();
+    }
 }

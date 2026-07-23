@@ -70,35 +70,46 @@ class grade_in_activity_condition extends condition {
         $allitemconditionsmet = true;
 
         /** @var grade_item[]  $gradeitems */
-        $gradeitems = grade_item::fetch_all(['iteminstance' => $cminfo->instance, 'itemmodule' => $cminfo->modname]);
+        $gradeitems = grade_item::fetch_all(['iteminstance' => $cminfo->instance, 'itemmodule' => $cminfo->modname]) ?: [];
 
         foreach ($gradeitems as $gradeitem) {
             $gradeitemid = $gradeitem->id;
 
+            // A missing grade row, or a row without a final grade, means the user has no grade for this
+            // item: an ungraded user must not satisfy any threshold (in particular "grade less than X").
             $grade = grade_grade::fetch(['itemid' => $gradeitem->id, 'userid' => $userid]);
-            $finalgrade = $grade->finalgrade;
+            $hasgrade = ($grade && $grade->finalgrade !== null);
+            $finalgrade = $hasgrade ? $grade->finalgrade : null;
 
             $gradegtekey = 'gradegte' . '_' . $gradeitemid;
-            $gradegte = $gradeitemsconditions->$gradegtekey;
+            $gradegte = $gradeitemsconditions->$gradegtekey ?? null;
 
             if ($gradegte) {
-                $gradegtebounded = $gradeitem->bounded_grade($gradegte->value);
-                if ($finalgrade >= $gradegtebounded) {
-                    $hasgraderequire = true;
-                } else {
+                if (!$hasgrade) {
                     $allitemconditionsmet = false;
+                } else {
+                    $gradegtebounded = $gradeitem->bounded_grade($gradegte->value);
+                    if ($finalgrade >= $gradegtebounded) {
+                        $hasgraderequire = true;
+                    } else {
+                        $allitemconditionsmet = false;
+                    }
                 }
             }
 
             $gradeltkey = 'gradelt' . '_' . $gradeitemid;
-            $gradelt = $gradeitemsconditions->$gradeltkey;
+            $gradelt = $gradeitemsconditions->$gradeltkey ?? null;
 
             if ($gradelt) {
-                $gradeltbounded = $gradeitem->bounded_grade($gradelt->value);
-                if ($finalgrade < $gradeltbounded) {
-                    $hasgraderequire = true;
-                } else {
+                if (!$hasgrade) {
                     $allitemconditionsmet = false;
+                } else {
+                    $gradeltbounded = $gradeitem->bounded_grade($gradelt->value);
+                    if ($finalgrade < $gradeltbounded) {
+                        $hasgraderequire = true;
+                    } else {
+                        $allitemconditionsmet = false;
+                    }
                 }
             }
 
