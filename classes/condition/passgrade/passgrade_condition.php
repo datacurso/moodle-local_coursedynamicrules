@@ -81,11 +81,6 @@ class passgrade_condition extends condition {
         $userid = $context->userid;
         $cmid = $this->params->cmid;
 
-        // This is for evaluate the condition only for the course module obtained from event observer related data.
-        if (isset($context->cmid) && $context->cmid != $cmid) {
-            return false;
-        }
-
         $modinfo = get_fast_modinfo($courseid, $userid);
         // Get in this form because the $modinfo->get_cm($cmid) throws an error if the activity module is not found.
         $cminfo = $modinfo->cms[$cmid] ?? null;
