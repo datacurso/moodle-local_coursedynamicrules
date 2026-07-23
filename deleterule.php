@@ -51,7 +51,8 @@ $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
 
-$rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $id], '*', MUST_EXIST);
+// Ensure the rule belongs to this course before loading it (prevents cross-course deletion).
+$rule = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
 
 $config = get_config('local_coursedynamicrules');
 
