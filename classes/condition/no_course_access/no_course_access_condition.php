@@ -93,9 +93,14 @@ class no_course_access_condition extends condition {
             'userid' => $userid,
         ]);
 
-        // If user has never accessed the course.
+        // If the user has never accessed the course, measure the period from their enrolment date
+        // rather than matching instantly (a freshly enrolled user is not yet "without access for N").
         if (!$lastaccess) {
-            return true;
+            $lastaccess = $this->get_enrolment_start($courseid, $userid);
+            if (!$lastaccess) {
+                // No enrolment: the period cannot be measured, so the condition is not met.
+                return false;
+            }
         }
 
         $now = time();
@@ -105,6 +110,35 @@ class no_course_access_condition extends condition {
 
         // If the user has not accessed the course in the last period.
         return $now >= $period;
+    }
+
+    /**
+     * Get the earliest effective enrolment start for a user in a course.
+     *
+     * A user may have several enrolments; the earliest effective start is used. Each enrolment's
+     * effective start is its timestart, or its timecreated when timestart is unset (0).
+     *
+     * @param int $courseid Course ID.
+     * @param int $userid User ID.
+     * @return int|null Earliest effective enrolment start, or null if the user has no enrolment.
+     */
+    private function get_enrolment_start($courseid, $userid) {
+        global $DB;
+
+        $enrolments = $DB->get_records_sql(
+            "SELECT ue.id, ue.timestart, ue.timecreated
+             FROM {user_enrolments} ue
+             JOIN {enrol} e ON e.id = ue.enrolid
+             WHERE ue.userid = :userid AND e.courseid = :courseid",
+            ['userid' => $userid, 'courseid' => $courseid]
+        );
+
+        $starts = [];
+        foreach ($enrolments as $enrolment) {
+            $starts[] = $enrolment->timestart > 0 ? (int) $enrolment->timestart : (int) $enrolment->timecreated;
+        }
+
+        return $starts ? min($starts) : null;
     }
 
     /**
