@@ -88,6 +88,13 @@ class no_course_access_condition extends condition {
         $periodvalue = $this->params->periodvalue;
         $periodunit = $this->params->periodunit;
 
+        // Guard against invalid stored data (e.g. legacy rules saved before validation existed):
+        // an empty/non-positive period would make strtotime() return false and match every user.
+        if (!self::is_valid_period($periodvalue)) {
+            debugging('Invalid period value in no_course_access condition; condition skipped', DEBUG_DEVELOPER);
+            return false;
+        }
+
         $lastaccess = $DB->get_field('user_lastaccess', 'timeaccess', [
             'courseid' => $courseid,
             'userid' => $userid,
@@ -117,9 +124,13 @@ class no_course_access_condition extends condition {
         $periodvalue = $formdata->periodvalue;
         $periodunit = $formdata->periodunit;
 
+        if (!self::is_valid_period($periodvalue)) {
+            throw new \invalid_parameter_exception('Invalid period value: expected a positive integer');
+        }
+
         $params = [
-            'periodvalue' => $periodvalue,
-            'periodunit' => $periodunit,
+            'periodvalue' => (int) $periodvalue,
+            'periodunit' => clean_param($periodunit, PARAM_ALPHA),
             'nexttimeperiod' => time(),
         ];
 
@@ -131,6 +142,16 @@ class no_course_access_condition extends condition {
         $this->set_data($condition);
 
         $DB->insert_record('local_coursedynamicrules_condition', $condition);
+    }
+
+    /**
+     * Validate that a period value is a positive integer.
+     *
+     * @param mixed $value The period value to validate.
+     * @return bool True if the value is a whole number greater than zero.
+     */
+    private static function is_valid_period($value) {
+        return ctype_digit((string) $value) && (int) $value >= 1;
     }
 
     /**
