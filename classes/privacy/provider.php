@@ -14,28 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_coursedynamicrules\privacy;
+
 /**
- * Event observers for Smart Rules AI
+ * Privacy provider for local_coursedynamicrules.
+ *
+ * The plugin stores no personal data in its own tables: rules, conditions and actions hold course
+ * configuration only (course ids, module ids, role ids, prompts). User-linked side effects
+ * (messages, adhoc tasks, activity availability) live in core subsystems that declare their own
+ * privacy metadata.
  *
  * @package    local_coursedynamicrules
- * @category   event
- * @copyright  2024 Industria Elearning <info@industriaelearning.com>
+ * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-defined('MOODLE_INTERNAL') || die();
-
-$observers = [
-    [
-        'eventname' => '\core\event\course_module_completion_updated',
-        'callback' => '\local_coursedynamicrules\observer\course_module_completion_updated::observe',
-    ],
-    [
-        'eventname' => '\core\event\user_graded',
-        'callback' => '\local_coursedynamicrules\observer\user_graded::observe',
-    ],
-    [
-        'eventname' => '\core\event\course_deleted',
-        'callback' => '\local_coursedynamicrules\observer\course_deleted::observe',
-    ],
-];
+class provider implements \core_privacy\local\metadata\null_provider {
+    /**
+     * Reason why this plugin stores no personal data.
+     *
+     * @return string
+     */
+    public static function get_reason(): string {
+        return 'privacy:metadata';
+    }
+}

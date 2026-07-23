@@ -14,28 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_coursedynamicrules\privacy;
+
 /**
- * Event observers for Smart Rules AI
+ * Tests for the privacy provider.
  *
  * @package    local_coursedynamicrules
- * @category   event
- * @copyright  2024 Industria Elearning <info@industriaelearning.com>
+ * @category   test
+ * @covers     \local_coursedynamicrules\privacy\provider
+ * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+final class provider_test extends \advanced_testcase {
+    /**
+     * The plugin stores no personal data, so it must declare a null provider with a real reason string.
+     */
+    public function test_provider_declares_no_personal_data(): void {
+        $this->assertInstanceOf(
+            \core_privacy\local\metadata\null_provider::class,
+            new provider()
+        );
 
-defined('MOODLE_INTERNAL') || die();
-
-$observers = [
-    [
-        'eventname' => '\core\event\course_module_completion_updated',
-        'callback' => '\local_coursedynamicrules\observer\course_module_completion_updated::observe',
-    ],
-    [
-        'eventname' => '\core\event\user_graded',
-        'callback' => '\local_coursedynamicrules\observer\user_graded::observe',
-    ],
-    [
-        'eventname' => '\core\event\course_deleted',
-        'callback' => '\local_coursedynamicrules\observer\course_deleted::observe',
-    ],
-];
+        $reason = provider::get_reason();
+        $this->assertIsString($reason);
+        $this->assertNotEmpty(get_string($reason, 'local_coursedynamicrules'));
+    }
+}

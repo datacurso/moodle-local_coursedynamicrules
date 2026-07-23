@@ -202,6 +202,7 @@ $string['passgrade'] = 'Finalización de actividad con calificación aprobatoria
 $string['passgrade_condition_info'] = 'Esta condición comprobará qué usuario ha completado el módulo de actividad seleccionado con calificación aprobatoria.';
 $string['passgrade_description'] = 'Usuarios que han completado el módulo de actividad del curso "{$a}" con calificación aprobatoria';
 $string['period'] = 'Periodo';
+$string['privacy:metadata'] = 'El plugin Reglas dinámicas de curso no almacena ningún dato personal. Solo almacena configuración del curso (reglas, condiciones y acciones).';
 $string['period_help'] = 'La cantidad mínima de tiempo que un usuario debe pasar sin acceder al curso.';
 $string['plugin_disabled'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté habilitado. Acceda a la página <a href="{$a->enableurl}" target="_blank">{$a->enableurl}</a>, busque <strong>{$a->visiblename}</strong> y habilítelo.';
 $string['plugin_missing'] = 'Esta acción requiere que el complemento <strong>{$a->pluginname}</strong> esté instalado y habilitado. Descárguelo desde <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> e instálelo.';
