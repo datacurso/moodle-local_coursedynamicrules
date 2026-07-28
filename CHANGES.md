@@ -1,6 +1,6 @@
 ## 1.7.0
 
-**Released on:** 2026-07-23
+**Released on:** 2026-07-28
 
 **Compatibility note:** This version is compatible with **Moodle 4.5**.
 
