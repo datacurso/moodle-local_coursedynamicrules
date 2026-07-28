@@ -89,6 +89,69 @@ class behat_local_coursedynamicrules extends behat_base {
     }
 
     /**
+     * Create rules with a create AI activity action carrying the given prompt.
+     *
+     * @Given /^the following local coursedynamicrules AI activity actions exist:$/
+     * @param TableNode $table Table data with columns: course, prompt.
+     */
+    public function the_following_local_coursedynamicrules_ai_activity_actions_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
+                'courseid' => $course->id,
+                'name' => 'Behat AI activity rule',
+                'description' => 'Behat generated rule',
+                'active' => 1,
+                'lastexecutiontime' => null,
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+
+            $DB->insert_record('local_coursedynamicrules_action', (object) [
+                'ruleid' => $ruleid,
+                'actiontype' => 'createaiactivity',
+                'params' => json_encode([
+                    'message' => $row['prompt'],
+                    'generateimages' => false,
+                    'sectionnum' => 0,
+                    'beforemod' => null,
+                ]),
+                'lastexecutiontime' => null,
+            ]);
+        }
+    }
+
+    /**
+     * Visit the delete confirmation page for the most recent action in a course.
+     *
+     * @When /^I visit the coursedynamicrules delete page for the latest action in course "(?P<shortname>[^"]*)"$/
+     * @param string $shortname Course shortname.
+     */
+    public function i_visit_the_coursedynamicrules_delete_page_for_the_latest_action_in_course(string $shortname): void {
+        global $DB;
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $action = $DB->get_record_sql(
+            "SELECT a.id, a.ruleid
+               FROM {local_coursedynamicrules_action} a
+               JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
+              WHERE r.courseid = :courseid
+           ORDER BY a.id DESC",
+            ['courseid' => $course->id],
+            IGNORE_MULTIPLE
+        );
+
+        $url = new moodle_url('/local/coursedynamicrules/deleteaction.php', [
+            'id' => $action->id,
+            'courseid' => $course->id,
+            'ruleid' => $action->ruleid,
+        ]);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
+    }
+
+    /**
      * Set users last access timestamps per course.
      *
      * @Given /^the following users last accessed courses:$/

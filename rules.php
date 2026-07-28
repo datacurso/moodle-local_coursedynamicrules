@@ -23,6 +23,7 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -77,17 +78,11 @@ foreach ($rules as $rule) {
             get_string('addconditions', 'local_coursedynamicrules')
         );
     } else {
-        $conditionstext = '';
-        foreach ($conditions as $condition) {
-            $conditioninstance = rule_component_loader::create_condition_instance($condition, $courseid);
-
-            $header = $conditioninstance->get_header();
-            $description = $conditioninstance->get_description();
-
-            if (!empty($header) && !empty($description)) {
-                $conditionstext .= '<p>' . $conditioninstance->get_description() . '</p>';
-            }
-        }
+        $conditioninstances = array_map(
+            fn($condition) => rule_component_loader::create_condition_instance($condition, $courseid),
+            $conditions
+        );
+        $conditionstext = component_renderer::descriptions_html($conditioninstances);
         $editlink = html_writer::link(
             $conditionsurl,
             $OUTPUT->pix_icon('t/edit', get_string('editconditions', 'local_coursedynamicrules'))
@@ -101,17 +96,11 @@ foreach ($rules as $rule) {
             get_string('addactions', 'local_coursedynamicrules')
         );
     } else {
-        $actionstext = '';
-        foreach ($actions as $action) {
-            $actioninstance = rule_component_loader::create_action_instance($action, $courseid);
-
-            $header = $actioninstance->get_header();
-            $description = $actioninstance->get_description();
-
-            if (!empty($header) && !empty($description)) {
-                $actionstext .= '<p>' . $actioninstance->get_description() . '</p>';
-            }
-        }
+        $actioninstances = array_map(
+            fn($action) => rule_component_loader::create_action_instance($action, $courseid),
+            $actions
+        );
+        $actionstext = component_renderer::descriptions_html($actioninstances);
         $editlink = html_writer::link(
             $actionsurl,
             $OUTPUT->pix_icon('t/edit', get_string('editactions', 'local_coursedynamicrules'))

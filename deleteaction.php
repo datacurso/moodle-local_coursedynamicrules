@@ -23,6 +23,7 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -59,7 +60,7 @@ $action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid)
 $config = get_config('local_coursedynamicrules');
 
 $actioninstance = rule_component_loader::create_action_instance($action, $courseid);
-$description = $actioninstance->get_description();
+$description = component_renderer::escaped_description($actioninstance);
 
 if ($delete === md5($config->confirmdeleteaction)) {
     require_sesskey();
