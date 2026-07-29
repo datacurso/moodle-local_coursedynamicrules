@@ -16,6 +16,8 @@
 
 namespace local_coursedynamicrules\privacy;
 
+use core_privacy\local\metadata\collection;
+
 /**
  * Tests for the privacy provider.
  *
@@ -27,16 +29,27 @@ namespace local_coursedynamicrules\privacy;
  */
 final class provider_test extends \advanced_testcase {
     /**
-     * The plugin stores no personal data, so it must declare a null provider with a real reason string.
+     * The plugin declares the external transfer of course data to the Datacurso AI service.
      */
-    public function test_provider_declares_no_personal_data(): void {
-        $this->assertInstanceOf(
-            \core_privacy\local\metadata\null_provider::class,
-            new provider()
-        );
+    public function test_get_metadata_declares_external_ai_transfer(): void {
+        $collection = new collection('local_coursedynamicrules');
 
-        $reason = provider::get_reason();
-        $this->assertIsString($reason);
-        $this->assertNotEmpty(get_string($reason, 'local_coursedynamicrules'));
+        $result = provider::get_metadata($collection);
+
+        $this->assertInstanceOf(collection::class, $result);
+
+        $items = $result->get_collection();
+        $this->assertNotEmpty($items);
+
+        $names = array_map(fn($item) => $item->get_name(), $items);
+        $this->assertContains('datacurso_ai', $names);
+
+        // Every declared field and summary must resolve to a real language string.
+        foreach ($items as $item) {
+            $this->assertNotEmpty(get_string($item->get_summary(), 'local_coursedynamicrules'));
+            foreach ($item->get_privacy_fields() as $field => $identifier) {
+                $this->assertNotEmpty(get_string($identifier, 'local_coursedynamicrules'));
+            }
+        }
     }
 }
