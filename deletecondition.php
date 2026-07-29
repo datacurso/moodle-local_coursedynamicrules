@@ -100,7 +100,7 @@ $continuebutton = new single_button(
     $continueurl,
     get_string('delete'),
     'post',
-    false,
+    single_button::BUTTON_SECONDARY,
     ['data-action' => 'delete']
 );
 echo $OUTPUT->confirm($message, $continuebutton, $conditionsurl);
