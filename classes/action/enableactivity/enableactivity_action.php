@@ -45,13 +45,28 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
             $cmrecord = $DB->get_record('course_modules', ['id' => $cmid]);
-            $availability = json_decode($cmrecord->availability);
+            if (!$cmrecord) {
+                debugging('enableactivity: course module ' . $cmid . ' no longer exists; skipped', DEBUG_DEVELOPER);
+                continue;
+            }
 
-            $userids = $availability->c[0]->userids ?? [];
+            $availability = $cmrecord->availability ? json_decode($cmrecord->availability) : null;
+
+            // The action only manages the user restriction it created at save time. Locate it by type
+            // rather than by position: a teacher may add another restriction that shifts it off index 0.
+            // If it is no longer present (restrictions cleared or replaced) skip this module instead of
+            // raising a fatal error or corrupting a foreign availability condition.
+            $usercondition = $this->find_user_condition($availability);
+            if ($usercondition === null) {
+                debugging('enableactivity: expected user restriction not found on cm ' . $cmid . '; skipped', DEBUG_DEVELOPER);
+                continue;
+            }
+
+            $userids = $usercondition->userids ?? [];
 
             if (!in_array($userid, $userids)) {
                 $userids[] = $userid;
-                $availability->c[0]->userids = $userids;
+                $usercondition->userids = $userids;
 
                 $DB->set_field(
                     'course_modules',
@@ -63,6 +78,27 @@ class enableactivity_action extends action {
         }
 
         rebuild_course_cache($this->courseid, true);
+    }
+
+    /**
+     * Find the top-level user restriction node in a decoded availability tree.
+     *
+     * The returned node is the live object inside the tree, so mutating its properties updates the
+     * tree in place. Only the first level is searched, matching the flat tree the action creates.
+     *
+     * @param object|null $availability Decoded availability tree, or null.
+     * @return object|null The user condition node, or null if none is present.
+     */
+    private function find_user_condition($availability) {
+        if (!isset($availability->c) || !is_array($availability->c)) {
+            return null;
+        }
+        foreach ($availability->c as $condition) {
+            if (isset($condition->type) && $condition->type === 'user') {
+                return $condition;
+            }
+        }
+        return null;
     }
 
     /**
@@ -179,6 +215,9 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
             $cminfo = get_coursemodule_from_id(null, $cmid, $this->courseid);
+            if (!$cminfo) {
+                continue;
+            }
             $descriptionarray[] = ucfirst($cminfo->modname) . " - " . $cminfo->name;
         }
         return get_string(
@@ -200,6 +239,13 @@ class enableactivity_action extends action {
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
+
+            // If the module no longer exists there is nothing to restore; keep going so the rule
+            // stays deletable (set_coursemodule_visible() would otherwise fatal on a missing context).
+            if (!$DB->record_exists('course_modules', ['id' => $cmid])) {
+                continue;
+            }
+
             $initialvisible = $cm->visible;
             $initialvisibleoncoursepage = $cm->visibleoncoursepage;
 

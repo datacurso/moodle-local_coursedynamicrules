@@ -76,10 +76,12 @@ class course_inactivity_form extends condition_form {
         $mform->addHelpButton('intervaltype', 'intervaltype', $pluginname);
 
         $mform->addElement('text', 'customintervals', get_string('customintervals', $pluginname));
+        $mform->setType('customintervals', PARAM_RAW);
         $mform->addHelpButton('customintervals', 'customintervals', $pluginname);
          $mform->hideIf('customintervals', 'intervaltype', 'neq', self::INTERVAL_CUSTOM);
 
          $mform->addElement('text', 'recurringinterval', get_string('recurringinterval', $pluginname));
+         $mform->setType('recurringinterval', PARAM_RAW);
          $mform->addHelpButton('recurringinterval', 'recurringinterval', $pluginname);
          $mform->hideIf('recurringinterval', 'intervaltype', 'neq', self::INTERVAL_RECURRING);
 
@@ -99,5 +101,36 @@ class course_inactivity_form extends condition_form {
         $mform->addHelpButton('basedatetype', 'basedate', $pluginname);
 
         parent::definition();
+    }
+
+    /**
+     * Server side validation of the interval configuration.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        $intervaltype = $data['intervaltype'] ?? '';
+        if ($intervaltype === self::INTERVAL_RECURRING) {
+            if (!course_inactivity_condition::is_valid_recurring_interval($data['recurringinterval'] ?? '')) {
+                $errors['recurringinterval'] = get_string('errorrecurringinterval', 'local_coursedynamicrules');
+            }
+        } else if ($intervaltype === self::INTERVAL_CUSTOM) {
+            if (!course_inactivity_condition::is_valid_custom_intervals($data['customintervals'] ?? '')) {
+                $errors['customintervals'] = get_string('errorcustomintervals', 'local_coursedynamicrules');
+            }
+        }
+
+        // "From course start" cannot be anchored when the course has no start date: the rule would
+        // silently never fire. Reject it here so the user is told why instead of seeing nothing happen.
+        $basedatetype = $data['basedatetype'] ?? '';
+        if (!course_inactivity_condition::basedate_is_configurable($basedatetype, $this->courseid)) {
+            $errors['basedatetype'] = get_string('errornocoursestart', 'local_coursedynamicrules');
+        }
+
+        return $errors;
     }
 }

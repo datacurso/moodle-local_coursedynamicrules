@@ -88,14 +88,26 @@ class no_course_access_condition extends condition {
         $periodvalue = $this->params->periodvalue;
         $periodunit = $this->params->periodunit;
 
+        // Guard against invalid stored data (e.g. legacy rules saved before validation existed):
+        // an empty/non-positive period would make strtotime() return false and match every user.
+        if (!self::is_valid_period($periodvalue)) {
+            debugging('Invalid period value in no_course_access condition; condition skipped', DEBUG_DEVELOPER);
+            return false;
+        }
+
         $lastaccess = $DB->get_field('user_lastaccess', 'timeaccess', [
             'courseid' => $courseid,
             'userid' => $userid,
         ]);
 
-        // If user has never accessed the course.
+        // If the user has never accessed the course, measure the period from their enrolment date
+        // rather than matching instantly (a freshly enrolled user is not yet "without access for N").
         if (!$lastaccess) {
-            return true;
+            $lastaccess = $this->get_enrolment_start($courseid, $userid);
+            if (!$lastaccess) {
+                // No enrolment: the period cannot be measured, so the condition is not met.
+                return false;
+            }
         }
 
         $now = time();
@@ -108,6 +120,35 @@ class no_course_access_condition extends condition {
     }
 
     /**
+     * Get the earliest effective enrolment start for a user in a course.
+     *
+     * A user may have several enrolments; the earliest effective start is used. Each enrolment's
+     * effective start is its timestart, or its timecreated when timestart is unset (0).
+     *
+     * @param int $courseid Course ID.
+     * @param int $userid User ID.
+     * @return int|null Earliest effective enrolment start, or null if the user has no enrolment.
+     */
+    private function get_enrolment_start($courseid, $userid) {
+        global $DB;
+
+        $enrolments = $DB->get_records_sql(
+            "SELECT ue.id, ue.timestart, ue.timecreated
+             FROM {user_enrolments} ue
+             JOIN {enrol} e ON e.id = ue.enrolid
+             WHERE ue.userid = :userid AND e.courseid = :courseid",
+            ['userid' => $userid, 'courseid' => $courseid]
+        );
+
+        $starts = [];
+        foreach ($enrolments as $enrolment) {
+            $starts[] = $enrolment->timestart > 0 ? (int) $enrolment->timestart : (int) $enrolment->timecreated;
+        }
+
+        return $starts ? min($starts) : null;
+    }
+
+    /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
      */
@@ -117,9 +158,13 @@ class no_course_access_condition extends condition {
         $periodvalue = $formdata->periodvalue;
         $periodunit = $formdata->periodunit;
 
+        if (!self::is_valid_period($periodvalue)) {
+            throw new \invalid_parameter_exception('Invalid period value: expected a positive integer');
+        }
+
         $params = [
-            'periodvalue' => $periodvalue,
-            'periodunit' => $periodunit,
+            'periodvalue' => (int) $periodvalue,
+            'periodunit' => clean_param($periodunit, PARAM_ALPHA),
             'nexttimeperiod' => time(),
         ];
 
@@ -131,6 +176,16 @@ class no_course_access_condition extends condition {
         $this->set_data($condition);
 
         $DB->insert_record('local_coursedynamicrules_condition', $condition);
+    }
+
+    /**
+     * Validate that a period value is a positive integer.
+     *
+     * @param mixed $value The period value to validate.
+     * @return bool True if the value is a whole number greater than zero.
+     */
+    private static function is_valid_period($value) {
+        return ctype_digit((string) $value) && (int) $value >= 1;
     }
 
     /**

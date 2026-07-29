@@ -237,4 +237,46 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
 
         $this->assertFalse($result, 'Condition must not fire when the course module is being deleted.');
     }
+
+    /**
+     * A missing course module must be rejected at save time, never persisted as cmid 0.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_rejects_missing_coursemodule(): void {
+        global $DB;
+
+        $record = (object) ['ruleid' => 1, 'conditiontype' => 'no_complete_activity', 'params' => json_encode([])];
+        $condition = new no_complete_activity_condition($record, 1);
+
+        $formdata = (object) ['ruleid' => 1, 'coursemodule' => 0, 'expectedcompletiondate' => $this->futuredate];
+
+        try {
+            $condition->save_condition($formdata);
+            $this->fail('Expected invalid_parameter_exception for missing course module');
+        } catch (\invalid_parameter_exception $e) {
+            $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition'));
+        }
+    }
+
+    /**
+     * A stale cmid must not raise warnings in the description; it returns an empty string.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_empty_without_warning_for_stale_cmid(): void {
+        $course = $this->getDataGenerator()->create_course();
+
+        $record = (object) [
+            'ruleid' => 1,
+            'conditiontype' => 'no_complete_activity',
+            'params' => json_encode(['cmid' => 999999, 'expectedcompletiondate' => $this->futuredate]),
+        ];
+        $condition = new no_complete_activity_condition($record, $course->id);
+
+        $description = $condition->get_description();
+
+        $this->assertSame('', $description);
+        $this->assertDebuggingNotCalled();
+    }
 }

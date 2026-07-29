@@ -34,4 +34,8 @@ $observers = [
         'eventname' => '\core\event\user_graded',
         'callback' => '\local_coursedynamicrules\observer\user_graded::observe',
     ],
+    [
+        'eventname' => '\core\event\course_deleted',
+        'callback' => '\local_coursedynamicrules\observer\course_deleted::observe',
+    ],
 ];

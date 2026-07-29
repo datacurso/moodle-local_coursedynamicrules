@@ -54,9 +54,28 @@ class no_course_access_form extends condition_form {
         ]);
 
         $mform->addGroup($periodgroup, 'period_group', get_string('period', 'local_coursedynamicrules'), '', false);
+        $mform->setType('periodvalue', PARAM_RAW);
 
         $mform->addHelpButton('period_group', 'period', 'local_coursedynamicrules');
 
         parent::definition();
+    }
+
+    /**
+     * Server side validation: the period must be a positive integer.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        $periodvalue = $data['periodvalue'] ?? '';
+        if (!ctype_digit((string) $periodvalue) || (int) $periodvalue < 1) {
+            $errors['period_group'] = get_string('errorperiodvalue', 'local_coursedynamicrules');
+        }
+
+        return $errors;
     }
 }

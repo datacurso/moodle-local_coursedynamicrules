@@ -125,9 +125,24 @@ class course_inactivity_condition extends condition {
         $courseid = $context->courseid;
         $userid = $context->userid;
 
+        // Guard against invalid stored data (e.g. legacy rules saved before validation existed):
+        // an interval of 0/non-numeric would raise a DivisionByZeroError and abort the whole task.
+        if (!$this->has_valid_intervals()) {
+            debugging('Invalid interval configuration in course_inactivity condition; condition skipped', DEBUG_DEVELOPER);
+            return false;
+        }
+
         $lastaccess = $this->get_user_last_access($courseid, $userid);
 
         $basedate = $this->get_basedate($courseid, $userid);
+
+        // Without a valid base date the intervals cannot be anchored, so the condition cannot be met.
+        // This happens when the user has no enrolment (enrolment base date) or the course has no start
+        // date (course-start base date); the form now rejects the latter, but legacy rules may still
+        // carry it, so fail closed instead of anchoring intervals at the unix epoch.
+        if (empty($basedate->timestart)) {
+            return false;
+        }
 
         if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
             return $this->check_inactivity_intervals($lastaccess, $basedate->timestart);
@@ -154,22 +169,105 @@ class course_inactivity_condition extends condition {
     }
 
     /**
-     * Get user's enrollment details
+     * Whether the stored interval configuration is valid for the current interval type.
+     *
+     * @return bool
+     */
+    private function has_valid_intervals() {
+        if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
+            return self::is_valid_custom_intervals($this->params->timeintervals);
+        }
+        if ($this->params->intervaltype == self::INTERVAL_RECURRING) {
+            return self::is_valid_recurring_interval($this->params->timeintervals);
+        }
+        return false;
+    }
+
+    /**
+     * Whether the chosen base date can be anchored for the given course at configuration time.
+     *
+     * "From course start" is only usable when the course has a start date; anchoring intervals at the
+     * unix epoch is meaningless, so such a condition would never fire. The other base dates (enrolment,
+     * now) do not depend on the course start date. This lets the form reject a configuration that would
+     * silently never fire instead of leaving the user with a rule that appears to do nothing.
+     *
+     * @param string $basedatetype One of the DATE_FROM_* constants.
+     * @param int $courseid Course id.
+     * @return bool True if the base date can be anchored for the course.
+     */
+    public static function basedate_is_configurable($basedatetype, $courseid) {
+        if ($basedatetype === self::DATE_FROM_COURSE_START) {
+            return !empty(get_course($courseid)->startdate);
+        }
+        return true;
+    }
+
+    /**
+     * Validate a recurring interval: a single positive integer.
+     *
+     * @param mixed $value The interval value.
+     * @return bool
+     */
+    public static function is_valid_recurring_interval($value) {
+        return ctype_digit((string) $value) && (int) $value >= 1;
+    }
+
+    /**
+     * Validate custom intervals: comma-separated positive integers in strict ascending order.
+     *
+     * @param mixed $value The comma-separated interval string.
+     * @return bool
+     */
+    public static function is_valid_custom_intervals($value) {
+        $value = (string) $value;
+        if ($value === '') {
+            return false;
+        }
+
+        $prev = 0;
+        foreach (explode(',', $value) as $token) {
+            $token = trim($token);
+            if (!ctype_digit($token) || (int) $token < 1) {
+                return false;
+            }
+            // Strict ascending order (also rejects duplicates).
+            if ((int) $token <= $prev) {
+                return false;
+            }
+            $prev = (int) $token;
+        }
+
+        return true;
+    }
+
+    /**
+     * Get the base timestamp for a user's enrolment in a course.
+     *
+     * A user may have several enrolments (one per enrol method); the earliest effective start is
+     * used, so inactivity is measured from when the user first gained access. Each enrolment's
+     * effective start is its timestart, or its timecreated when timestart is unset (0).
+     *
      * @param int $userid User ID
      * @param int $courseid Course ID
-     * @return stdClass
+     * @return int|null Earliest effective enrolment start, or null if the user has no enrolment.
      */
-    private function get_user_enrollment($userid, $courseid) {
+    private function get_enrolment_basedate($userid, $courseid) {
         global $DB;
 
-        return $DB->get_record_sql(
-            "SELECT ue.timestart, ue.timecreated
+        $enrolments = $DB->get_records_sql(
+            "SELECT ue.id, ue.timestart, ue.timecreated
              FROM {user_enrolments} ue
              JOIN {enrol} e ON e.id = ue.enrolid
              WHERE ue.userid = :userid AND e.courseid = :courseid",
-            ['userid' => $userid, 'courseid' => $courseid],
-            MUST_EXIST
+            ['userid' => $userid, 'courseid' => $courseid]
         );
+
+        $starts = [];
+        foreach ($enrolments as $enrolment) {
+            $starts[] = $enrolment->timestart > 0 ? (int) $enrolment->timestart : (int) $enrolment->timecreated;
+        }
+
+        return $starts ? min($starts) : null;
     }
 
     /**
@@ -263,8 +361,7 @@ class course_inactivity_condition extends condition {
 
         switch ($basedatetype) {
             case self::DATE_FROM_ENROLLMENT:
-                $enrollment = $this->get_user_enrollment($userid, $courseid);
-                $basedate->timestart = $enrollment->timestart ?? $enrollment->timcreated;
+                $basedate->timestart = $this->get_enrolment_basedate($userid, $courseid);
                 break;
             case self::DATE_FROM_COURSE_START:
                 $course = get_course($courseid);
@@ -336,6 +433,13 @@ class course_inactivity_condition extends condition {
 
         $timeintervals = $formdata->intervaltype == self::INTERVAL_CUSTOM ?
             $formdata->customintervals : $formdata->recurringinterval;
+
+        $valid = $formdata->intervaltype == self::INTERVAL_CUSTOM
+            ? self::is_valid_custom_intervals($timeintervals)
+            : self::is_valid_recurring_interval($timeintervals);
+        if (!$valid) {
+            throw new \invalid_parameter_exception('Invalid interval configuration: expected positive integers');
+        }
 
         $params = [
             'intervaltype' => $formdata->intervaltype,

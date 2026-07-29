@@ -23,6 +23,7 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -53,14 +54,15 @@ $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
 
-$action = $DB->get_record('local_coursedynamicrules_action', ['id' => $id], '*', MUST_EXIST);
+// Ensure the action's rule belongs to this course before loading it.
+$action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid);
 
 $config = get_config('local_coursedynamicrules');
 
 $actioninstance = rule_component_loader::create_action_instance($action, $courseid);
-$description = $actioninstance->get_description();
+$description = component_renderer::escaped_description($actioninstance);
 
-if ($delete === md5($config->confirmdeleteaction)) {
+if ($delete === md5($config->confirmdeleteaction ?? '')) {
     require_sesskey();
 
     // Delete action.
@@ -98,7 +100,7 @@ $continuebutton = new single_button(
     $continueurl,
     get_string('delete'),
     'post',
-    false,
+    single_button::BUTTON_SECONDARY,
     ['data-action' => 'delete']
 );
 echo $OUTPUT->confirm($message, $continuebutton, $actionsurl);

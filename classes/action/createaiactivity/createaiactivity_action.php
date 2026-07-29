@@ -203,7 +203,29 @@ class createaiactivity_action extends action {
             'prompt' => $shortprompt,
         ];
 
-        return get_string('createaiactivity_description', 'local_coursedynamicrules', $data);
+        $description = get_string('createaiactivity_description', 'local_coursedynamicrules', $data);
+
+        $generateimages = !empty($this->params->generateimages) ? get_string('yes') : get_string('no');
+        $description .= ' ' . get_string(
+            'createaiactivity_description_generateimages',
+            'local_coursedynamicrules',
+            $generateimages
+        );
+
+        $beforemod = !empty($this->params->beforemod) ? (int) $this->params->beforemod : null;
+        if ($beforemod) {
+            $modinfo = get_fast_modinfo($course);
+            $cm = $modinfo->cms[$beforemod] ?? null;
+            if ($cm) {
+                $description .= ' ' . get_string(
+                    'createaiactivity_description_beforemod',
+                    'local_coursedynamicrules',
+                    $cm->name
+                );
+            }
+        }
+
+        return $description;
     }
 
     /**

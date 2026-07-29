@@ -57,7 +57,7 @@ class passgrade_form extends condition_form {
 
         $attributes = [
             'multiple' => false,
-            'noselectionstring' => get_string('allcourseactivitymodules', 'local_coursedynamicrules'),
+            'noselectionstring' => get_string('selectanactivity', 'local_coursedynamicrules'),
         ];
         $mform->addElement(
             'autocomplete',
@@ -72,5 +72,23 @@ class passgrade_form extends condition_form {
         $mform->setType('coursemodule', PARAM_INT);
 
         parent::definition();
+    }
+
+    /**
+     * Server side validation: an activity of this course must be selected.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        $cmid = (int) ($data['coursemodule'] ?? 0);
+        if ($cmid <= 0 || !isset(get_fast_modinfo($this->courseid)->cms[$cmid])) {
+            $errors['coursemodule'] = get_string('errornocoursemodule', 'local_coursedynamicrules');
+        }
+
+        return $errors;
     }
 }

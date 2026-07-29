@@ -1,3 +1,51 @@
+## 1.7.0
+
+**Released on:** 2026-07-28
+
+**Compatibility note:** This version is compatible with **Moodle 4.5**.
+
+## Security
+- **Cross-course access on rule management pages**
+  Rules, conditions and actions were loaded by id only while capabilities were checked against the requested course, allowing a user with management capability in one course to view, edit, delete or move another course's rules by tampering with the URL or the edit form's hidden id. A new ownership helper now confirms the object belongs to the requested course on the edit and delete pages, the course id is forced when saving a rule, and the submitted rule id is re-validated against the course before an update so a tampered hidden id cannot overwrite or move another course's rule.
+- **Stored XSS in configurable rule descriptions**
+  Rule, condition and action descriptions embed user-configurable text (such as the notification subject and body, the AI activity prompt, and role or activity names) and were rendered without escaping on the rules list and the delete confirmation pages, allowing stored HTML or JavaScript to execute in another user's browser. A new component renderer escapes every description at the rendering boundary before it reaches the page.
+
+## Added
+- **Privacy provider**
+  Added a null privacy provider declaring that the plugin stores no personal data.
+- **Course deletion cleanup**
+  Deleting a course now removes its rules, conditions and actions instead of leaving orphaned rows.
+
+## Changed
+- **"No course access" measured from enrolment for users who never accessed**
+  A user who has never accessed the course is now considered inactive only after the configured period has elapsed since their enrolment, instead of matching immediately.
+- **All rule conditions are evaluated on every trigger**
+  A rule's conditions are always assessed together as an AND regardless of which trigger fired, so a mixed rule no longer fires when only the event-related condition is met, and a rule spanning two activities can now be satisfied. A relevance check prevents a rule from firing on unrelated events.
+- **Clearer condition and interval help text**
+  The help now explains that all conditions in a rule are combined with AND (and that OR is modelled with separate rules), and states the expected format for the period and interval fields.
+
+## Fixed
+- **Invalid condition inputs were accepted**
+  The inactivity period, the custom and recurring intervals, and the selected activity are now validated on the form and rejected on save, and evaluation guards against invalid stored data (avoiding a division-by-zero that could abort the scheduled task and a period that matched every user).
+- **Ungraded users matched a "grade less than" condition**
+  A missing or null grade is no longer treated as satisfying a grade threshold.
+- **Duplicate and inappropriate recipients in scheduled tasks**
+  Course users are now selected deduplicated and active-only, so a user enrolled by several methods is actioned once and suspended or deleted users are excluded.
+- **Enrolment base date for course inactivity**
+  The base date is resolved deterministically from the earliest effective enrolment start, so multiple enrolments no longer raise an exception and an unset start date no longer anchors intervals at the unix epoch.
+- **Enable activity action hardened against deleted or edited modules**
+  The action no longer fails fatally when a target module was deleted or its access restriction changed, it now locates its own user restriction by type instead of assuming it is the first restriction (so adding another restriction to the activity no longer stops it granting access), and a rule referencing a deleted module can always be removed.
+- **Grade event with a deleted grade no longer crashes the rule task**
+  Resolving the activity of a grade-triggered rule now returns nothing when the grade row no longer exists, so the rule is simply treated as not relevant instead of raising a fatal error the task cannot recover from.
+- **Inactivity "from course start" rejected on courses without a start date**
+  Configuring a course inactivity condition anchored to the course start date on a course that has no start date is now rejected on the form with a clear message, instead of being saved as a rule that silently never fires.
+
+## Known limitations
+- **Repeated AI reinforcement activities on re-grading**
+  Re-grading a student who already meets a rule's conditions can create an additional AI reinforcement activity, because the create-AI-activity action is not yet idempotent. Idempotency is planned for a future release.
+
+---
+
 ## 1.6.3
 
 **Released on:** 2026-05-08
