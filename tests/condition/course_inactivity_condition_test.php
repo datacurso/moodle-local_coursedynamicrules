@@ -112,10 +112,18 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $DB->set_field('course', 'startdate', 0, ['id' => $nostart]);
         $withstart = $this->getDataGenerator()->create_course(['startdate' => strtotime('2025-01-01')])->id;
 
-        $this->assertFalse(course_inactivity_condition::basedate_is_configurable(
-            course_inactivity_condition::DATE_FROM_COURSE_START, $nostart));
-        $this->assertTrue(course_inactivity_condition::basedate_is_configurable(
-            course_inactivity_condition::DATE_FROM_COURSE_START, $withstart));
+        $this->assertFalse(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_COURSE_START,
+                $nostart
+            )
+        );
+        $this->assertTrue(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_COURSE_START,
+                $withstart
+            )
+        );
     }
 
     /**
@@ -129,10 +137,18 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $nostart = $this->getDataGenerator()->create_course()->id;
         $DB->set_field('course', 'startdate', 0, ['id' => $nostart]);
 
-        $this->assertTrue(course_inactivity_condition::basedate_is_configurable(
-            course_inactivity_condition::DATE_FROM_ENROLLMENT, $nostart));
-        $this->assertTrue(course_inactivity_condition::basedate_is_configurable(
-            course_inactivity_condition::DATE_FROM_NOW, $nostart));
+        $this->assertTrue(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_ENROLLMENT,
+                $nostart
+            )
+        );
+        $this->assertTrue(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_NOW,
+                $nostart
+            )
+        );
     }
 
     /**
@@ -480,8 +496,12 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $manual->enrol_user($minstance, $user->id, $studentrole, $this->enrolltime);
         $self = enrol_get_plugin('self');
         $sinstanceid = $self->add_instance($course, ['status' => ENROL_INSTANCE_ENABLED, 'roleid' => $studentrole]);
-        $self->enrol_user($DB->get_record('enrol', ['id' => $sinstanceid], '*', MUST_EXIST),
-            $user->id, $studentrole, $this->enrolltime + (10 * DAYSECS));
+        $self->enrol_user(
+            $DB->get_record('enrol', ['id' => $sinstanceid], '*', MUST_EXIST),
+            $user->id,
+            $studentrole,
+            $this->enrolltime + (10 * DAYSECS)
+        );
 
         $condition = $this->create_test_condition(
             ['basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT, 'timeintervals' => '7'],

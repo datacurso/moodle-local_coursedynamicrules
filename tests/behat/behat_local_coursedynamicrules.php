@@ -113,7 +113,7 @@ class behat_local_coursedynamicrules extends behat_base {
                 'ruleid' => $ruleid,
                 'actiontype' => 'createaiactivity',
                 'params' => json_encode([
-                    'message' => $row['prompt'],
+                    'message' => html_entity_decode($row['prompt'], ENT_QUOTES | ENT_HTML5),
                     'generateimages' => false,
                     'sectionnum' => 0,
                     'beforemod' => null,

@@ -38,8 +38,7 @@ class ownership {
      */
     public static function get_rule($ruleid, $courseid) {
         global $DB;
-        return $DB->get_record('local_coursedynamicrules_rule',
-            ['id' => $ruleid, 'courseid' => $courseid], '*', MUST_EXIST);
+        return $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid, 'courseid' => $courseid], '*', MUST_EXIST);
     }
 
     /**
@@ -51,8 +50,7 @@ class ownership {
      */
     public static function rule_belongs_to_course($ruleid, $courseid) {
         global $DB;
-        return $DB->record_exists('local_coursedynamicrules_rule',
-            ['id' => $ruleid, 'courseid' => $courseid]);
+        return $DB->record_exists('local_coursedynamicrules_rule', ['id' => $ruleid, 'courseid' => $courseid]);
     }
 
     /**
@@ -93,7 +91,9 @@ class ownership {
                FROM {local_coursedynamicrules_condition} c
                JOIN {local_coursedynamicrules_rule} r ON r.id = c.ruleid
               WHERE c.id = :id AND r.courseid = :courseid",
-            ['id' => $conditionid, 'courseid' => $courseid], MUST_EXIST);
+            ['id' => $conditionid, 'courseid' => $courseid],
+            MUST_EXIST
+        );
     }
 
     /**
@@ -111,6 +111,8 @@ class ownership {
                FROM {local_coursedynamicrules_action} a
                JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
               WHERE a.id = :id AND r.courseid = :courseid",
-            ['id' => $actionid, 'courseid' => $courseid], MUST_EXIST);
+            ['id' => $actionid, 'courseid' => $courseid],
+            MUST_EXIST
+        );
     }
 }

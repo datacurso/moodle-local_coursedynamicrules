@@ -136,6 +136,8 @@ final class component_renderer_test extends \advanced_testcase {
             private $description;
 
             /**
+             * Store the header and description for the stub component.
+             *
              * @param string $header Header value.
              * @param string $description Description value.
              */
@@ -145,6 +147,8 @@ final class component_renderer_test extends \advanced_testcase {
             }
 
             /**
+             * Return the stub header.
+             *
              * @return string
              */
             public function get_header(): string {
@@ -152,6 +156,8 @@ final class component_renderer_test extends \advanced_testcase {
             }
 
             /**
+             * Return the stub description.
+             *
              * @return string
              */
             public function get_description(): string {

@@ -72,6 +72,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * A rule is returned when it belongs to the requested course.
+     *
      * @covers ::get_rule
      */
     public function test_get_rule_returns_owned_rule(): void {
@@ -80,6 +82,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * Loading a rule that belongs to another course is rejected.
+     *
      * @covers ::get_rule
      */
     public function test_get_rule_rejects_foreign_course(): void {
@@ -88,6 +92,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * Reports whether a rule belongs to the given course.
+     *
      * @covers ::rule_belongs_to_course
      */
     public function test_rule_belongs_to_course(): void {
@@ -96,6 +102,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * A condition is returned when its rule belongs to the course.
+     *
      * @covers ::get_condition
      */
     public function test_get_condition_returns_owned(): void {
@@ -104,6 +112,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * Loading a condition whose rule belongs to another course is rejected.
+     *
      * @covers ::get_condition
      */
     public function test_get_condition_rejects_foreign_course(): void {
@@ -112,6 +122,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * An action is returned when its rule belongs to the course.
+     *
      * @covers ::get_action
      */
     public function test_get_action_returns_owned(): void {
@@ -120,6 +132,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * Loading an action whose rule belongs to another course is rejected.
+     *
      * @covers ::get_action
      */
     public function test_get_action_rejects_foreign_course(): void {
