@@ -69,7 +69,9 @@ class course_inactivity_task extends \core\task\scheduled_task {
             }
 
             $completion = new \completion_info(get_course($rule->courseid));
-            $users = enrol_get_course_users($rule->courseid, true);
+            // Deduplicated, active-only enrolled users (excludes suspended and deleted users, and
+            // collapses multiple enrolments of the same user so actions run once per user).
+            $users = get_enrolled_users(\context_course::instance($rule->courseid), '', 0, 'u.*', null, 0, 0, true);
             $userswithoutcompletion = array_filter($users, function ($user) use ($completion) {
                 return !$completion->is_course_complete($user->id);
             });

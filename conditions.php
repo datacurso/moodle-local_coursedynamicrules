@@ -22,8 +22,6 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// TODO Refactor this file.
-
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\rule_component_loader;
 
@@ -50,7 +48,7 @@ $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 echo $OUTPUT->header();
 
-if (!$DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid])) {
+if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid, $courseid)) {
     throw new moodle_exception('invalidruleid', 'local_coursedynamicrules');
 }
 
@@ -103,7 +101,11 @@ if (!empty($type)) {
     if ($conditioninstance->is_cancelled()) {
         redirect($url);
     } else if ($data = $conditioninstance->get_data()) {
-        $conditioninstance->save_condition($data);
+        $conditionid = $conditioninstance->save_condition($data);
+        \local_coursedynamicrules\event\condition_created::create([
+            'context' => $context,
+            'objectid' => $conditionid,
+        ])->trigger();
         redirect($url);
     } else {
         $conditioninstance->show_editform();

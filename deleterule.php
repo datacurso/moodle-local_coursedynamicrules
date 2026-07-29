@@ -51,11 +51,12 @@ $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
 
-$rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $id], '*', MUST_EXIST);
+// Ensure the rule belongs to this course before loading it (prevents cross-course deletion).
+$rule = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
 
 $config = get_config('local_coursedynamicrules');
 
-if ($delete === md5($config->confirmdeleterule)) {
+if ($delete === md5($config->confirmdeleterule ?? '')) {
     require_sesskey();
 
     // Delete rule.
@@ -94,7 +95,7 @@ $continuebutton = new single_button(
     $continueurl,
     get_string('delete'),
     'post',
-    false,
+    single_button::BUTTON_SECONDARY,
     ['data-action' => 'delete']
 );
 echo $OUTPUT->confirm($message, $continuebutton, $rulesurl);

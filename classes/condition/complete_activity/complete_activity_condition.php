@@ -90,14 +90,9 @@ class complete_activity_condition extends condition {
         $userid = $context->userid;
         $cmid = $this->params->cmid;
 
-        // This is for evaluate the condition only for the course module obtained from event observer related data.
-        if (isset($context->cmid) && $context->cmid != $cmid) {
-            return false;
-        }
-
         $modinfo = get_fast_modinfo($courseid, $userid);
         // Get in this form because the $modinfo->get_cm($cmid) throws an error if the activity module is not found.
-        $cminfo = $modinfo->cms[$cmid];
+        $cminfo = $modinfo->cms[$cmid] ?? null;
         if (!$cminfo || $cminfo->deletioninprogress) {
             return false;
         }
@@ -123,8 +118,12 @@ class complete_activity_condition extends condition {
      */
     public function save_condition($formdata) {
         global $DB;
+        $cmid = clean_param($formdata->coursemodule ?? 0, PARAM_INT);
+        if ($cmid <= 0) {
+            throw new \invalid_parameter_exception('A course module must be selected');
+        }
         $params = [
-            'cmid' => $formdata->coursemodule,
+            'cmid' => $cmid,
         ];
 
         $condition = new stdClass();
@@ -134,7 +133,7 @@ class complete_activity_condition extends condition {
 
         $this->set_data($condition);
 
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        return $DB->insert_record('local_coursedynamicrules_condition', $condition);
     }
 
     /**
@@ -156,7 +155,7 @@ class complete_activity_condition extends condition {
         $cmid = $this->params->cmid;
         $modinfo = get_fast_modinfo($courseid);
         $cms = $modinfo->get_cms();
-        $cminfo = $cms[$cmid];
+        $cminfo = $cms[$cmid] ?? null;
 
         if (!$cminfo) {
             return '';

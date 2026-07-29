@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\task_batch;
 
 /**
  * Class no_complete_activity_task
@@ -46,6 +47,9 @@ class no_complete_activity_task extends \core\task\scheduled_task {
     public function execute() {
         global $DB;
 
+        $starttime = microtime(true);
+        $batchsize = task_batch::size();
+
         $rules = $DB->get_records_sql(
             "SELECT DISTINCT r.*
             FROM
@@ -57,15 +61,40 @@ class no_complete_activity_task extends \core\task\scheduled_task {
             ['conditiontype' => $this->conditiontype]
         );
 
+        $executed = 0;
+        $totalusers = 0;
+
         foreach ($rules as $rule) {
-            $users = enrol_get_course_users($rule->courseid);
+            // Deduplicated, active-only enrolled users (excludes suspended and deleted users, and
+            // collapses multiple enrolments of the same user so actions run once per user).
+            $users = get_enrolled_users(\context_course::instance($rule->courseid), '', 0, 'u.*', null, 0, 0, true);
+            $usercount = count($users);
+            $totalusers += $usercount;
+
+            if ($usercount > $batchsize) {
+                mtrace("local_coursedynamicrules: course {$rule->courseid} has {$usercount} enrolled users "
+                    . "(over batch threshold {$batchsize}) while evaluating rule {$rule->id}.");
+            }
+
             $ruleinstance = new rule($rule, $users);
             $conditions = $ruleinstance->get_conditions();
 
             if ($this->is_time_to_execute_rule($ruleinstance) && !empty($conditions)) {
                 $ruleinstance->execute();
                 $ruleinstance->set_active(false);
+                $executed++;
             }
+        }
+
+        if (!empty($rules)) {
+            mtrace(sprintf(
+                'local_coursedynamicrules: %s evaluated %d active rules and %d users, executed %d, in %.2fs.',
+                $this->conditiontype,
+                count($rules),
+                $totalusers,
+                $executed,
+                microtime(true) - $starttime
+            ));
         }
     }
 

@@ -170,7 +170,20 @@ abstract class condition {
     public function delete() {
         global $DB;
 
-        return $DB->delete_records('local_coursedynamicrules_condition', ['id' => $this->id]);
+        $record = $DB->get_record('local_coursedynamicrules_condition', ['id' => $this->id]);
+
+        $result = $DB->delete_records('local_coursedynamicrules_condition', ['id' => $this->id]);
+
+        $event = \local_coursedynamicrules\event\condition_deleted::create([
+            'context' => \context_course::instance($this->courseid),
+            'objectid' => $this->id,
+        ]);
+        if ($record) {
+            $event->add_record_snapshot('local_coursedynamicrules_condition', $record);
+        }
+        $event->trigger();
+
+        return $result;
     }
 
     /**
@@ -229,6 +242,7 @@ abstract class condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     abstract public function save_condition($formdata);
 }

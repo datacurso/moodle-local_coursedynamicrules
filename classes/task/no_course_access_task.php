@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\task_batch;
 
 /**
  * Class no_course_access_task
@@ -47,6 +48,8 @@ class no_course_access_task extends \core\task\scheduled_task {
         global $DB;
 
         $conditiontype = $this->conditiontype;
+        $starttime = microtime(true);
+        $batchsize = task_batch::size();
 
         // Retrieve all active rules with the specified condition type.
         $rules = $DB->get_records_sql(
@@ -60,14 +63,39 @@ class no_course_access_task extends \core\task\scheduled_task {
             ['conditiontype' => $conditiontype]
         );
 
+        $executed = 0;
+        $totalusers = 0;
+
         // Iterate through each rule and execute if conditions are met.
         foreach ($rules as $rule) {
-            $users = enrol_get_course_users($rule->courseid);
+            // Deduplicated, active-only enrolled users (excludes suspended and deleted users, and
+            // collapses multiple enrolments of the same user so actions run once per user).
+            $users = get_enrolled_users(\context_course::instance($rule->courseid), '', 0, 'u.*', null, 0, 0, true);
+            $usercount = count($users);
+            $totalusers += $usercount;
+
+            if ($usercount > $batchsize) {
+                mtrace("local_coursedynamicrules: course {$rule->courseid} has {$usercount} enrolled users "
+                    . "(over batch threshold {$batchsize}) while evaluating rule {$rule->id}.");
+            }
+
             $ruleinstance = new rule($rule, $users);
             if ($this->could_be_execute_rule($ruleinstance)) {
                 $ruleinstance->execute();
                 $this->set_time_period($ruleinstance);
+                $executed++;
             }
+        }
+
+        if (!empty($rules)) {
+            mtrace(sprintf(
+                'local_coursedynamicrules: %s evaluated %d active rules and %d users, executed %d, in %.2fs.',
+                $conditiontype,
+                count($rules),
+                $totalusers,
+                $executed,
+                microtime(true) - $starttime
+            ));
         }
     }
 

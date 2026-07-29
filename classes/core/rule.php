@@ -49,6 +49,9 @@ class rule {
     /** @var array Additional data to add extra checks in conditions to avoid unexpected executions */
     private $additionaldata;
 
+    /** @var string[] Condition types that triggered this evaluation (empty = scheduled/full evaluation) */
+    private $conditiontypes;
+
     /**
      * Rule constructor.
      * @param object $rule
@@ -64,16 +67,14 @@ class rule {
         $this->users = $users;
         $this->active = $rule->active;
         $this->additionaldata = $additionaldata;
+        $this->conditiontypes = $conditiontypes;
 
-        // Load conditions and actions from the DB.
+        // Load conditions and actions from the DB. ALL conditions are loaded so the rule is always
+        // evaluated as a full AND; $conditiontypes only records which trigger fired (see is_relevant_trigger).
         $conditions = $DB->get_records('local_coursedynamicrules_condition', ['ruleid' => $this->id]);
         $actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $this->id]);
 
         foreach ($conditions as $conditionrecord) {
-            if (!empty($conditiontypes) && !in_array($conditionrecord->conditiontype, $conditiontypes)) {
-                // Skip condition.
-                continue;
-            }
             $this->conditions[] = rule_component_loader::create_condition_instance($conditionrecord, $this->courseid);
         }
 
@@ -99,10 +100,8 @@ class rule {
         if (empty($this->conditions)) {
             return false;
         }
-        $cmid = $this->get_cmid_from_additionaldata();
-        if ($cmid) {
-            $rulecontext->cmid = $cmid;
-        }
+        // Every condition must be satisfied (AND). Each condition evaluates its own current state;
+        // trigger relevance is handled at rule level in is_relevant_trigger().
         foreach ($this->conditions as $condition) {
             if (!$condition->evaluate($rulecontext)) {
                 return false;
@@ -112,10 +111,49 @@ class rule {
     }
 
     /**
+     * Whether the trigger that caused this evaluation is relevant to the rule.
+     *
+     * Scheduled/full evaluations (no trigger types) are always relevant. Event evaluations are
+     * relevant only when a condition of the triggering family targets the activity the event
+     * was fired for; this prevents a rule from firing on unrelated events without forcing sibling
+     * conditions to false (which would break the AND).
+     *
+     * @return bool
+     */
+    private function is_relevant_trigger() {
+        if (empty($this->conditiontypes)) {
+            return true;
+        }
+
+        $cmid = $this->get_cmid_from_additionaldata();
+        if (!$cmid) {
+            return false;
+        }
+
+        foreach ($this->conditions as $condition) {
+            if (!in_array($condition->get_type(), $this->conditiontypes)) {
+                continue;
+            }
+            $params = $condition->get_params();
+            if (isset($params->cmid) && (int) $params->cmid === (int) $cmid) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Execute all actions of the rule if the conditions are true
      */
     public function execute() {
         if (empty($this->conditions) || empty($this->actions)) {
+            return;
+        }
+
+        // Only fire when the trigger concerns this rule (an event on a referenced activity, or a
+        // scheduled task for a condition type the rule uses).
+        if (!$this->is_relevant_trigger()) {
             return;
         }
 
@@ -195,6 +233,8 @@ class rule {
     public function delete() {
         global $DB;
 
+        $record = $DB->get_record('local_coursedynamicrules_rule', ['id' => $this->id]);
+
         foreach ($this->conditions as $condition) {
             $condition->delete();
         }
@@ -203,7 +243,18 @@ class rule {
             $action->delete();
         }
 
-        return $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
+        $result = $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
+
+        $event = \local_coursedynamicrules\event\rule_deleted::create([
+            'context' => \context_course::instance($this->courseid),
+            'objectid' => $this->id,
+        ]);
+        if ($record) {
+            $event->add_record_snapshot('local_coursedynamicrules_rule', $record);
+        }
+        $event->trigger();
+
+        return $result;
     }
 
     /**
@@ -258,6 +309,8 @@ class rule {
             ]
         );
 
-        return $record->cmid;
+        // The grade row may have been deleted between the event dispatch and this run; degrade to
+        // null (handled as "not relevant") instead of dereferencing a false record.
+        return $record ? $record->cmid : null;
     }
 }
