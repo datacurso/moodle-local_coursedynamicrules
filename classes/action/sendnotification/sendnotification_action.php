@@ -213,7 +213,7 @@ class sendnotification_action extends action {
 
         $this->set_data($action);
 
-        $DB->insert_record('local_coursedynamicrules_action', $action);
+        return $DB->insert_record('local_coursedynamicrules_action', $action);
     }
 
     /**

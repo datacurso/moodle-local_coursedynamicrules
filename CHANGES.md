@@ -1,3 +1,21 @@
+## 1.7.1
+
+**Released on:** 2026-07-29
+
+**Compatibility note:** This version is compatible with **Moodle 4.5**.
+
+## Added
+- **Audit events**
+  Creating, updating and deleting rules, conditions and actions now trigger Moodle events so these operations appear in the logs and reports.
+
+## Changed
+- **Privacy provider declares the external AI transfer**
+  The privacy provider now declares, through the Privacy API, the course context and user id sent to the external Datacurso AI service when the create AI activity action runs, instead of declaring that no data leaves Moodle.
+- **Scheduled task observability**
+  The "no course access" and "no complete activity" tasks now report per-run counts and duration, and warn when a course exceeds a configurable batch threshold (`taskbatchsize`), without changing their cadence or evaluation semantics.
+
+---
+
 ## 1.7.0
 
 **Released on:** 2026-07-28

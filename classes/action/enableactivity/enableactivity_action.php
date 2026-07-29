@@ -174,7 +174,7 @@ class enableactivity_action extends action {
 
         $this->set_data($action);
 
-        $DB->insert_record('local_coursedynamicrules_action', $action);
+        $actionid = $DB->insert_record('local_coursedynamicrules_action', $action);
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
@@ -201,6 +201,8 @@ class enableactivity_action extends action {
             set_coursemodule_visible($cmid, 1);
         }
         rebuild_course_cache($formdata->courseid, true);
+
+        return $actionid;
     }
 
     /**

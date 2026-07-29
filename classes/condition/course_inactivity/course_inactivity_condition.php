@@ -455,7 +455,7 @@ class course_inactivity_condition extends condition {
 
         $this->set_data($condition);
 
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        return $DB->insert_record('local_coursedynamicrules_condition', $condition);
     }
 
     /**

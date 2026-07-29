@@ -75,7 +75,11 @@ if ($ruleform->is_cancelled()) {
     $data->id = \local_coursedynamicrules\helper\ownership::resolve_writable_ruleid($data->id ?? 0, $courseid);
     if (empty($data->id)) {
         $data->timecreated = time();
-        $DB->insert_record('local_coursedynamicrules_rule', $data);
+        $newruleid = $DB->insert_record('local_coursedynamicrules_rule', $data);
+        \local_coursedynamicrules\event\rule_created::create([
+            'context' => $context,
+            'objectid' => $newruleid,
+        ])->trigger();
         redirect(
             $rulesurl,
             get_string('ruleaddedsuccessfully', 'local_coursedynamicrules'),
@@ -84,6 +88,10 @@ if ($ruleform->is_cancelled()) {
         );
     } else {
         $DB->update_record('local_coursedynamicrules_rule', $data);
+        \local_coursedynamicrules\event\rule_updated::create([
+            'context' => $context,
+            'objectid' => $data->id,
+        ])->trigger();
         redirect(
             $rulesurl,
             get_string('ruleupdatedsuccessfully', 'local_coursedynamicrules'),

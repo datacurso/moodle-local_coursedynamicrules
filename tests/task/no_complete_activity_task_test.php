@@ -77,7 +77,9 @@ final class no_complete_activity_task_test extends \advanced_testcase {
         ]);
 
         $sink = $this->redirectMessages();
+        ob_start();
         (new no_complete_activity_task())->execute();
+        ob_end_clean();
 
         $messages = $sink->get_messages_by_component('local_coursedynamicrules');
         $tostudent = array_filter($messages, function ($m) use ($student) {
