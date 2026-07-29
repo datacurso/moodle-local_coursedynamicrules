@@ -63,7 +63,7 @@ $config = get_config('local_coursedynamicrules');
 $conditioninstance = rule_component_loader::create_condition_instance($condition, $courseid);
 $description = component_renderer::escaped_description($conditioninstance);
 
-if ($delete === md5($config->confirmdeletecondition)) {
+if ($delete === md5($config->confirmdeletecondition ?? '')) {
     require_sesskey();
     // Delete condition.
     $conditioninstance->delete();

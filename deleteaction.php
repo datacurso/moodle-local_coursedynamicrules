@@ -62,7 +62,7 @@ $config = get_config('local_coursedynamicrules');
 $actioninstance = rule_component_loader::create_action_instance($action, $courseid);
 $description = component_renderer::escaped_description($actioninstance);
 
-if ($delete === md5($config->confirmdeleteaction)) {
+if ($delete === md5($config->confirmdeleteaction ?? '')) {
     require_sesskey();
 
     // Delete action.
