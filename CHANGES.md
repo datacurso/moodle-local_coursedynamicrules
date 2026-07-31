@@ -1,3 +1,19 @@
+## 1.7.2
+
+**Released on:** 2026-07-31
+
+**Compatibility note:** This version is compatible with **Moodle 4.5**.
+
+## Fixed
+- **Deprecation notice on the rules page**
+  The "Add rule" button passed the removed boolean argument to `single_button`, which made Moodle emit a deprecation notice on the rules page whenever developer debugging was enabled.
+- **PHP warning when describing a grade condition with a single threshold**
+  A "grade in activity" condition that sets only one of the two thresholds no longer emits an undefined property warning while its description is rendered on the conditions list.
+- **Missing and misnamed form parameter types**
+  The hidden course id on the condition and "enable activity" forms now declares its expected type, and the "enable activity" activity selector's type declaration no longer names a non-existent element, removing developer debugging notices on submit.
+
+---
+
 ## 1.7.1
 
 **Released on:** 2026-07-29
