@@ -296,14 +296,9 @@ class behat_local_coursedynamicrules extends behat_base {
     /**
      * Create rules with a grade_in_activity condition and a sendnotification action.
      *
-     * Used only by the (currently excluded/blocked) grade_in_activity edit Behat scenario: builds
-     * a real rule/condition/action row set against an existing graded activity so the dynamic
-     * sub-form has genuine grade item data to preload once the AMD build is refreshed.
-     *
-     * TODO(pending manual task 4.5 - npx grunt amd --component=local_coursedynamicrules): this step
-     * is only referenced by the commented-out "Editing a grade in activity condition preloads and
-     * updates the dynamic threshold region" scenario in edit_rule_components.feature. It cannot run
-     * (and this step is dead code) until that scenario is uncommented once the AMD build has landed.
+     * Used by the grade_in_activity edit Behat scenario: builds a real rule/condition/action row
+     * set against an existing graded activity so the dynamic sub-form has genuine grade item data
+     * to preload.
      *
      * @Given /^the following local coursedynamicrules grade in activity rules exist:$/
      * @param TableNode $table Table data: course | activity (cm idnumber) | condition (gradegte|gradelt) | value | subject.
@@ -368,8 +363,7 @@ class behat_local_coursedynamicrules extends behat_base {
                     // This fixture inserts the row directly (bypassing sendnotification_action::
                     // save_action()), so without this key the row is legacy-shaped: FIX3-5 sends it
                     // down the verbatim (unmarked) path instead of the raw/marked one, which would
-                    // silently double-format the body once the AMD build is refreshed and the
-                    // (currently excluded/blocked) grade_in_activity edit scenario below is enabled.
+                    // silently double-format the body when the grade_in_activity edit scenario runs.
                     'bodyisraw' => true,
                 ]),
                 'lastexecutiontime' => null,
@@ -380,15 +374,10 @@ class behat_local_coursedynamicrules extends behat_base {
     /**
      * Toggle a grade-in-activity threshold checkbox and set its value on the dynamic sub-form.
      *
-     * Used only by the (currently excluded/blocked) grade_in_activity edit Behat scenario: the
-     * dynamic form's threshold elements are keyed by the real grade item id (`enable{condition}_
-     * {gradeitemid}` / `{condition}_{gradeitemid}`), which is only known once the fixture activity
-     * has been created, hence resolving it here instead of hardcoding an id in the feature file.
-     *
-     * TODO(pending manual task 4.5 - npx grunt amd --component=local_coursedynamicrules): this step
-     * is only referenced by the commented-out "Editing a grade in activity condition preloads and
-     * updates the dynamic threshold region" scenario in edit_rule_components.feature. It cannot run
-     * (and this step is dead code) until that scenario is uncommented once the AMD build has landed.
+     * Used by the grade_in_activity edit Behat scenario: the dynamic form's threshold elements are
+     * keyed by the real grade item id (`enable{condition}_{gradeitemid}` / `{condition}_
+     * {gradeitemid}`), which is only known once the fixture activity has been created, hence
+     * resolving it here instead of hardcoding an id in the feature file.
      *
      * @When /^I toggle the "(?P<cond_string>gradegte|gradelt)" threshold for "(?P<act_string>[^"]*)" to "(?P<value_string>[^"]*)"$/
      * @param string $condition Threshold condition (gradegte|gradelt).

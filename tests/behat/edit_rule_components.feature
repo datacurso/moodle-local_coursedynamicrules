@@ -65,26 +65,50 @@ Feature: Edit existing rule conditions and actions
   # tests/helper/ownership_test.php (ruleid/course mismatch rejection) and
   # tests/core/condition_test.php / tests/core/action_test.php (foreign/unscoped upsert rejection).
 
-  # TODO(pending manual task 4.5 - npx grunt amd --component=local_coursedynamicrules):
-  # this scenario exercises amd/src/grade_in_activity_form.js, whose compiled amd/build/*.min.js is
-  # stale because building AMD is a manual/CI step, out of agent scope per the standing never-build
-  # rule. It is commented out (not tag-negated) so it cannot accidentally run in CI before the AMD
-  # build has landed. Uncomment once the build has run and the compiled JS is up to date.
-  #
-  # @javascript @gradeinactivity_edit
-  # Scenario: Editing a grade in activity condition preloads and updates the dynamic threshold region
-  #   Given the following "activities" exist:
-  #     | activity | name   | course | idnumber | completion | completionusegrade |
-  #     | quiz     | Quiz 1 | C1     | quiz1    | 2          | 1                  |
-  #   And the following local coursedynamicrules grade in activity rules exist:
-  #     | course | activity | condition | value | subject                 |
-  #     | C1     | quiz1    | gradegte  | 50    | Grade threshold subject |
-  #   And I log in as "teacher1"
-  #   And I am on "C1" course homepage
-  #   And I navigate to "Smart Rules AI" in current page administration
-  #   And I click on "Edit conditions" "link"
-  #   When I click on "(//div[contains(@class, 'instance-card')])[1]//a[.//i[contains(@class, 'fa-pencil')]]" "xpath_element"
-  #   Then I should see "Quiz - Quiz 1"
-  #   And I toggle the "gradegte" threshold for "quiz1" to "75"
-  #   And I press "Save changes"
-  #   And I should see "Quiz - Quiz 1"
+  Scenario: Deleting a condition through the real confirmation page removes only that condition
+    Given I log in as "teacher1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    And I click on "Edit conditions" "link"
+    And ".fa-trash" "css_element" should exist
+    When I click on "(//div[contains(@class, 'instance-card')])[1]//a[.//i[contains(@class, 'fa-trash')]]" "xpath_element"
+    And I press "Delete"
+    And I press "Continue"
+    Then I should not see "Users who take more than 1 days without accessing this course."
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    And I click on "Edit actions" "link"
+    And I should see "Send notification 'Original subject' to users"
+
+  Scenario: Deleting an action through the real confirmation page removes only that action
+    Given I log in as "teacher1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    And I click on "Edit actions" "link"
+    And ".fa-trash" "css_element" should exist
+    When I click on "(//div[contains(@class, 'instance-card')])[1]//a[.//i[contains(@class, 'fa-trash')]]" "xpath_element"
+    And I press "Delete"
+    And I press "Continue"
+    Then I should not see "Send notification 'Original subject' to users"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    And I click on "Edit conditions" "link"
+    And I should see "Users who take more than 1 days without accessing this course."
+
+  @javascript @gradeinactivity_edit
+  Scenario: Editing a grade in activity condition preloads and updates the dynamic threshold region
+    Given the following "activities" exist:
+      | activity | name   | course | idnumber | completion | completionusegrade |
+      | quiz     | Quiz 1 | C1     | quiz1    | 2          | 1                  |
+    And the following local coursedynamicrules grade in activity rules exist:
+      | course | activity | condition | value | subject                 |
+      | C1     | quiz1    | gradegte  | 50    | Grade threshold subject |
+    And I log in as "teacher1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    And I click on "Edit conditions" "link"
+    When I click on "(//div[contains(@class, 'instance-card')])[1]//a[.//i[contains(@class, 'fa-pencil')]]" "xpath_element"
+    Then I should see "Quiz - Quiz 1"
+    And I toggle the "gradegte" threshold for "quiz1" to "75"
+    And I press "Save changes"
+    And I should see "Quiz - Quiz 1"
