@@ -34,6 +34,8 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
+     * preload_defaults() passes through the given params object as a plain array unchanged.
+     *
      * @covers ::preload_defaults
      */
     public function test_preload_defaults_returns_params_as_array(): void {
@@ -62,6 +64,8 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
+     * definition() preloads a stored record's values into the form's field defaults.
+     *
      * @covers ::definition
      */
     public function test_definition_preloads_stored_record_into_form_defaults(): void {
@@ -76,6 +80,8 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
+     * definition() leaves the field empty when no stored record is supplied.
+     *
      * @covers ::definition
      */
     public function test_definition_without_record_does_not_preload(): void {
@@ -114,11 +120,13 @@ final class action_form_test extends \advanced_testcase {
     public function test_definition_calls_preload_when_record_key_present_but_empty_array(): void {
         $this->resetAfterTest(true);
 
-        $form = new class(
+        $form = new class (
             new \moodle_url('/local/coursedynamicrules/actions.php'),
             ['record' => []]
         ) extends action_form {
-            /** @return void */
+            /**
+             * Adds the 'foo' field so preload_defaults() has something to populate.
+             */
             public function definition() {
                 $this->_form->addElement('text', 'foo', 'Foo');
                 $this->_form->setType('foo', PARAM_TEXT);
@@ -126,6 +134,8 @@ final class action_form_test extends \advanced_testcase {
             }
 
             /**
+             * Stub override to prove definition() invoked preload_defaults() despite the empty array.
+             *
              * @param object $params
              * @return array
              */

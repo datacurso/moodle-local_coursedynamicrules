@@ -346,7 +346,7 @@ class enableactivity_action extends action {
                 $this->restore_coursemodules($toremove, false);
             }
         } catch (\Throwable $e) {
-            // rollback() always rethrows $e (lib/dml/moodle_database.php::rollback_delegated_transaction()),
+            // Rollback() always rethrows $e (lib/dml/moodle_database.php::rollback_delegated_transaction()),
             // so this never falls through to allow_commit() below - it unwinds the call stack instead
             // (core convention: catching Throwable, not just Exception, also rolls back on a fatal
             // \Error - e.g. a TypeError from a malformed $formdata - instead of leaving the delegated

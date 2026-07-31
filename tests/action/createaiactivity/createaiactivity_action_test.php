@@ -124,6 +124,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
 
     /**
      * Test description shows image generation status and the module the activity is inserted before.
+     *
+     * @covers ::get_description
      */
     public function test_get_description_shows_generateimages_and_beforemod(): void {
         $this->resetAfterTest(true);
@@ -154,6 +156,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
 
     /**
      * Test description without image generation and without insert position.
+     *
+     * @covers ::get_description
      */
     public function test_get_description_without_images_or_beforemod(): void {
         $this->resetAfterTest(true);
@@ -184,6 +188,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
 
     /**
      * Test description does not fail when beforemod points to a deleted module.
+     *
+     * @covers ::get_description
      */
     public function test_get_description_with_stale_beforemod(): void {
         $this->resetAfterTest(true);

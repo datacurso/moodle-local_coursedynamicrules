@@ -25,6 +25,9 @@ namespace local_coursedynamicrules\form\actions;
  */
 final class stub_preload_action_form extends action_form {
     /**
+     * Adds one field ('foo') before delegating to parent::definition(), mirroring how every real
+     * per-type form adds its own fields and calls parent::definition() last.
+     *
      * @return void
      */
     public function definition() {

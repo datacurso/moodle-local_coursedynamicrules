@@ -311,6 +311,8 @@ final class sendnotification_action_test extends \advanced_testcase {
 
     /**
      * Test action is skipped when matched user is not in observed roles.
+     *
+     * @covers ::execute
      */
     public function test_execute_does_not_send_when_user_role_is_not_observed(): void {
         global $DB;
@@ -364,6 +366,8 @@ final class sendnotification_action_test extends \advanced_testcase {
 
     /**
      * Test observer recipients receive an observation-formatted notification.
+     *
+     * @covers ::execute
      */
     public function test_execute_sends_observation_message_to_other_role(): void {
         global $DB;
@@ -434,6 +438,8 @@ final class sendnotification_action_test extends \advanced_testcase {
 
     /**
      * Test matched user and observer recipients get different message formats.
+     *
+     * @covers ::execute
      */
     public function test_execute_sends_different_messages_for_target_and_observer_roles(): void {
         global $DB;
@@ -658,6 +664,8 @@ final class sendnotification_action_test extends \advanced_testcase {
 
     /**
      * Test description shows recipient roles, copy roles and a shortened plain text body.
+     *
+     * @covers ::get_description
      */
     public function test_get_description_shows_roles_and_body(): void {
         global $DB;
@@ -698,6 +706,8 @@ final class sendnotification_action_test extends \advanced_testcase {
 
     /**
      * Test description resolves legacy role param keys and shows "none" when a role list is empty.
+     *
+     * @covers ::get_description
      */
     public function test_get_description_uses_legacy_role_keys_and_none(): void {
         global $DB;

@@ -31,6 +31,9 @@ final class stub_preload_condition_form extends condition_form {
     protected $type = 'stub';
 
     /**
+     * Adds one field ('foo') before delegating to parent::definition(), mirroring how every real
+     * per-type form adds its own fields and calls parent::definition() last.
+     *
      * @return void
      */
     public function definition() {

@@ -65,7 +65,7 @@ if ($editid > 0) {
     $actionrecord = \local_coursedynamicrules\helper\ownership::get_action($editid, $courseid, $ruleid);
     $actioninstance = rule_component_loader::create_action_instance($actionrecord, $courseid);
 
-    // json_decode() returns a PHP array (not stdClass) for a JSON array such as "[]", which
+    // Json_decode() returns a PHP array (not stdClass) for a JSON array such as "[]", which
     // `empty()`-based edit-mode checks in the form base classes would treat as "no record"
     // (empty() is only ever false for objects, so a cast is enough to make this consistent for
     // every consumer of 'record').

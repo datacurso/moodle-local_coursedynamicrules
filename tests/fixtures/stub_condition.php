@@ -39,6 +39,8 @@ final class stub_condition extends condition {
     }
 
     /**
+     * Stub evaluation that always resolves to true.
+     *
      * @param object $context
      * @return bool
      */
@@ -47,6 +49,8 @@ final class stub_condition extends condition {
     }
 
     /**
+     * Stub header used only to satisfy the abstract contract.
+     *
      * @return string
      */
     public function get_header() {
@@ -54,6 +58,8 @@ final class stub_condition extends condition {
     }
 
     /**
+     * Stub description used only to satisfy the abstract contract.
+     *
      * @return string
      */
     public function get_description() {
@@ -61,6 +67,8 @@ final class stub_condition extends condition {
     }
 
     /**
+     * No-op stub so tests can instantiate stub_condition without a real edit form.
+     *
      * @param mixed $action
      * @param mixed $customdata
      * @param string $method
@@ -81,6 +89,8 @@ final class stub_condition extends condition {
     }
 
     /**
+     * No-op stub so tests can instantiate stub_condition without persisting real form data.
+     *
      * @param object $formdata
      */
     public function save_condition($formdata) {

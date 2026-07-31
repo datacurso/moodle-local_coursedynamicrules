@@ -140,7 +140,7 @@ abstract class condition {
 
         if (!empty($existingid)) {
             foreach ($this->runtime_param_keys() as $key) {
-                // property_exists(), not isset(): a stored JSON null (isset() === false for it) must
+                // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
                 // still be reconciled via adjust_runtime_param() instead of silently falling through
                 // to whatever default the concrete save_*() method computed for a brand-new row -
                 // which would silently re-arm a throttle on edit (FIX3-10). is_object() guard

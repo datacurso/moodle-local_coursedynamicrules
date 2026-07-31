@@ -26,6 +26,8 @@ namespace local_coursedynamicrules\form\actions;
  */
 final class enableactivity_form_test extends \advanced_testcase {
     /**
+     * preload_defaults() maps the stored coursemodules objects down to a plain id list.
+     *
      * @covers ::preload_defaults
      */
     public function test_preload_defaults_maps_coursemodules_to_id_list(): void {
@@ -45,6 +47,8 @@ final class enableactivity_form_test extends \advanced_testcase {
     }
 
     /**
+     * preload_defaults() returns an empty coursemodules list when none are stored.
+     *
      * @covers ::preload_defaults
      */
     public function test_preload_defaults_handles_empty_coursemodules(): void {

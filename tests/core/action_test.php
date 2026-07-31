@@ -58,6 +58,8 @@ final class action_test extends \advanced_testcase {
     }
 
     /**
+     * upsert() inserts a new row and returns its id when no id is present yet.
+     *
      * @covers ::upsert
      */
     public function test_upsert_inserts_a_new_row_without_id(): void {
@@ -74,6 +76,8 @@ final class action_test extends \advanced_testcase {
     }
 
     /**
+     * upsert() updates the existing row in place, keeping the same id, when an id is already present.
+     *
      * @covers ::upsert
      */
     public function test_upsert_updates_existing_row_in_place(): void {
@@ -91,6 +95,8 @@ final class action_test extends \advanced_testcase {
     }
 
     /**
+     * upsert() on update must leave runtime-only fields such as lastexecutiontime untouched.
+     *
      * @covers ::upsert
      */
     public function test_upsert_update_does_not_touch_runtime_fields(): void {

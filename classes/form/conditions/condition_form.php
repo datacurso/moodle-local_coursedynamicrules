@@ -51,7 +51,7 @@ class condition_form extends \moodleform {
         $mform->setType('ruleid', PARAM_INT);
         $this->add_action_buttons();
 
-        // array_key_exists(), not !empty(): json_decode('[]') decodes to an empty PHP array, which
+        // Array_key_exists(), not !empty(): json_decode('[]') decodes to an empty PHP array, which
         // !empty() treats as "no record" even though the key IS present (an edit row whose stored
         // params happen to be empty), silently falling back to create-mode defaults (FIX2-12).
         // is_array() guard: $this->_customdata defaults to null when a caller does not pass any

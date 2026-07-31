@@ -486,7 +486,7 @@ final class enableactivity_action_test extends \advanced_testcase {
         $this->assertNotNull($pluginnode, 'The plugin must have added its own node.');
         $this->assertSame([], $pluginnode->userids);
 
-        // execute() must inject the matched user ONLY into the plugin's own node.
+        // Execute() must inject the matched user ONLY into the plugin's own node.
         $grantee = $this->getDataGenerator()->create_user();
         $action->execute((object) ['courseid' => $course->id, 'userid' => $grantee->id]);
 
@@ -502,7 +502,7 @@ final class enableactivity_action_test extends \advanced_testcase {
             }
         }
 
-        // delete() must remove ONLY the plugin's own node, leaving the teacher's node intact.
+        // Delete() must remove ONLY the plugin's own node, leaving the teacher's node intact.
         $action->delete();
         $availabilityafterdelete = json_decode($DB->get_field('course_modules', 'availability', ['id' => $page->cmid]));
         $this->assertCount(1, $availabilityafterdelete->c);
@@ -737,7 +737,7 @@ final class enableactivity_action_test extends \advanced_testcase {
         $regrouped = (object) ['op' => tree::OP_AND, 'c' => [$nested], 'showc' => [false]];
         $DB->set_field('course_modules', 'availability', json_encode($regrouped), ['id' => $page->cmid]);
 
-        // execute() must still find the (nested) node and grant access, instead of going inert.
+        // Execute() must still find the (nested) node and grant access, instead of going inert.
         $grantee = $this->getDataGenerator()->create_user();
         $action->execute((object) ['courseid' => $course->id, 'userid' => $grantee->id]);
 
@@ -821,6 +821,8 @@ final class enableactivity_action_test extends \advanced_testcase {
 
     /**
      * Normal case: the matched user is added to the module's user restriction.
+     *
+     * @covers ::execute
      */
     public function test_execute_adds_user_to_restriction(): void {
         global $DB;
@@ -848,6 +850,8 @@ final class enableactivity_action_test extends \advanced_testcase {
      *
      * A teacher may add another restriction (e.g. a date restriction) that shifts the plugin's user
      * restriction off index 0; the action must still locate it instead of silently skipping.
+     *
+     * @covers ::execute
      */
     public function test_execute_finds_user_restriction_not_at_index_zero(): void {
         global $DB;
@@ -880,6 +884,8 @@ final class enableactivity_action_test extends \advanced_testcase {
 
     /**
      * A deleted module must be skipped without a fatal error, and later modules still processed.
+     *
+     * @covers ::execute
      */
     public function test_execute_skips_deleted_module_and_continues(): void {
         global $DB;
@@ -907,6 +913,8 @@ final class enableactivity_action_test extends \advanced_testcase {
 
     /**
      * A module whose availability was cleared must be skipped without corrupting it.
+     *
+     * @covers ::execute
      */
     public function test_execute_skips_when_availability_null(): void {
         global $DB;
@@ -930,6 +938,8 @@ final class enableactivity_action_test extends \advanced_testcase {
 
     /**
      * The rule/action must be deletable even when a referenced module no longer exists.
+     *
+     * @covers ::delete
      */
     public function test_delete_succeeds_when_module_deleted(): void {
         global $DB;
@@ -952,6 +962,8 @@ final class enableactivity_action_test extends \advanced_testcase {
 
     /**
      * The description must skip deleted modules without warnings.
+     *
+     * @covers ::get_description
      */
     public function test_get_description_skips_deleted_module(): void {
         $this->resetAfterTest(true);

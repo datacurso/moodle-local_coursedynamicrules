@@ -196,7 +196,7 @@ abstract class action {
 
         if (!empty($existingid)) {
             foreach ($this->runtime_param_keys() as $key) {
-                // property_exists(), not isset(): a stored JSON null (isset() === false for it) must
+                // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
                 // still be reconciled via adjust_runtime_param() instead of silently falling through
                 // to whatever default the concrete save_*() method computed for a brand-new row.
                 // is_object() guard (FIX4): property_exists() throws a TypeError on a non-object

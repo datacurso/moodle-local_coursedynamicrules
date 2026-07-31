@@ -39,6 +39,8 @@ final class stub_action extends action {
     }
 
     /**
+     * Stub execution that always succeeds without side effects.
+     *
      * @param object $context
      */
     public function execute($context) {
@@ -46,6 +48,8 @@ final class stub_action extends action {
     }
 
     /**
+     * No-op stub so tests can instantiate stub_action without a real edit form.
+     *
      * @param mixed $action
      * @param mixed $customdata
      * @param string $method
@@ -66,6 +70,8 @@ final class stub_action extends action {
     }
 
     /**
+     * No-op stub so tests can instantiate stub_action without persisting real form data.
+     *
      * @param object $formdata
      */
     public function save_action($formdata) {

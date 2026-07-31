@@ -226,7 +226,7 @@ class no_course_access_condition extends condition {
         $recomputed = strtotime("+{$newparams['periodvalue']} {$newparams['periodunit']}", time());
 
         if ($recomputed === false) {
-            // strtotime() failed to parse the new period (e.g. an unrecognised periodunit that
+            // Strtotime() failed to parse the new period (e.g. an unrecognised periodunit that
             // bypassed form validation) - never let a bad recompute regress the stored deadline to
             // "due immediately" (a false timestamp), keep whatever was already stored instead.
             return $storedvalue;

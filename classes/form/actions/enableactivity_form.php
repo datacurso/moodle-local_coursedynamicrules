@@ -102,7 +102,7 @@ class enableactivity_form extends action_form {
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
 
-        // elementExists() guard (FIX4): definition() early-returns without adding 'coursemodules' at
+        // ElementExists() guard (FIX4): definition() early-returns without adding 'coursemodules' at
         // all when a required plugin (availability_user) is missing - setting an error keyed to a
         // non-existent element would be silently lost (never rendered next to any visible field),
         // instead of surfacing the real problem via the missing-plugin notification already shown.
