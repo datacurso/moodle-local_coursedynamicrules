@@ -59,8 +59,7 @@ if ($editid > 0) {
     // link, or a form left open before the upgrade, back to the listing. This must happen before
     // the create branch below, because an edit submission also carries a 'type' and would
     // otherwise be read as a request to create a brand new condition.
-    redirect($url, get_string('editingunavailable', 'local_coursedynamicrules'), null,
-        \core\output\notification::NOTIFY_INFO);
+    redirect($url, get_string('editingunavailable', 'local_coursedynamicrules'));
 }
 $conditioninstance = null;
 if (!empty($type)) {
