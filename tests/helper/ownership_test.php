@@ -41,10 +41,14 @@ final class ownership_test extends \advanced_testcase {
     /** @var int Action id in course A's rule. */
     private int $actionid;
 
+    /** @var int A second rule id in course A (same course, different rule). */
+    private int $otherruleid;
+
     /**
-     * Set up two courses and a rule (with a condition and an action) in course A.
+     * Set up two courses and a rule (with a condition and an action) in course A, plus a second
+     * rule in course A used to prove a component's ruleid is checked, not just its course.
      */
-    public function setUp(): void {
+    protected function setUp(): void {
         global $DB;
         parent::setUp();
         $this->resetAfterTest(true);
@@ -68,6 +72,14 @@ final class ownership_test extends \advanced_testcase {
             'ruleid' => $this->ruleid,
             'actiontype' => 'sendnotification',
             'params' => json_encode(['messagesubject' => 's']),
+        ]);
+
+        $this->otherruleid = $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $this->coursea,
+            'name' => 'Another rule in the same course',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
         ]);
     }
 
@@ -107,7 +119,7 @@ final class ownership_test extends \advanced_testcase {
      * @covers ::get_condition
      */
     public function test_get_condition_returns_owned(): void {
-        $condition = ownership::get_condition($this->conditionid, $this->coursea);
+        $condition = ownership::get_condition($this->conditionid, $this->coursea, $this->ruleid);
         $this->assertEquals($this->conditionid, $condition->id);
     }
 
@@ -118,7 +130,18 @@ final class ownership_test extends \advanced_testcase {
      */
     public function test_get_condition_rejects_foreign_course(): void {
         $this->expectException(\dml_missing_record_exception::class);
-        ownership::get_condition($this->conditionid, $this->courseb);
+        ownership::get_condition($this->conditionid, $this->courseb, $this->ruleid);
+    }
+
+    /**
+     * A condition belonging to a DIFFERENT rule in the SAME course must be rejected: the request's
+     * ruleid is part of the ownership contract, not just the course id (G8).
+     *
+     * @covers ::get_condition
+     */
+    public function test_get_condition_rejects_mismatched_ruleid_same_course(): void {
+        $this->expectException(\dml_missing_record_exception::class);
+        ownership::get_condition($this->conditionid, $this->coursea, $this->otherruleid);
     }
 
     /**
@@ -127,7 +150,7 @@ final class ownership_test extends \advanced_testcase {
      * @covers ::get_action
      */
     public function test_get_action_returns_owned(): void {
-        $action = ownership::get_action($this->actionid, $this->coursea);
+        $action = ownership::get_action($this->actionid, $this->coursea, $this->ruleid);
         $this->assertEquals($this->actionid, $action->id);
     }
 
@@ -138,7 +161,18 @@ final class ownership_test extends \advanced_testcase {
      */
     public function test_get_action_rejects_foreign_course(): void {
         $this->expectException(\dml_missing_record_exception::class);
-        ownership::get_action($this->actionid, $this->courseb);
+        ownership::get_action($this->actionid, $this->courseb, $this->ruleid);
+    }
+
+    /**
+     * An action belonging to a DIFFERENT rule in the SAME course must be rejected: the request's
+     * ruleid is part of the ownership contract, not just the course id (G8).
+     *
+     * @covers ::get_action
+     */
+    public function test_get_action_rejects_mismatched_ruleid_same_course(): void {
+        $this->expectException(\dml_missing_record_exception::class);
+        ownership::get_action($this->actionid, $this->coursea, $this->otherruleid);
     }
 
     /**

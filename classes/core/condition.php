@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\core;
 
 use local_coursedynamicrules\form\conditions\condition_form;
+use local_coursedynamicrules\helper\ownership;
 use stdClass;
 
 /**
@@ -27,6 +28,9 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 abstract class condition {
+    /** @var string DB table storing condition rows. */
+    const TABLE = 'local_coursedynamicrules_condition';
+
     /** @var int ID of the condition on the DB */
     private $id;
 
@@ -90,6 +94,83 @@ abstract class condition {
     }
 
     /**
+     * Runtime-only param keys whose stored value must survive an edit even though the operator
+     * form does not submit them (e.g. a throttle timestamp maintained by the condition itself).
+     *
+     * @return array
+     */
+    protected function runtime_param_keys(): array {
+        return [];
+    }
+
+    /**
+     * Adjust a runtime-only param before it overwrites the freshly submitted value in $params
+     * (FIX3-10). The base behaviour is a blunt force-win: the stored value survives byte-for-byte,
+     * unconditionally. Concrete conditions may override this to refine preservation with domain
+     * logic instead - e.g. a throttle timestamp that should still advance when the operator-facing
+     * value driving it changes, rather than being blindly clobbered back to what was stored.
+     *
+     * @param string $key Runtime param key currently being reconciled.
+     * @param mixed $storedvalue The value currently stored for $key.
+     * @param array $newparams The full new params about to be persisted (already contains whatever
+     *              the operator submitted this save).
+     * @return mixed The value to persist for $key.
+     */
+    protected function adjust_runtime_param(string $key, $storedvalue, array $newparams) {
+        return $storedvalue;
+    }
+
+    /**
+     * Insert or update this condition's DB row.
+     *
+     * On update, only {id, params} are written: ruleid, conditiontype and lastexecutiontime are
+     * never part of the UPDATE, so a tampered hidden ruleid becomes inert and runtime scheduling
+     * state is preserved by construction.
+     *
+     * @param array $params Params to persist, built by the concrete save_condition().
+     * @param stdClass $formdata Submitted form data.
+     * @return int The condition id.
+     */
+    protected function upsert(array $params, stdClass $formdata): int {
+        global $DB;
+
+        // Read before set_data() below, which nulls $this->id when given an id-less record.
+        $existingid = $this->get_id();
+        $record = new stdClass();
+
+        if (!empty($existingid)) {
+            foreach ($this->runtime_param_keys() as $key) {
+                // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
+                // still be reconciled via adjust_runtime_param() instead of silently falling through
+                // to whatever default the concrete save_*() method computed for a brand-new row -
+                // which would silently re-arm a throttle on edit (FIX3-10). is_object() guard
+                // (FIX4): property_exists() throws a TypeError on a non-object under PHP 8, and
+                // $this->params can be non-object if the stored 'params' column ever decodes to
+                // something other than a JSON object (e.g. a stray JSON scalar/array).
+                if (is_object($this->params) && property_exists($this->params, $key)) {
+                    $params[$key] = $this->adjust_runtime_param($key, $this->params->$key, $params);
+                }
+            }
+            $record->id = $existingid;
+            $record->params = json_encode($params);
+            $DB->update_record(static::TABLE, $record);
+
+            // Re-hydrate fields dropped from the update object, for the set_data() call below.
+            $record->ruleid = $this->ruleid;
+            $record->conditiontype = $this->type;
+            $record->lastexecutiontime = $this->lastexecutiontime;
+        } else {
+            $record->ruleid = ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+            $record->conditiontype = $this->type;
+            $record->params = json_encode($params);
+            $record->id = $DB->insert_record(static::TABLE, $record);
+        }
+
+        $this->set_data($record, $this->courseid);
+        return $record->id;
+    }
+
+    /**
      * Set the data of the condition
      * @param object $record Record that represents data stored in DB
      * @param int $courseid the course id
@@ -98,7 +179,9 @@ abstract class condition {
         $this->id = $record->id ?? null;
         $this->type = $record->conditiontype;
         $this->courseid = $courseid;
-        $this->ruleid = $record->ruleid;
+        // The create-branch seed record built by conditions.php always carries a ruleid, but this
+        // stays defensive against any other caller that does not.
+        $this->ruleid = $record->ruleid ?? null;
         $this->lastexecutiontime = $record->lastexecutiontime ?? null;
         $this->params = json_decode($record->params);
     }

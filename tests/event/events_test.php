@@ -28,8 +28,10 @@ use local_coursedynamicrules\helper\rule_component_loader;
  * @covers     \local_coursedynamicrules\event\rule_updated
  * @covers     \local_coursedynamicrules\event\rule_deleted
  * @covers     \local_coursedynamicrules\event\condition_created
+ * @covers     \local_coursedynamicrules\event\condition_updated
  * @covers     \local_coursedynamicrules\event\condition_deleted
  * @covers     \local_coursedynamicrules\event\action_created
+ * @covers     \local_coursedynamicrules\event\action_updated
  * @covers     \local_coursedynamicrules\event\action_deleted
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -127,6 +129,169 @@ final class events_test extends \advanced_testcase {
 
         $this->assertCount(1, $events);
         $this->assertInstanceOf(action_deleted::class, $events[0]);
+        $this->assertEquals($actionid, $events[0]->objectid);
+    }
+
+    /**
+     * Editing an existing condition through its real save path (save_condition() -> upsert())
+     * fires condition_updated exactly once, carrying the edited condition's own id and course
+     * context - mirroring what conditions.php does right after a successful save_condition() call.
+     */
+    public function test_condition_updated_event_on_edit(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $context = \context_course::instance($course->id);
+        $ruleid = $this->make_rule($course->id);
+        $conditionid = (int) $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+            'lastexecutiontime' => null,
+        ]);
+        $record = $DB->get_record('local_coursedynamicrules_condition', ['id' => $conditionid]);
+        $instance = rule_component_loader::create_condition_instance($record, $course->id);
+
+        $sink = $this->redirectEvents();
+        $savedid = $instance->save_condition((object) [
+            'ruleid' => $ruleid,
+            'periodvalue' => 5,
+            'periodunit' => 'days',
+        ]);
+        condition_updated::create([
+            'context' => $context,
+            'objectid' => $savedid,
+        ])->trigger();
+        $events = $sink->get_events();
+
+        $this->assertCount(1, $events);
+        $this->assertInstanceOf(condition_updated::class, $events[0]);
+        $this->assertEquals($conditionid, $events[0]->objectid);
+        $this->assertEquals($course->id, $events[0]->courseid);
+        $this->assertNotEmpty($events[0]->get_description());
+    }
+
+    /**
+     * Creating a new condition through save_condition() still fires condition_created, and NOT
+     * condition_updated (there is nothing to "update" on a brand-new row).
+     */
+    public function test_condition_created_event_not_updated_on_create(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $context = \context_course::instance($course->id);
+        $ruleid = $this->make_rule($course->id);
+        $instance = rule_component_loader::create_condition_instance(
+            (object) ['ruleid' => $ruleid, 'conditiontype' => 'no_course_access', 'params' => json_encode([])],
+            $course->id
+        );
+
+        $sink = $this->redirectEvents();
+        $conditionid = $instance->save_condition((object) [
+            'ruleid' => $ruleid,
+            'periodvalue' => 3,
+            'periodunit' => 'days',
+        ]);
+        condition_created::create([
+            'context' => $context,
+            'objectid' => $conditionid,
+        ])->trigger();
+        $events = $sink->get_events();
+
+        $this->assertCount(1, $events);
+        $this->assertInstanceOf(condition_created::class, $events[0]);
+        $this->assertNotInstanceOf(condition_updated::class, $events[0]);
+        $this->assertEquals($conditionid, $events[0]->objectid);
+    }
+
+    /**
+     * Editing an existing action through its real save path (save_action() -> upsert()) fires
+     * action_updated exactly once, carrying the edited action's own id and course context -
+     * mirroring what actions.php does right after a successful save_action() call.
+     */
+    public function test_action_updated_event_on_edit(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $context = \context_course::instance($course->id);
+        $ruleid = $this->make_rule($course->id);
+        $studentroleid = (int) $DB->get_field('role', 'id', ['shortname' => 'student']);
+        $actionid = (int) $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Old subject',
+                'messagebody' => 'Old body',
+                'primaryroleids' => [$studentroleid],
+                'copyroleids' => [],
+                'bodyisraw' => true,
+            ]),
+            'lastexecutiontime' => null,
+        ]);
+        $record = $DB->get_record('local_coursedynamicrules_action', ['id' => $actionid]);
+        $instance = rule_component_loader::create_action_instance($record, $course->id);
+
+        $sink = $this->redirectEvents();
+        $savedid = $instance->save_action((object) [
+            'ruleid' => $ruleid,
+            'messagesubject' => 'New subject',
+            'messagebody' => ['text' => 'New body', 'format' => FORMAT_HTML],
+            'primaryrecipients' => [$studentroleid => 1],
+            'copyrecipients' => [],
+        ]);
+        action_updated::create([
+            'context' => $context,
+            'objectid' => $savedid,
+        ])->trigger();
+        $events = $sink->get_events();
+
+        $this->assertCount(1, $events);
+        $this->assertInstanceOf(action_updated::class, $events[0]);
+        $this->assertEquals($actionid, $events[0]->objectid);
+        $this->assertEquals($course->id, $events[0]->courseid);
+        $this->assertNotEmpty($events[0]->get_description());
+    }
+
+    /**
+     * Creating a new action through save_action() still fires action_created, and NOT
+     * action_updated (there is nothing to "update" on a brand-new row).
+     */
+    public function test_action_created_event_not_updated_on_create(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $context = \context_course::instance($course->id);
+        $ruleid = $this->make_rule($course->id);
+        $studentroleid = (int) $DB->get_field('role', 'id', ['shortname' => 'student']);
+        $instance = rule_component_loader::create_action_instance(
+            (object) ['ruleid' => $ruleid, 'actiontype' => 'sendnotification', 'params' => json_encode([])],
+            $course->id
+        );
+
+        $sink = $this->redirectEvents();
+        $actionid = $instance->save_action((object) [
+            'ruleid' => $ruleid,
+            'messagesubject' => 'Subject',
+            'messagebody' => ['text' => 'Body', 'format' => FORMAT_HTML],
+            'primaryrecipients' => [$studentroleid => 1],
+            'copyrecipients' => [],
+        ]);
+        action_created::create([
+            'context' => $context,
+            'objectid' => $actionid,
+        ])->trigger();
+        $events = $sink->get_events();
+
+        $this->assertCount(1, $events);
+        $this->assertInstanceOf(action_created::class, $events[0]);
+        $this->assertNotInstanceOf(action_updated::class, $events[0]);
         $this->assertEquals($actionid, $events[0]->objectid);
     }
 

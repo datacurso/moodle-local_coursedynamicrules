@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\core;
 
 use local_coursedynamicrules\form\actions\action_form;
+use local_coursedynamicrules\helper\ownership;
 use stdClass;
 
 /**
@@ -27,6 +28,9 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 abstract class action {
+    /** @var string DB table storing action rows. */
+    const TABLE = 'local_coursedynamicrules_action';
+
     /** @var int|null ID of the action on the DB */
     private $id;
 
@@ -130,7 +134,9 @@ abstract class action {
         $this->id = $record->id ?? null;
         $this->type = $record->actiontype;
         $this->courseid = $courseid;
-        $this->ruleid = $record->ruleid;
+        // The create-branch seed record built by actions.php always carries a ruleid, but this
+        // stays defensive against any other caller that does not.
+        $this->ruleid = $record->ruleid ?? null;
         $this->lastexecutiontime = $record->lastexecutiontime ?? null;
         $this->params = json_decode($record->params);
     }
@@ -142,6 +148,81 @@ abstract class action {
      */
     public function get_id() {
         return $this->id;
+    }
+
+    /**
+     * Runtime-only param keys whose stored value must survive an edit even though the operator
+     * form does not submit them (e.g. a throttle timestamp maintained by the action itself).
+     *
+     * @return array
+     */
+    protected function runtime_param_keys(): array {
+        return [];
+    }
+
+    /**
+     * Adjust a runtime-only param before it overwrites the freshly submitted value in $params
+     * (mirrors \local_coursedynamicrules\core\condition::adjust_runtime_param() - FIX3-10). The
+     * base behaviour is a blunt force-win: the stored value survives byte-for-byte, unconditionally.
+     * Concrete actions may override this to refine preservation with domain logic instead.
+     *
+     * @param string $key Runtime param key currently being reconciled.
+     * @param mixed $storedvalue The value currently stored for $key.
+     * @param array $newparams The full new params about to be persisted (already contains whatever
+     *              the operator submitted this save).
+     * @return mixed The value to persist for $key.
+     */
+    protected function adjust_runtime_param(string $key, $storedvalue, array $newparams) {
+        return $storedvalue;
+    }
+
+    /**
+     * Insert or update this action's DB row.
+     *
+     * On update, only {id, params} are written: ruleid, actiontype and lastexecutiontime are
+     * never part of the UPDATE, so a tampered hidden ruleid becomes inert and runtime scheduling
+     * state is preserved by construction.
+     *
+     * @param array $params Params to persist, built by the concrete save_action().
+     * @param stdClass $formdata Submitted form data.
+     * @return int The action id.
+     */
+    protected function upsert(array $params, stdClass $formdata): int {
+        global $DB;
+
+        // Read before set_data() below, which nulls $this->id when given an id-less record.
+        $existingid = $this->get_id();
+        $record = new stdClass();
+
+        if (!empty($existingid)) {
+            foreach ($this->runtime_param_keys() as $key) {
+                // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
+                // still be reconciled via adjust_runtime_param() instead of silently falling through
+                // to whatever default the concrete save_*() method computed for a brand-new row.
+                // is_object() guard (FIX4): property_exists() throws a TypeError on a non-object
+                // under PHP 8, and $this->params can be non-object if the stored 'params' column
+                // ever decodes to something other than a JSON object (e.g. a stray JSON scalar/array).
+                if (is_object($this->params) && property_exists($this->params, $key)) {
+                    $params[$key] = $this->adjust_runtime_param($key, $this->params->$key, $params);
+                }
+            }
+            $record->id = $existingid;
+            $record->params = json_encode($params);
+            $DB->update_record(static::TABLE, $record);
+
+            // Re-hydrate fields dropped from the update object, for the set_data() call below.
+            $record->ruleid = $this->ruleid;
+            $record->actiontype = $this->type;
+            $record->lastexecutiontime = $this->lastexecutiontime;
+        } else {
+            $record->ruleid = ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+            $record->actiontype = $this->type;
+            $record->params = json_encode($params);
+            $record->id = $DB->insert_record(static::TABLE, $record);
+        }
+
+        $this->set_data($record, $this->courseid);
+        return $record->id;
     }
 
     /**

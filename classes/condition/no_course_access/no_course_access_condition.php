@@ -19,7 +19,6 @@ namespace local_coursedynamicrules\condition\no_course_access;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\no_course_access_form;
-use stdClass;
 
 /**
  * Class no_course_access_condition
@@ -151,10 +150,9 @@ class no_course_access_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
-        global $DB;
-
         $periodvalue = $formdata->periodvalue;
         $periodunit = $formdata->periodunit;
 
@@ -165,17 +163,80 @@ class no_course_access_condition extends condition {
         $params = [
             'periodvalue' => (int) $periodvalue,
             'periodunit' => clean_param($periodunit, PARAM_ALPHA),
+            // Insert-only default; on update, upsert() routes this key through
+            // adjust_runtime_param() instead (runtime_param_keys() below - v2 contract, engram obs
+            // #1310/FIX3-10): the stored throttle is preserved as-is when the period is unchanged,
+            // otherwise reconciled to min(stored, now + new period) so shortening the period can
+            // still advance the deadline, while lengthening it never pushes the deadline further out.
             'nexttimeperiod' => time(),
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
+        return $this->upsert($params, $formdata);
+    }
 
-        $this->set_data($condition);
+    /**
+     * The throttle timestamp is maintained by the condition itself (set on insert, advanced by the
+     * scheduled task), never submitted by the operator form: its stored value is reconciled via
+     * adjust_runtime_param() on update instead of being blindly submitted by the operator.
+     *
+     * @return array
+     */
+    protected function runtime_param_keys(): array {
+        return ['nexttimeperiod'];
+    }
 
-        return $DB->insert_record('local_coursedynamicrules_condition', $condition);
+    /**
+     * Refine the blunt force-win preservation of 'nexttimeperiod' (decision v2, engram obs #1310)
+     * so editing the operator-facing period still lets the throttle advance when the period is
+     * SHORTENED: editing must never make the rule immediately due, so the new deadline is never
+     * LATER than recomputing "now + the new period" - only ever earlier than, or equal to, whatever
+     * was already stored (FIX3-10).
+     *
+     * - Period unchanged -> the stored value survives byte-for-byte (no recompute at all).
+     * - Period changed, a stored value is present -> min(stored, now + new period).
+     * - Stored value is null (a stored JSON null; property_exists() still routes it here rather
+     *   than silently re-arming to "due immediately" - see condition::upsert()) -> now + new
+     *   period, since there is no meaningful prior deadline to preserve.
+     *
+     * @param string $key Runtime param key ('nexttimeperiod' is the only one this condition
+     *              declares via runtime_param_keys()).
+     * @param mixed $storedvalue The value currently stored in DB for $key.
+     * @param array $newparams The full new params about to be persisted (already contains the NEW
+     *              periodvalue/periodunit submitted by the operator this save).
+     * @return mixed
+     */
+    protected function adjust_runtime_param(string $key, $storedvalue, array $newparams) {
+        if ($key !== 'nexttimeperiod') {
+            return $storedvalue;
+        }
+
+        // Normalising casts (FIX4): a legacy row can have periodvalue stored as a numeric STRING
+        // (pre-dates the (int) cast in save_condition()) and/or periodunit stored with different
+        // casing/whitespace. A strict === comparison against $newparams (always int/clean-alpha,
+        // freshly submitted) would then defeat the "unchanged" branch every time, forcing a
+        // needless recompute on every edit even when the operator did not touch the period.
+        $storedperiodvalue = (int) ($this->params->periodvalue ?? 0);
+        $storedperiodunit = strtolower(trim((string) ($this->params->periodunit ?? '')));
+        $periodunchanged = $storedperiodvalue === (int) $newparams['periodvalue']
+            && $storedperiodunit === strtolower(trim((string) $newparams['periodunit']));
+        if ($periodunchanged) {
+            return $storedvalue;
+        }
+
+        $recomputed = strtotime("+{$newparams['periodvalue']} {$newparams['periodunit']}", time());
+
+        if ($recomputed === false) {
+            // Strtotime() failed to parse the new period (e.g. an unrecognised periodunit that
+            // bypassed form validation) - never let a bad recompute regress the stored deadline to
+            // "due immediately" (a false timestamp), keep whatever was already stored instead.
+            return $storedvalue;
+        }
+
+        if ($storedvalue === null) {
+            return $recomputed;
+        }
+
+        return min($storedvalue, $recomputed);
     }
 
     /**

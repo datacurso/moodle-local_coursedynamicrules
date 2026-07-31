@@ -77,41 +77,51 @@ class ownership {
     }
 
     /**
-     * Fetch a condition ensuring its rule belongs to the given course.
+     * Fetch a condition ensuring it belongs to BOTH the given rule AND the given course.
+     *
+     * Both checks are required: courseid alone is not enough, since a course can have several
+     * rules, and a component belonging to a DIFFERENT rule in the SAME course must still be
+     * rejected (the request's ruleid is part of the ownership contract, not just the course id).
      *
      * @param int $conditionid Condition id.
      * @param int $courseid Course id from the request.
+     * @param int $ruleid Rule id from the request.
      * @return \stdClass The condition record.
-     * @throws \dml_missing_record_exception If the condition's rule does not belong to the course.
+     * @throws \dml_missing_record_exception If the condition does not belong to that rule/course.
      */
-    public static function get_condition($conditionid, $courseid) {
+    public static function get_condition($conditionid, $courseid, $ruleid) {
         global $DB;
         return $DB->get_record_sql(
             "SELECT c.*
                FROM {local_coursedynamicrules_condition} c
                JOIN {local_coursedynamicrules_rule} r ON r.id = c.ruleid
-              WHERE c.id = :id AND r.courseid = :courseid",
-            ['id' => $conditionid, 'courseid' => $courseid],
+              WHERE c.id = :id AND r.courseid = :courseid AND c.ruleid = :ruleid",
+            ['id' => $conditionid, 'courseid' => $courseid, 'ruleid' => $ruleid],
             MUST_EXIST
         );
     }
 
     /**
-     * Fetch an action ensuring its rule belongs to the given course.
+     * Fetch an action ensuring it belongs to BOTH the given rule AND the given course.
+     *
+     * Both checks are required: courseid alone is not enough, since a course can have several
+     * rules, and a component belonging to a DIFFERENT rule in the SAME course must still be
+     * rejected (the request's ruleid is part of the ownership contract, not just the course id).
      *
      * @param int $actionid Action id.
      * @param int $courseid Course id from the request.
+     * @param int $ruleid Rule id from the request.
      * @return \stdClass The action record.
-     * @throws \dml_missing_record_exception If the action's rule does not belong to the course.
+     * @throws \dml_missing_record_exception If the action does not belong to that rule/course.
      */
-    public static function get_action($actionid, $courseid) {
+    public static function get_action($actionid, $courseid, $ruleid) {
         global $DB;
         return $DB->get_record_sql(
             "SELECT a.*
                FROM {local_coursedynamicrules_action} a
                JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
-              WHERE a.id = :id AND r.courseid = :courseid",
-            ['id' => $actionid, 'courseid' => $courseid],
+              WHERE a.id = :id AND r.courseid = :courseid AND a.ruleid = :ruleid",
+            ['id' => $actionid, 'courseid' => $courseid, 'ruleid' => $ruleid],
             MUST_EXIST
         );
     }

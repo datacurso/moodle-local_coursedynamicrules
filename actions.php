@@ -47,54 +47,63 @@ $PAGE->set_url($url);
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 
-echo $OUTPUT->header();
-
 if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid, $courseid)) {
     throw new moodle_exception('invalidruleid', 'local_coursedynamicrules');
 }
 
-$actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $ruleid]);
+// Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
+// form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
+$editid = optional_param('edit', 0, PARAM_INT);
+$actioninstance = null;
+if ($editid > 0) {
+    // Ownership is checked here (GET) and re-checked implicitly on POST: $editid comes from
+    // optional_param() again on the resubmitted request, and the row is only writable through
+    // save_action() -> upsert(), which never touches ruleid. get_action() enforces that the
+    // component belongs to BOTH the requested course AND the requested rule, so a tampered hidden
+    // id (foreign course, or a different rule in the same course) is rejected before any form
+    // render or DB write.
+    $actionrecord = \local_coursedynamicrules\helper\ownership::get_action($editid, $courseid, $ruleid);
+    $actioninstance = rule_component_loader::create_action_instance($actionrecord, $courseid);
 
+    // Json_decode() returns a PHP array (not stdClass) for a JSON array such as "[]", which
+    // `empty()`-based edit-mode checks in the form base classes would treat as "no record"
+    // (empty() is only ever false for objects, so a cast is enough to make this consistent for
+    // every consumer of 'record').
+    $decodedparams = json_decode($actionrecord->params);
+    if (!is_object($decodedparams)) {
+        $decodedparams = (object) $decodedparams;
+    }
 
-$actionsfortemplate = [];
-foreach ($actions as $action) {
-    $actioninstance = rule_component_loader::create_action_instance($action, $courseid);
-
-    $header = $actioninstance->get_header();
-    $description = $actioninstance->get_description();
-
-    $deleteurl = new moodle_url(
-        '/local/coursedynamicrules/deleteaction.php',
-        ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+    $customdata = [
+        'courseid' => $courseid,
+        'ruleid' => $ruleid,
+        'record' => $decodedparams,
+    ];
+    $actioninstance->build_editform(
+        new moodle_url($url, ['edit' => $editid]),
+        $customdata,
+        'post',
+        '',
+        ['class' => 'card p-4']
     );
 
-    if (!empty($header) && !empty($description)) {
-        $actionsfortemplate[] = [
-            'id' => $action->id,
-            'header' => $actioninstance->get_header(),
-            'description' => $actioninstance->get_description(),
-            'deleteurl' => $deleteurl->out(false),
-        ];
+    if ($actioninstance->is_cancelled()) {
+        redirect($url);
+    } else if ($data = $actioninstance->get_data()) {
+        $actioninstance->save_action($data);
+        \local_coursedynamicrules\event\action_updated::create([
+            'context' => $context,
+            'objectid' => $editid,
+        ])->trigger();
+        redirect($url);
     }
-}
-
-$actionoptions = local_coursedynamicrules_load_action_options();
-
-
-// Render heading and branding using reusable renderable.
-$headerrow = new \local_coursedynamicrules\output\header_with_brand('actions');
-echo $OUTPUT->render($headerrow);
-echo html_writer::link($rulesurl, get_string('backtolistrules', 'local_coursedynamicrules'), ['class' => 'mb-3 d-block']);
-echo html_writer::start_div('d-flex');
-echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
-echo html_writer::start_div('col-8');
-echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $actionsfortemplate]);
-if (!empty($type)) {
+} else if (!empty($type)) {
     $actionrecord = (object) [
+        'ruleid' => $ruleid,
         'actiontype' => $type,
         'params' => json_encode([]),
     ];
-    $actioninstance = rule_component_loader::create_action_instance($actionrecord);
+    $actioninstance = rule_component_loader::create_action_instance($actionrecord, $courseid);
     $customdata = [
         'courseid' => $courseid,
         'ruleid' => $ruleid,
@@ -110,9 +119,57 @@ if (!empty($type)) {
             'objectid' => $actionid,
         ])->trigger();
         redirect($url);
-    } else {
-        $actioninstance->show_editform();
     }
+}
+
+echo $OUTPUT->header();
+
+$actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $ruleid]);
+
+
+$actionsfortemplate = [];
+foreach ($actions as $action) {
+    $listedactioninstance = rule_component_loader::create_action_instance($action, $courseid);
+
+    $header = $listedactioninstance->get_header();
+    $description = $listedactioninstance->get_description();
+
+    $deleteurl = new moodle_url(
+        '/local/coursedynamicrules/deleteaction.php',
+        ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+    );
+    $editurl = new moodle_url(
+        '/local/coursedynamicrules/actions.php',
+        ['edit' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+    );
+
+    if (!empty($header) && !empty($description)) {
+        $actionsfortemplate[] = [
+            'id' => $action->id,
+            'header' => $header,
+            'description' => $description,
+            'deleteurl' => $deleteurl->out(false),
+            'deletetitle' => get_string('deleteaction', 'local_coursedynamicrules'),
+            'editurl' => $editurl->out(false),
+            'edittitle' => get_string('editaction', 'local_coursedynamicrules'),
+        ];
+    }
+}
+
+$actionoptions = local_coursedynamicrules_load_action_options();
+
+
+// Render heading and branding using reusable renderable.
+$headerrow = new \local_coursedynamicrules\output\header_with_brand('actions');
+echo $OUTPUT->render($headerrow);
+echo html_writer::link($rulesurl, get_string('backtolistrules', 'local_coursedynamicrules'), ['class' => 'mb-3 d-block']);
+echo html_writer::start_div('d-flex');
+echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
+echo html_writer::start_div('col-8');
+echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $actionsfortemplate]);
+
+if ($actioninstance !== null) {
+    $actioninstance->show_editform();
 }
 
 echo html_writer::end_div();

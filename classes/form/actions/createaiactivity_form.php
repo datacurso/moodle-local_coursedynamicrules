@@ -127,6 +127,21 @@ class createaiactivity_form extends action_form {
     }
 
     /**
+     * Map stored params into the defaults consumed by set_data().
+     *
+     * @param object $params Decoded stored params for the action being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return [
+            'message' => $params->message ?? '',
+            'generateimages' => !empty($params->generateimages) ? 1 : 0,
+            'sectionnum' => (int) ($params->sectionnum ?? 0),
+            'beforemod' => (int) ($params->beforemod ?? 0),
+        ];
+    }
+
+    /**
      * Returns the required plugins needed by the action.
      *
      * @return array

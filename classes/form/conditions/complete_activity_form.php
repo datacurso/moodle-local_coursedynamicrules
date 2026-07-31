@@ -100,4 +100,14 @@ class complete_activity_form extends condition_form {
     private function is_completion_enabled($cminfo) {
         return $cminfo->completion == COMPLETION_TRACKING_MANUAL || $cminfo->completion == COMPLETION_TRACKING_AUTOMATIC;
     }
+
+    /**
+     * Map the stored 'cmid' param onto the 'coursemodule' autocomplete element.
+     *
+     * @param object $params Decoded stored params for the condition being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return ['coursemodule' => $params->cmid ?? null];
+    }
 }

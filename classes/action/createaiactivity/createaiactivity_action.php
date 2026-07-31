@@ -25,7 +25,6 @@ use local_coursedynamicrules\local\payload_anonymizer;
 use local_coursegen\ai_context;
 use local_coursegen\mod_manager;
 use moodle_url;
-use stdClass;
 
 /**
  * Class createaiactivity_action
@@ -163,10 +162,9 @@ class createaiactivity_action extends action {
      * Saves the action after it has been created or edited.
      *
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     public function save_action($formdata) {
-        global $DB;
-
         $params = [
             'message' => trim($formdata->message),
             'generateimages' => !empty($formdata->generateimages),
@@ -174,13 +172,7 @@ class createaiactivity_action extends action {
             'beforemod' => empty($formdata->beforemod) ? null : (int) $formdata->beforemod,
         ];
 
-        $action = new stdClass();
-        $action->ruleid = $formdata->ruleid;
-        $action->actiontype = $this->type;
-        $action->params = json_encode($params);
-
-        $this->set_data($action);
-        return $DB->insert_record('local_coursedynamicrules_action', $action);
+        return $this->upsert($params, $formdata);
     }
 
     /**

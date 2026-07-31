@@ -1,3 +1,17 @@
+## 1.8.0
+
+**Released on:** 2026-07-30
+
+**Compatibility note:** This version is compatible with **Moodle 4.5**.
+
+## Added
+- **Edit existing rule conditions and actions**
+  Every condition and action type can now be edited in place from the conditions/actions listing (a new edit control next to delete), reusing the same creation form, preload and validation, without recreating the row or disturbing sibling components or runtime state (execution throttling, already-granted activity access). Editing a foreign or tampered component id is rejected before any form render or write.
+- **Audit events for edits**
+  Editing a condition or action now triggers a dedicated `condition_updated`/`action_updated` Moodle event (mirroring the existing created/deleted events), so in-place edits appear in the logs and reports instead of going unaudited or being reported as a new component.
+
+---
+
 ## 1.7.1
 
 **Released on:** 2026-07-29

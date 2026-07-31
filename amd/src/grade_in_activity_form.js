@@ -54,12 +54,27 @@ function createDynamicForm(container) {
 /**
  * Handles the form loading process.
  *
+ * On an edit, the outer form's hidden 'cmid'/'gradeitems' fields already hold the stored condition
+ * (preloaded server-side via grade_in_activity_form::preload_defaults(), D5): this initial load
+ * forwards them as-is so the dynamic sub-form renders the correct activity's grade items and
+ * set_data_for_dynamic_submission() can pre-check/prefill them. On create both hidden fields are
+ * empty, so the load falls back to the create-time default (first available activity, blank state).
+ *
  * @param {DynamicForm} dynamicForm The dynamic form instance.
  */
 function handleLoadForm(dynamicForm) {
     const loadPromise = new Pending(' local_coursedynamicrules/grade_in_activity_form:load');
     const courseId = document.querySelector('[name=courseid]').value;
-    dynamicForm.load({courseid: courseId})
+    const cmId = document.querySelector('[name=cmid]').value;
+    const gradeItems = document.querySelector('[name=gradeitems]').value;
+
+    const loadArgs = {courseid: courseId};
+    if (cmId) {
+        loadArgs.coursemodule = cmId;
+        loadArgs.gradeitems = gradeItems;
+    }
+
+    dynamicForm.load(loadArgs)
         .then(() => {
             attachCourseModuleChangeListener(dynamicForm);
             rebuildGradeItems();
@@ -161,6 +176,10 @@ async function attachCourseModuleChangeListener(dynamicForm) {
 
 /**
  * Handles the course module change event.
+ *
+ * Intentionally does NOT forward 'gradeitems': switching activity must always start from a blank
+ * set of thresholds, whether the form is in create or edit mode, since a previously stored
+ * condition belongs to a different course module.
  *
  * @param {DynamicForm} dynamicForm The dynamic form instance.
  * @param {string} courseModuleValue The selected course module value.

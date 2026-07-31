@@ -66,7 +66,10 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             }
         }
 
-        $cm = $cmid ? $filteredcms[$cmid] : reset($filteredcms);
+        // A stored cmid may no longer be eligible (activity deleted, or completion/grade settings
+        // changed since the condition was saved): fall back to the first eligible activity instead
+        // of indexing a missing key and dereferencing a null $cm.
+        $cm = $filteredcms[$cmid] ?? (reset($filteredcms) ?: null);
 
         $attributes = [
             'multiple' => false,
@@ -79,9 +82,10 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             $options,
             $attributes
         );
-        $mform->setDefault('coursemodule', $cm->id);
 
         if ($cm) {
+            $mform->setDefault('coursemodule', $cm->id);
+
             $component = 'mod_' . $cm->modname;
 
             // Get the itemnames mapping for the component. This is used to display the grade item names in the form.
@@ -290,9 +294,37 @@ class dynamic_grade_in_activity_form extends dynamic_form {
      *     $data = api::get_entity($id); // For example, retrieve a row from the DB.
      *     file_prepare_standard_filemanager($data, ...);
      *     $this->set_data($data);
+     *
+     * On edit, the outer grade_in_activity_form preloads the hidden 'cmid'/'gradeitems' fields from
+     * the stored condition (D5); the AMD module passes their values here as the initial
+     * dynamicForm.load() args, so this decodes 'gradeitems' and maps each stored key straight onto
+     * its matching enable{cond}_{gid} checkbox and {cond}_{gid} value element name (the stored key
+     * IS the value element's name).
      */
     public function set_data_for_dynamic_submission(): void {
-        // Set some default data.
+        $gradeitems = json_decode($this->optional_param('gradeitems', '{}', PARAM_RAW), true);
+        if (!is_array($gradeitems)) {
+            return;
+        }
+
+        $defaults = [];
+        foreach ($gradeitems as $key => $item) {
+            if (!is_array($item) || !isset($item['value'])) {
+                continue;
+            }
+            if (!empty($item['disabled'])) {
+                // A deliberately disabled threshold (the AMD rebuild serialises disabled:true
+                // entries) must stay unchecked on a failed-validation redisplay, not be
+                // force-re-enabled just because it still carries a stored value (FIX2-7).
+                continue;
+            }
+            $defaults['enable' . $key] = 1;
+            $defaults[$key] = $item['value'];
+        }
+
+        if (!empty($defaults)) {
+            $this->set_data((object) $defaults);
+        }
     }
 
     /**

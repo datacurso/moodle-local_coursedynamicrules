@@ -76,6 +76,14 @@ class no_course_access_form extends condition_form {
             $errors['period_group'] = get_string('errorperiodvalue', 'local_coursedynamicrules');
         }
 
+        // The select element only offers hours/days/weeks, but server-side validation must not
+        // trust that a submission actually went through it (tampered POST) - an unrecognised unit
+        // would otherwise reach strtotime() in the condition and silently misbehave.
+        $periodunit = $data['periodunit'] ?? '';
+        if (!in_array($periodunit, ['hours', 'days', 'weeks'], true)) {
+            $errors['period_group'] = get_string('errorperiodunit', 'local_coursedynamicrules');
+        }
+
         return $errors;
     }
 }

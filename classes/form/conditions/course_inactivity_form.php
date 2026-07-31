@@ -133,4 +133,23 @@ class course_inactivity_form extends condition_form {
 
         return $errors;
     }
+
+    /**
+     * Map the stored 'timeintervals' param onto whichever text field matches the stored
+     * 'intervaltype': 'customintervals' for INTERVAL_CUSTOM, 'recurringinterval' otherwise.
+     *
+     * @param object $params Decoded stored params for the condition being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        $defaults = (array) $params;
+
+        if (($params->intervaltype ?? null) === self::INTERVAL_CUSTOM) {
+            $defaults['customintervals'] = $params->timeintervals ?? null;
+        } else {
+            $defaults['recurringinterval'] = $params->timeintervals ?? null;
+        }
+
+        return $defaults;
+    }
 }

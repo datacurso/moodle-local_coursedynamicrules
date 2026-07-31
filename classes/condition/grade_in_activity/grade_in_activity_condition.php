@@ -23,7 +23,6 @@ use grade_item;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\grade_in_activity_form;
-use stdClass;
 
 defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/completionlib.php');
@@ -195,14 +194,14 @@ class grade_in_activity_condition extends condition {
         $gradestrings = [];
 
         $gradegtekey = 'gradegte' . '_' . $gradeitemid;
-        $gradegte = $gradeitemsconditions->$gradegtekey;
+        $gradegte = $gradeitemsconditions->$gradegtekey ?? null;
 
         if ($gradegte) {
             $gradestrings[] = get_string('gradegreaterthanorequalvalue', 'local_coursedynamicrules', $gradegte->value);
         }
 
         $gradeltkey = 'gradelt' . '_' . $gradeitemid;
-        $gradelt = $gradeitemsconditions->$gradeltkey;
+        $gradelt = $gradeitemsconditions->$gradeltkey ?? null;
 
         if ($gradelt) {
             $gradestrings[] = get_string('gradelessthanvalue', 'local_coursedynamicrules', $gradelt->value);
@@ -260,10 +259,9 @@ class grade_in_activity_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
-        global $DB;
-
         $gradeitems = json_decode($formdata->gradeitems, true);
         if (!is_array($gradeitems)) {
             throw new \invalid_parameter_exception('Invalid gradeitems data: expected a JSON object of grade conditions');
@@ -296,13 +294,6 @@ class grade_in_activity_condition extends condition {
             'gradeitemsconditions' => $gradeitemsconditions,
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
-
-        $this->set_data($condition);
-
-        return $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        return $this->upsert($params, $formdata);
     }
 }

@@ -96,4 +96,18 @@ class no_complete_activity_form extends condition_form {
 
         return $errors;
     }
+
+    /**
+     * Map the stored 'cmid' param onto the 'coursemodule' autocomplete element; expectedcompletiondate
+     * passes through unchanged.
+     *
+     * @param object $params Decoded stored params for the condition being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return [
+            'coursemodule' => $params->cmid ?? null,
+            'expectedcompletiondate' => $params->expectedcompletiondate ?? null,
+        ];
+    }
 }

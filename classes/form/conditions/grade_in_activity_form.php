@@ -94,4 +94,19 @@ class grade_in_activity_form extends condition_form {
 
         return $errors;
     }
+
+    /**
+     * Map the stored 'cmid' and 'gradeitemsconditions' params onto the hidden 'cmid'/'gradeitems'
+     * fields. These hidden fields are the DOM source of truth read by the AMD module's initial
+     * dynamicForm.load() call (D5) — no JSON payload crosses the PHP->JS bridge via js_call_amd.
+     *
+     * @param object $params Decoded stored params for the condition being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return [
+            'cmid' => $params->cmid ?? 0,
+            'gradeitems' => json_encode($params->gradeitemsconditions ?? new \stdClass()),
+        ];
+    }
 }

@@ -20,7 +20,6 @@ use completion_info;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\passgrade_form;
-use stdClass;
 
 /**
  * Class passgrade_condition
@@ -106,9 +105,9 @@ class passgrade_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
-        global $DB;
         $cmid = clean_param($formdata->coursemodule ?? 0, PARAM_INT);
         if ($cmid <= 0) {
             throw new \invalid_parameter_exception('A course module must be selected');
@@ -117,14 +116,7 @@ class passgrade_condition extends condition {
             'cmid' => $cmid,
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
-
-        $this->set_data($condition);
-
-        return $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        return $this->upsert($params, $formdata);
     }
 
     /**
