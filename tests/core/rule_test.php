@@ -47,8 +47,12 @@ final class rule_test extends \advanced_testcase {
         $completion = new \completion_info($course);
         $completion->update_state($cm, COMPLETION_COMPLETE, $userid);
 
-        $completionid = (int) $DB->get_field('course_modules_completion', 'id',
-            ['coursemoduleid' => $cm->id, 'userid' => $userid], MUST_EXIST);
+        $completionid = (int) $DB->get_field(
+            'course_modules_completion',
+            'id',
+            ['coursemoduleid' => $cm->id, 'userid' => $userid],
+            MUST_EXIST
+        );
 
         return [$cm, $completionid];
     }

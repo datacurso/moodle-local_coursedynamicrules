@@ -1,20 +1,46 @@
-## Unreleased
+## 1.8.0
+
+**Released on:** 2026-07-30
+
+**Compatibility note:** This version is compatible with **Moodle 4.5**.
 
 ## Added
 - **Edit existing rule conditions and actions**
   Every condition and action type can now be edited in place from the conditions/actions listing (a new edit control next to delete), reusing the same creation form, preload and validation, without recreating the row or disturbing sibling components or runtime state (execution throttling, already-granted activity access). Editing a foreign or tampered component id is rejected before any form render or write.
+- **Audit events for edits**
+  Editing a condition or action now triggers a dedicated `condition_updated`/`action_updated` Moodle event (mirroring the existing created/deleted events), so in-place edits appear in the logs and reports instead of going unaudited or being reported as a new component.
+
+---
+
+## 1.7.1
+
+**Released on:** 2026-07-29
+
+**Compatibility note:** This version is compatible with **Moodle 4.5**.
+
+## Added
+- **Audit events**
+  Creating, updating and deleting rules, conditions and actions now trigger Moodle events so these operations appear in the logs and reports.
+
+## Changed
+- **Privacy provider declares the external AI transfer**
+  The privacy provider now declares, through the Privacy API, the course context and user id sent to the external Datacurso AI service when the create AI activity action runs, instead of declaring that no data leaves Moodle.
+- **Scheduled task observability**
+  The "no course access" and "no complete activity" tasks now report per-run counts and duration, and warn when a course exceeds a configurable batch threshold (`taskbatchsize`), without changing their cadence or evaluation semantics.
 
 ---
 
 ## 1.7.0
 
-**Released on:** 2026-07-23
+**Released on:** 2026-07-28
 
 **Compatibility note:** This version is compatible with **Moodle 4.5**.
 
 ## Security
 - **Cross-course access on rule management pages**
   Rules, conditions and actions were loaded by id only while capabilities were checked against the requested course, allowing a user with management capability in one course to view, edit, delete or move another course's rules by tampering with the URL or the edit form's hidden id. A new ownership helper now confirms the object belongs to the requested course on the edit and delete pages, the course id is forced when saving a rule, and the submitted rule id is re-validated against the course before an update so a tampered hidden id cannot overwrite or move another course's rule.
+- **Stored XSS in configurable rule descriptions**
+  Rule, condition and action descriptions embed user-configurable text (such as the notification subject and body, the AI activity prompt, and role or activity names) and were rendered without escaping on the rules list and the delete confirmation pages, allowing stored HTML or JavaScript to execute in another user's browser. A new component renderer escapes every description at the rendering boundary before it reaches the page.
 
 ## Added
 - **Privacy provider**

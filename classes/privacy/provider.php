@@ -16,25 +16,41 @@
 
 namespace local_coursedynamicrules\privacy;
 
+use core_privacy\local\metadata\collection;
+
 /**
  * Privacy provider for local_coursedynamicrules.
  *
- * The plugin stores no personal data in its own tables: rules, conditions and actions hold course
- * configuration only (course ids, module ids, role ids, prompts). User-linked side effects
- * (messages, adhoc tasks, activity availability) live in core subsystems that declare their own
- * privacy metadata.
+ * The plugin stores no personal data in its own tables (rules, conditions and actions hold course
+ * configuration only), so it implements no data store. It does, however, transfer course and user
+ * context to an external AI service when the "create AI activity" action runs, which is declared
+ * here as an external location so administrators can account for it. User-linked side effects that
+ * stay inside Moodle (messages, adhoc tasks, activity availability) live in core subsystems that
+ * declare their own privacy metadata.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class provider implements \core_privacy\local\metadata\null_provider {
+class provider implements \core_privacy\local\metadata\provider {
     /**
-     * Reason why this plugin stores no personal data.
+     * Describe the personal data leaving Moodle for external processing.
      *
-     * @return string
+     * @param collection $collection The metadata collection to add to.
+     * @return collection The updated collection.
      */
-    public static function get_reason(): string {
-        return 'privacy:metadata';
+    public static function get_metadata(collection $collection): collection {
+        $collection->add_external_location_link(
+            'datacurso_ai',
+            [
+                'userid' => 'privacy:metadata:datacurso_ai:userid',
+                'courseid' => 'privacy:metadata:datacurso_ai:courseid',
+                'courseurl' => 'privacy:metadata:datacurso_ai:courseurl',
+                'prompt' => 'privacy:metadata:datacurso_ai:prompt',
+            ],
+            'privacy:metadata:datacurso_ai'
+        );
+
+        return $collection;
     }
 }

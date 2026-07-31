@@ -150,6 +150,7 @@ class no_course_access_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
         $periodvalue = $formdata->periodvalue;
@@ -170,7 +171,7 @@ class no_course_access_condition extends condition {
             'nexttimeperiod' => time(),
         ];
 
-        $this->upsert($params, $formdata);
+        return $this->upsert($params, $formdata);
     }
 
     /**

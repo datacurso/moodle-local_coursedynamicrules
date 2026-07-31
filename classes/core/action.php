@@ -234,7 +234,20 @@ abstract class action {
     public function delete() {
         global $DB;
 
-        return $DB->delete_records('local_coursedynamicrules_action', ['id' => $this->get_id()]);
+        $record = $DB->get_record('local_coursedynamicrules_action', ['id' => $this->get_id()]);
+
+        $result = $DB->delete_records('local_coursedynamicrules_action', ['id' => $this->get_id()]);
+
+        $event = \local_coursedynamicrules\event\action_deleted::create([
+            'context' => \context_course::instance($this->courseid),
+            'objectid' => $this->get_id(),
+        ]);
+        if ($record) {
+            $event->add_record_snapshot('local_coursedynamicrules_action', $record);
+        }
+        $event->trigger();
+
+        return $result;
     }
 
     /**
@@ -278,6 +291,7 @@ abstract class action {
     /**
      * Saves the action after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     abstract public function save_action($formdata);
 }

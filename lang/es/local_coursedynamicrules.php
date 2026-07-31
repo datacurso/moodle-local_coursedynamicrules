@@ -132,10 +132,19 @@ $string['errormaxgradeexceeded'] = 'La calificación no puede exceder la calific
 $string['errornegativegrade'] = 'La calificación debe ser 0 o mayor.';
 $string['errornocoursemodule'] = 'Debe seleccionar una actividad de este curso.';
 $string['errornocoursestart'] = 'Este curso no tiene fecha de inicio, por lo que no se puede usar «desde el inicio del curso». Configure una fecha de inicio del curso o elija otra fecha base.';
+$string['errornogradeconditions'] = 'Habilite al menos una condición de calificación e ingrese un valor.';
 $string['errorperiodunit'] = 'La unidad del período debe ser una de: horas, días, semanas.';
 $string['errorperiodvalue'] = 'El período debe ser un número entero mayor que 0.';
 $string['errorrecurringinterval'] = 'El intervalo recurrente debe ser un número entero mayor que 0.';
-$string['errornogradeconditions'] = 'Habilite al menos una condición de calificación e ingrese un valor.';
+$string['event:action_created'] = 'Acción de regla dinámica creada';
+$string['event:action_deleted'] = 'Acción de regla dinámica eliminada';
+$string['event:action_updated'] = 'Acción de regla dinámica actualizada';
+$string['event:condition_created'] = 'Condición de regla dinámica creada';
+$string['event:condition_deleted'] = 'Condición de regla dinámica eliminada';
+$string['event:condition_updated'] = 'Condición de regla dinámica actualizada';
+$string['event:rule_created'] = 'Regla dinámica creada';
+$string['event:rule_deleted'] = 'Regla dinámica eliminada';
+$string['event:rule_updated'] = 'Regla dinámica actualizada';
 $string['expectedcompletiondate'] = 'Fecha de finalización prevista';
 $string['firstname'] = 'Nombre del usuario';
 $string['fullname'] = 'Nombre completo del usuario';
@@ -215,7 +224,11 @@ $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Este complemento no está disponible porque la licencia del producto ha caducado o no es válida. Vaya a <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> para renovarla o comprar una nueva.';
 $string['primaryrecipients'] = 'Destinatarios principales';
 $string['primaryrecipients_help'] = 'Selecciona los roles que recibirán la notificación principal cuando la condición se cumpla para un usuario de esos roles.';
-$string['privacy:metadata'] = 'El plugin Reglas dinámicas de curso no almacena ningún dato personal. Solo almacena configuración del curso (reglas, condiciones y acciones).';
+$string['privacy:metadata:datacurso_ai'] = 'Se envía contexto del curso al servicio de IA de Datacurso para generar actividades de refuerzo.';
+$string['privacy:metadata:datacurso_ai:courseid'] = 'El id del curso para el que se genera la actividad de refuerzo.';
+$string['privacy:metadata:datacurso_ai:courseurl'] = 'La URL del curso, enviada como contexto para la actividad generada.';
+$string['privacy:metadata:datacurso_ai:prompt'] = 'El prompt configurado que describe la actividad de refuerzo a generar.';
+$string['privacy:metadata:datacurso_ai:userid'] = 'El id del usuario para el que se genera la actividad de refuerzo.';
 $string['provider_not_enabled_warning'] = 'Habilite las notificaciones con <strong>Datacurso Message Hub</strong> para que esta acción envíe notificaciones por WhatsApp y SMS utilizando proveedores como Twilio.
 Puede habilitarlo desde <a href="{$a}" target="_blank">Configuración de notificaciones</a> buscando <strong>Smart Rules AI notification</strong>.
 <br>

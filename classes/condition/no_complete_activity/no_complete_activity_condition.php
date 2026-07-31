@@ -137,6 +137,7 @@ class no_complete_activity_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
         $cmid = clean_param($formdata->coursemodule ?? 0, PARAM_INT);
@@ -148,7 +149,7 @@ class no_complete_activity_condition extends condition {
             'expectedcompletiondate' => $formdata->expectedcompletiondate,
         ];
 
-        $this->upsert($params, $formdata);
+        return $this->upsert($params, $formdata);
     }
 
     /**

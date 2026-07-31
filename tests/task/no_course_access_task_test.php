@@ -91,7 +91,9 @@ final class no_course_access_task_test extends \advanced_testcase {
         $this->create_rule($course->id, $studentroleid);
 
         $sink = $this->redirectMessages();
+        ob_start();
         (new no_course_access_task())->execute();
+        ob_end_clean();
 
         $messages = $sink->get_messages_by_component('local_coursedynamicrules');
         $tostudent = array_filter($messages, function ($m) use ($student) {
@@ -120,7 +122,9 @@ final class no_course_access_task_test extends \advanced_testcase {
         $this->create_rule($course->id, $studentroleid);
 
         $sink = $this->redirectMessages();
+        ob_start();
         (new no_course_access_task())->execute();
+        ob_end_clean();
 
         $messages = $sink->get_messages_by_component('local_coursedynamicrules');
         $tostudent = array_filter($messages, function ($m) use ($student) {

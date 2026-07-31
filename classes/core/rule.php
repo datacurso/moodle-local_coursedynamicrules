@@ -233,6 +233,8 @@ class rule {
     public function delete() {
         global $DB;
 
+        $record = $DB->get_record('local_coursedynamicrules_rule', ['id' => $this->id]);
+
         foreach ($this->conditions as $condition) {
             $condition->delete();
         }
@@ -241,7 +243,18 @@ class rule {
             $action->delete();
         }
 
-        return $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
+        $result = $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
+
+        $event = \local_coursedynamicrules\event\rule_deleted::create([
+            'context' => \context_course::instance($this->courseid),
+            'objectid' => $this->id,
+        ]);
+        if ($record) {
+            $event->add_record_snapshot('local_coursedynamicrules_rule', $record);
+        }
+        $event->trigger();
+
+        return $result;
     }
 
     /**

@@ -259,6 +259,7 @@ class grade_in_activity_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
         $gradeitems = json_decode($formdata->gradeitems, true);
@@ -293,6 +294,6 @@ class grade_in_activity_condition extends condition {
             'gradeitemsconditions' => $gradeitemsconditions,
         ];
 
-        $this->upsert($params, $formdata);
+        return $this->upsert($params, $formdata);
     }
 }

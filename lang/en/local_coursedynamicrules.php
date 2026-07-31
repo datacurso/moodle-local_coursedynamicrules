@@ -133,10 +133,19 @@ $string['errormaxgradeexceeded'] = 'The grade cannot exceed the maximum grade fo
 $string['errornegativegrade'] = 'The grade must be 0 or greater.';
 $string['errornocoursemodule'] = 'You must select an activity from this course.';
 $string['errornocoursestart'] = 'This course has no start date, so "from course start" cannot be used. Set a course start date or choose a different base date.';
+$string['errornogradeconditions'] = 'Enable at least one grade condition and enter a grade value.';
 $string['errorperiodunit'] = 'The period unit must be one of: hours, days, weeks.';
 $string['errorperiodvalue'] = 'The period must be a whole number greater than 0.';
 $string['errorrecurringinterval'] = 'The recurring interval must be a whole number greater than 0.';
-$string['errornogradeconditions'] = 'Enable at least one grade condition and enter a grade value.';
+$string['event:action_created'] = 'Dynamic rule action created';
+$string['event:action_deleted'] = 'Dynamic rule action deleted';
+$string['event:action_updated'] = 'Dynamic rule action updated';
+$string['event:condition_created'] = 'Dynamic rule condition created';
+$string['event:condition_deleted'] = 'Dynamic rule condition deleted';
+$string['event:condition_updated'] = 'Dynamic rule condition updated';
+$string['event:rule_created'] = 'Dynamic rule created';
+$string['event:rule_deleted'] = 'Dynamic rule deleted';
+$string['event:rule_updated'] = 'Dynamic rule updated';
 $string['expectedcompletiondate'] = 'Expected completion date';
 $string['firstname'] = 'User firstname';
 $string['fullname'] = 'User fullname';
@@ -216,7 +225,11 @@ $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'This plugin is not available, because the product license has expired or is invalid. Please go to <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> to renew or purchase a new license.';
 $string['primaryrecipients'] = 'Primary recipients';
 $string['primaryrecipients_help'] = 'Select which roles receive the primary notification when the condition is met for a user in those roles.';
-$string['privacy:metadata'] = 'The Course dynamic rules plugin does not store any personal data. It only stores course configuration (rules, conditions and actions).';
+$string['privacy:metadata:datacurso_ai'] = 'Course context is sent to the Datacurso AI service to generate reinforcement activities.';
+$string['privacy:metadata:datacurso_ai:courseid'] = 'The id of the course the reinforcement activity is generated for.';
+$string['privacy:metadata:datacurso_ai:courseurl'] = 'The URL of the course, sent as context for the generated activity.';
+$string['privacy:metadata:datacurso_ai:prompt'] = 'The configured prompt describing the reinforcement activity to generate.';
+$string['privacy:metadata:datacurso_ai:userid'] = 'The id of the user the reinforcement activity is generated for.';
 $string['provider_not_enabled_warning'] = 'Enable notifications with <strong>Datacurso Message Hub</strong> to this action to send notifications via WhatsApp and SMS using providers like Twilio.
 You can enable it from <a href="{$a}" target="_blank">Notification settings</a> and searching <strong>Smart Rules AI notification</strong>.
 <br>

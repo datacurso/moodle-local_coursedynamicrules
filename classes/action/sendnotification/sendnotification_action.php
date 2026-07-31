@@ -225,6 +225,7 @@ class sendnotification_action extends action {
     /**
      * Saves the action after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     public function save_action($formdata) {
         $primaryrecipients = $formdata->primaryrecipients ?? [];
@@ -267,7 +268,7 @@ class sendnotification_action extends action {
             $params['bodyisraw'] = true;
         }
 
-        $this->upsert($params, $formdata);
+        return $this->upsert($params, $formdata);
     }
 
     /**

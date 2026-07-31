@@ -427,6 +427,7 @@ class course_inactivity_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
         $timeintervals = $formdata->intervaltype == self::INTERVAL_CUSTOM ?
@@ -446,7 +447,7 @@ class course_inactivity_condition extends condition {
             'basedatetype' => $formdata->basedatetype,
         ];
 
-        $this->upsert($params, $formdata);
+        return $this->upsert($params, $formdata);
     }
 
     /**

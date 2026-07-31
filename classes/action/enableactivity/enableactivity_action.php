@@ -276,6 +276,7 @@ class enableactivity_action extends action {
      * upsert() too (micro-sweep), so a partially-applied edit is never left half-committed.
      *
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     public function save_action($formdata) {
         global $DB;
@@ -335,7 +336,7 @@ class enableactivity_action extends action {
             // Upsert FIRST (FIX3-3): a brand-new action has no id - and therefore no marker value -
             // until this runs, so apply_availability() below must be able to rely on get_id()
             // already being set for both the create and the edit path.
-            $this->upsert($params, $formdata);
+            $actionid = $this->upsert($params, $formdata);
 
             foreach ($tomanage as $cmid) {
                 $this->apply_availability($cmid, false);
@@ -356,6 +357,8 @@ class enableactivity_action extends action {
         $transaction->allow_commit();
 
         rebuild_course_cache($this->courseid, true);
+
+        return $actionid;
     }
 
     /**

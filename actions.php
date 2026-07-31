@@ -22,8 +22,6 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// TODO Refactor this file.
-
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\rule_component_loader;
 
@@ -93,6 +91,10 @@ if ($editid > 0) {
         redirect($url);
     } else if ($data = $actioninstance->get_data()) {
         $actioninstance->save_action($data);
+        \local_coursedynamicrules\event\action_updated::create([
+            'context' => $context,
+            'objectid' => $editid,
+        ])->trigger();
         redirect($url);
     }
 } else if (!empty($type)) {
@@ -111,7 +113,11 @@ if ($editid > 0) {
     if ($actioninstance->is_cancelled()) {
         redirect($url);
     } else if ($data = $actioninstance->get_data()) {
-        $actioninstance->save_action($data);
+        $actionid = $actioninstance->save_action($data);
+        \local_coursedynamicrules\event\action_created::create([
+            'context' => $context,
+            'objectid' => $actionid,
+        ])->trigger();
         redirect($url);
     }
 }

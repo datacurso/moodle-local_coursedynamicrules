@@ -124,7 +124,7 @@ class complete_activity_condition extends condition {
             'cmid' => $cmid,
         ];
 
-        $this->upsert($params, $formdata);
+        return $this->upsert($params, $formdata);
     }
 
     /**

@@ -162,6 +162,7 @@ class createaiactivity_action extends action {
      * Saves the action after it has been created or edited.
      *
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     public function save_action($formdata) {
         $params = [
@@ -171,7 +172,7 @@ class createaiactivity_action extends action {
             'beforemod' => empty($formdata->beforemod) ? null : (int) $formdata->beforemod,
         ];
 
-        $this->upsert($params, $formdata);
+        return $this->upsert($params, $formdata);
     }
 
     /**
