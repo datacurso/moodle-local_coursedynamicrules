@@ -21,7 +21,7 @@ Feature: Edit existing rule conditions and actions
 
   Scenario: Editing a condition preloads its stored values and updates it in place
     Given I log in as "teacher1"
-    And I am on the "C1" course homepage
+    And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit conditions" "link"
     And ".fa-pencil" "css_element" should exist
@@ -35,7 +35,7 @@ Feature: Edit existing rule conditions and actions
 
   Scenario: Editing an action preloads its stored values and updates it in place
     Given I log in as "teacher1"
-    And I am on the "C1" course homepage
+    And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit actions" "link"
     And ".fa-pencil" "css_element" should exist
@@ -49,7 +49,7 @@ Feature: Edit existing rule conditions and actions
 
   Scenario: An invalid edit is rejected by the same validation used at creation
     Given I log in as "teacher1"
-    And I am on the "C1" course homepage
+    And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit conditions" "link"
     When I click on "(//div[contains(@class, 'instance-card')])[1]//a[.//i[contains(@class, 'fa-pencil')]]" "xpath_element"
@@ -80,7 +80,7 @@ Feature: Edit existing rule conditions and actions
   #     | course | activity | condition | value | subject                 |
   #     | C1     | quiz1    | gradegte  | 50    | Grade threshold subject |
   #   And I log in as "teacher1"
-  #   And I am on the "C1" course homepage
+  #   And I am on "C1" course homepage
   #   And I navigate to "Smart Rules AI" in current page administration
   #   And I click on "Edit conditions" "link"
   #   When I click on "(//div[contains(@class, 'instance-card')])[1]//a[.//i[contains(@class, 'fa-pencil')]]" "xpath_element"
