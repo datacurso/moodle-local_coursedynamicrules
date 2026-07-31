@@ -69,7 +69,12 @@ class dynamic_grade_in_activity_form extends dynamic_form {
         // A stored cmid may no longer be eligible (activity deleted, or completion/grade settings
         // changed since the condition was saved): fall back to the first eligible activity instead
         // of indexing a missing key and dereferencing a null $cm.
-        $cm = $filteredcms[$cmid] ?? (reset($filteredcms) ?: null);
+        $cm = null;
+        if (isset($filteredcms[$cmid])) {
+            $cm = $filteredcms[$cmid];
+        } else if (!empty($filteredcms)) {
+            $cm = reset($filteredcms);
+        }
 
         $attributes = [
             'multiple' => false,
