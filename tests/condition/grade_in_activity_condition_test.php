@@ -260,6 +260,29 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * A condition that sets only one of the two thresholds still describes itself without warnings.
+     *
+     * The threshold keys are read dynamically off the stored params, so the absent counterpart must
+     * be treated as missing rather than dereferenced. Behat surfaced this as an undefined-property
+     * warning on the listing page; only the deleted-activity path was covered before, and that path
+     * returns early without ever reading a threshold.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_with_a_single_threshold_does_not_warn(): void {
+        $this->resetAfterTest(true);
+
+        [$course, $cm, $gradeitemid] = $this->create_graded_quiz();
+        $condition = $this->create_gradelt_condition($cm->id, $gradeitemid, 5.0, $course->id);
+
+        $description = $condition->get_description();
+
+        $this->assertNotSame('', $description);
+        $this->assertStringNotContainsString('[[', $description);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
      * A user graded below the threshold satisfies the condition, without warnings.
      *
      * @covers ::evaluate
