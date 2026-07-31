@@ -1,3 +1,15 @@
+## 1.8.1
+
+**Released on:** 2026-07-31
+
+**Compatibility note:** This version is compatible with **Moodle 4.5**.
+
+## Changed
+- **Editing an existing condition or action is unavailable**
+  The edit control has been removed from the conditions and actions lists, and the editor cannot be reached by a direct link or a bookmark either: any such request returns to the list with a notice. Editing changes what an already-running rule will do to learners, so it is withheld until the advisory messages that must accompany it are in place. Adding and deleting components are unaffected, and no stored rule, condition or action is modified by this upgrade.
+
+---
+
 ## 1.8.0
 
 **Released on:** 2026-07-30
