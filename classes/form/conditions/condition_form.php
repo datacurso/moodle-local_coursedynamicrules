@@ -43,6 +43,7 @@ class condition_form extends \moodleform {
         $mform->addElement('hidden', 'ruleid', $this->ruleid);
         $mform->setType('type', PARAM_TEXT);
         $mform->setType('ruleid', PARAM_INT);
+        $mform->setType('courseid', PARAM_INT);
         $this->add_action_buttons();
     }
 }

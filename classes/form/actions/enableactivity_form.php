@@ -60,6 +60,7 @@ class enableactivity_form extends action_form {
         $mform->addElement('hidden', 'courseid', $courseid);
         $mform->setType('type', PARAM_TEXT);
         $mform->setType('ruleid', PARAM_INT);
+        $mform->setType('courseid', PARAM_INT);
 
         $modinfo = get_fast_modinfo($courseid);
         $cms = $modinfo->get_cms();
@@ -84,7 +85,7 @@ class enableactivity_form extends action_form {
             $options,
             $attributes
         );
-        $mform->setType('coursemodule', PARAM_INT);
+        $mform->setType('coursemodules', PARAM_INT);
 
         parent::definition();
     }
