@@ -145,7 +145,7 @@ $addrulebutton = new single_button(
     $editruleurl,
     get_string('ruleadd', 'local_coursedynamicrules'),
     'get',
-    true
+    single_button::BUTTON_PRIMARY
 );
 
 // Render heading and branding on the same row.
