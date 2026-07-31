@@ -54,50 +54,16 @@ if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid,
 // Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
 // form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
 $editid = optional_param('edit', 0, PARAM_INT);
-$conditioninstance = null;
 if ($editid > 0) {
-    // Ownership is checked here (GET) and re-checked implicitly on POST: $editid comes from
-    // optional_param() again on the resubmitted request, and the row is only writable through
-    // save_condition() -> upsert(), which never touches ruleid. get_condition() enforces that the
-    // component belongs to BOTH the requested course AND the requested rule, so a tampered hidden
-    // id (foreign course, or a different rule in the same course) is rejected before any form
-    // render or DB write.
-    $conditionrecord = \local_coursedynamicrules\helper\ownership::get_condition($editid, $courseid, $ruleid);
-    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord, $courseid);
-
-    // Json_decode() returns a PHP array (not stdClass) for a JSON array such as "[]", which
-    // `empty()`-based edit-mode checks in the form base classes would treat as "no record"
-    // (empty() is only ever false for objects, so a cast is enough to make this consistent for
-    // every consumer of 'record').
-    $decodedparams = json_decode($conditionrecord->params);
-    if (!is_object($decodedparams)) {
-        $decodedparams = (object) $decodedparams;
-    }
-
-    $customdata = [
-        'courseid' => $courseid,
-        'ruleid' => $ruleid,
-        'record' => $decodedparams,
-    ];
-    $conditioninstance->build_editform(
-        new moodle_url($url, ['edit' => $editid]),
-        $customdata,
-        'post',
-        '',
-        ['class' => 'card p-4']
-    );
-
-    if ($conditioninstance->is_cancelled()) {
-        redirect($url);
-    } else if ($data = $conditioninstance->get_data()) {
-        $conditioninstance->save_condition($data);
-        \local_coursedynamicrules\event\condition_updated::create([
-            'context' => $context,
-            'objectid' => $editid,
-        ])->trigger();
-        redirect($url);
-    }
-} else if (!empty($type)) {
+    // Editing an existing condition in place is not available in this release. Bounce a bookmarked
+    // link, or a form left open before the upgrade, back to the listing. This must happen before
+    // the create branch below, because an edit submission also carries a 'type' and would
+    // otherwise be read as a request to create a brand new condition.
+    redirect($url, get_string('editingunavailable', 'local_coursedynamicrules'), null,
+        \core\output\notification::NOTIFY_INFO);
+}
+$conditioninstance = null;
+if (!empty($type)) {
     $conditionrecord = (object) [
         'ruleid' => $ruleid,
         'conditiontype' => $type,
@@ -139,18 +105,14 @@ foreach ($conditions as $condition) {
             '/local/coursedynamicrules/deletecondition.php',
             ['id' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
         );
-        $editurl = new moodle_url(
-            '/local/coursedynamicrules/conditions.php',
-            ['edit' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
-        );
+        // No 'editurl' is supplied: the shared template renders the edit control only when that
+        // key is present, so leaving it out is what removes the control from every row.
         $conditionsfortemplate[] = [
             'id' => $condition->id,
             'header' => $header,
             'description' => $description,
             'deleteurl' => $deleteurl->out(false),
             'deletetitle' => get_string('deletecondition', 'local_coursedynamicrules'),
-            'editurl' => $editurl->out(false),
-            'edittitle' => get_string('editcondition', 'local_coursedynamicrules'),
         ];
     }
 }

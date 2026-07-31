@@ -114,6 +114,7 @@ $string['editaction'] = 'Editar acción';
 $string['editactions'] = 'Editar acciones';
 $string['editcondition'] = 'Editar condición';
 $string['editconditions'] = 'Editar condiciones';
+$string['editingunavailable'] = 'La edición de una condición o acción existente no está disponible en esta versión.';
 $string['editrule'] = 'Editar regla';
 $string['enableactivity'] = 'Habilitar actividad';
 $string['enableactivity_action_info'] = 'Esta acción habilitará los módulos de actividades seleccionados para los usuarios que cumplan los criterios de la regla.';

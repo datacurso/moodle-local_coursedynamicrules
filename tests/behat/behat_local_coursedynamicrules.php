@@ -152,6 +152,37 @@ class behat_local_coursedynamicrules extends behat_base {
     }
 
     /**
+     * Visit the in-place edit URL for the most recent condition in a course.
+     *
+     * Proves the editor cannot be reached by a direct link or a bookmark, not merely that the
+     * listing stopped offering a control for it.
+     *
+     * @When /^I visit the coursedynamicrules edit page for the latest condition in course "(?P<shortname>[^"]*)"$/
+     * @param string $shortname Course shortname.
+     */
+    public function i_visit_the_coursedynamicrules_edit_page_for_latest_condition(string $shortname): void {
+        global $DB;
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $condition = $DB->get_record_sql(
+            "SELECT c.id, c.ruleid
+               FROM {local_coursedynamicrules_condition} c
+               JOIN {local_coursedynamicrules_rule} r ON r.id = c.ruleid
+              WHERE r.courseid = :courseid
+           ORDER BY c.id DESC",
+            ['courseid' => $course->id],
+            IGNORE_MULTIPLE
+        );
+
+        $url = new moodle_url('/local/coursedynamicrules/conditions.php', [
+            'edit' => $condition->id,
+            'courseid' => $course->id,
+            'ruleid' => $condition->ruleid,
+        ]);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
+    }
+
+    /**
      * Set users last access timestamps per course.
      *
      * @Given /^the following users last accessed courses:$/
