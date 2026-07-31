@@ -111,7 +111,9 @@ Feature: Edit existing rule conditions and actions
     And I log in as "teacher1"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
-    And I click on "Edit conditions" "link"
+    # This scenario adds a second rule, so the click must be scoped to that rule's own table row:
+    # an unscoped "Edit conditions" click lands on the Background rule and opens the wrong form.
+    And I click on "Edit conditions" "link" in the "Behat grade in activity rule" "table_row"
     When I click on "(//div[contains(@class, 'instance-card')])[1]//a[.//i[contains(@class, 'fa-pencil')]]" "xpath_element"
     Then I should see "Quiz - Quiz 1"
     And I toggle the "gradegte" threshold for "quiz1" to "75"
