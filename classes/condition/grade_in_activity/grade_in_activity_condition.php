@@ -194,14 +194,14 @@ class grade_in_activity_condition extends condition {
         $gradestrings = [];
 
         $gradegtekey = 'gradegte' . '_' . $gradeitemid;
-        $gradegte = $gradeitemsconditions->$gradegtekey;
+        $gradegte = $gradeitemsconditions->$gradegtekey ?? null;
 
         if ($gradegte) {
             $gradestrings[] = get_string('gradegreaterthanorequalvalue', 'local_coursedynamicrules', $gradegte->value);
         }
 
         $gradeltkey = 'gradelt' . '_' . $gradeitemid;
-        $gradelt = $gradeitemsconditions->$gradeltkey;
+        $gradelt = $gradeitemsconditions->$gradeltkey ?? null;
 
         if ($gradelt) {
             $gradestrings[] = get_string('gradelessthanvalue', 'local_coursedynamicrules', $gradelt->value);
