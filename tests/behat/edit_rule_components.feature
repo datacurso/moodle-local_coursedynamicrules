@@ -7,8 +7,8 @@ Feature: Edit existing rule conditions and actions
 
   Background:
     Given the following "courses" exist:
-      | fullname | shortname | category |
-      | Course 1 | C1        | 0        |
+      | fullname | shortname | category | enablecompletion |
+      | Course 1 | C1        | 0        | 1                |
     And the following "users" exist:
       | username | firstname | lastname | email                |
       | teacher1 | Teacher1  | User1    | teacher1@example.com |
@@ -102,6 +102,13 @@ Feature: Edit existing rule conditions and actions
 
   @javascript @gradeinactivity_edit
   Scenario: Editing a grade in activity condition preloads and updates the dynamic threshold region
+    # The dynamic form only offers activities whose completion depends on a grade item
+    # (completiongradeitemnumber must be non-null). That is NOT gated by the activity's own fields:
+    # quiz already defaults to a real, non-zero grade (100) with no 'grade' field needed. The actual
+    # gate is course-level completion tracking: add_moduleinfo() only persists 'completion' and
+    # 'completiongradeitemnumber' when completion_info::is_enabled() is true, which requires the
+    # COURSE to have 'enablecompletion' set (see the Background above) - without it, the quiz's
+    # completion/completionusegrade below are silently dropped and no threshold rows are built.
     Given the following "activities" exist:
       | activity | name   | course | idnumber | completion | completionusegrade |
       | quiz     | Quiz 1 | C1     | quiz1    | 2          | 1                  |
