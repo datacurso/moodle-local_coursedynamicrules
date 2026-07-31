@@ -65,8 +65,13 @@ Feature: Edit existing rule conditions and actions
   # tests/helper/ownership_test.php (ruleid/course mismatch rejection) and
   # tests/core/condition_test.php / tests/core/action_test.php (foreign/unscoped upsert rejection).
 
+  # Deletion is manager-only by design: deletecondition and deleteaction carry RISK_DATALOSS and are
+  # granted to the manager archetype alone, while createcondition/updatecondition (and their action
+  # counterparts) are granted to editingteacher. That asymmetry is why in-place editing matters: a
+  # teacher can create a component but cannot delete it, so before this feature a teacher had no way
+  # at all to correct one. These two scenarios therefore run as an administrator.
   Scenario: Deleting a condition through the real confirmation page removes only that condition
-    Given I log in as "teacher1"
+    Given I log in as "admin"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit conditions" "link"
@@ -81,7 +86,7 @@ Feature: Edit existing rule conditions and actions
     And I should see "Send notification 'Original subject' to users"
 
   Scenario: Deleting an action through the real confirmation page removes only that action
-    Given I log in as "teacher1"
+    Given I log in as "admin"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit actions" "link"
