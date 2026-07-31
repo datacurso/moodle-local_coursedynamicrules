@@ -429,8 +429,6 @@ class course_inactivity_condition extends condition {
      * @param object $formdata
      */
     public function save_condition($formdata) {
-        global $DB;
-
         $timeintervals = $formdata->intervaltype == self::INTERVAL_CUSTOM ?
             $formdata->customintervals : $formdata->recurringinterval;
 
@@ -448,14 +446,7 @@ class course_inactivity_condition extends condition {
             'basedatetype' => $formdata->basedatetype,
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
-
-        $this->set_data($condition);
-
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        $this->upsert($params, $formdata);
     }
 
     /**

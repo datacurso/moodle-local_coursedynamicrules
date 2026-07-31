@@ -1,3 +1,11 @@
+## Unreleased
+
+## Added
+- **Edit existing rule conditions and actions**
+  Every condition and action type can now be edited in place from the conditions/actions listing (a new edit control next to delete), reusing the same creation form, preload and validation, without recreating the row or disturbing sibling components or runtime state (execution throttling, already-granted activity access). Editing a foreign or tampered component id is rejected before any form render or write.
+
+---
+
 ## 1.7.0
 
 **Released on:** 2026-07-23

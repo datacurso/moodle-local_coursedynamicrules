@@ -17,7 +17,8 @@
 namespace local_coursedynamicrules\condition;
 
 use local_coursedynamicrules\condition\complete_activity\complete_activity_condition;
-use stdClass;
+use local_coursedynamicrules\core\condition;
+use local_coursedynamicrules\form\conditions\complete_activity_form;
 
 /**
  * Tests for the complete_activity condition course module validation.
@@ -29,6 +30,72 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class complete_activity_condition_test extends \advanced_testcase {
+    /**
+     * Insert a rule row belonging to the given course and return its id.
+     *
+     * @param int $courseid Course id.
+     * @return int Rule id.
+     */
+    private function create_rule(int $courseid): int {
+        global $DB;
+        return $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'A rule',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
+     * A round-trip create -> edit must persist exactly one row, same id, with the mutated cmid, and
+     * preload_defaults() must map the stored cmid back onto the 'coursemodule' form field.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_round_trip_persists_single_row(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $ruleid = $this->create_rule($course->id);
+        $cm1 = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_MANUAL]
+        );
+        $cm2 = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_MANUAL]
+        );
+
+        $record = (object) ['id' => null, 'ruleid' => $ruleid, 'conditiontype' => 'complete_activity', 'params' => json_encode([])];
+        $condition = new complete_activity_condition($record, $course->id);
+        $condition->save_condition((object) ['ruleid' => $ruleid, 'coursemodule' => $cm1->cmid]);
+
+        $id = $condition->get_id();
+        $stored = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+        $this->assertSame($cm1->cmid, $storedparams->cmid);
+
+        $reflection = new \ReflectionClass(complete_activity_form::class);
+        $forminstance = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('preload_defaults');
+        $method->setAccessible(true);
+        $defaults = $method->invoke($forminstance, $storedparams);
+        $this->assertSame($cm1->cmid, $defaults['coursemodule']);
+
+        $editcondition = new complete_activity_condition($stored, $course->id);
+        $editcondition->save_condition((object) ['ruleid' => $ruleid, 'coursemodule' => $cm2->cmid]);
+
+        $this->assertEquals($id, $editcondition->get_id());
+        $this->assertEquals(1, $DB->count_records(condition::TABLE, ['ruleid' => $ruleid]));
+
+        $final = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $finalparams = json_decode($final->params);
+        $this->assertSame($cm2->cmid, $finalparams->cmid);
+    }
+
     /**
      * A missing course module must be rejected at save time, never persisted as cmid 0.
      *

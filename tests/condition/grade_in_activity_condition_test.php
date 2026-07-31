@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\condition;
 
 use local_coursedynamicrules\condition\grade_in_activity\grade_in_activity_condition;
+use local_coursedynamicrules\core\condition;
+use local_coursedynamicrules\form\conditions\grade_in_activity_form;
 use stdClass;
 
 /**
@@ -30,17 +32,36 @@ use stdClass;
  */
 final class grade_in_activity_condition_test extends \advanced_testcase {
     /**
+     * Insert a rule row belonging to the given course and return its id.
+     *
+     * @param int $courseid Course id.
+     * @return int Rule id.
+     */
+    private function create_rule(int $courseid): int {
+        global $DB;
+        return $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'A rule',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
      * Create a condition instance not yet persisted, as the add-condition flow does.
      *
+     * @param int $ruleid Rule id the condition will belong to.
+     * @param int $courseid Course id.
      * @return grade_in_activity_condition
      */
-    private function create_test_condition(): grade_in_activity_condition {
+    private function create_test_condition(int $ruleid, int $courseid): grade_in_activity_condition {
         $record = new stdClass();
-        $record->ruleid = 1;
+        $record->ruleid = $ruleid;
         $record->conditiontype = 'grade_in_activity';
         $record->params = json_encode([]);
 
-        return new grade_in_activity_condition($record, 1);
+        return new grade_in_activity_condition($record, $courseid);
     }
 
     /**
@@ -53,10 +74,12 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
 
         $this->resetAfterTest(true);
 
-        $condition = $this->create_test_condition();
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule($course->id);
+        $condition = $this->create_test_condition($ruleid, $course->id);
 
         $formdata = new stdClass();
-        $formdata->ruleid = 1;
+        $formdata->ruleid = $ruleid;
         $formdata->cmid = 42;
         $formdata->gradeitems = json_encode([
             'gradelt_613' => [
@@ -69,7 +92,7 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
 
         $condition->save_condition($formdata);
 
-        $record = $DB->get_record('local_coursedynamicrules_condition', ['ruleid' => 1], '*', MUST_EXIST);
+        $record = $DB->get_record('local_coursedynamicrules_condition', ['ruleid' => $ruleid], '*', MUST_EXIST);
         $params = json_decode($record->params, true);
 
         $this->assertArrayHasKey('gradelt_613', $params['gradeitemsconditions']);
@@ -87,10 +110,12 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
 
         $this->resetAfterTest(true);
 
-        $condition = $this->create_test_condition();
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule($course->id);
+        $condition = $this->create_test_condition($ruleid, $course->id);
 
         $formdata = new stdClass();
-        $formdata->ruleid = 1;
+        $formdata->ruleid = $ruleid;
         $formdata->cmid = 42;
         $formdata->gradeitems = json_encode([
             'gradegte_613' => [
@@ -115,7 +140,7 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
 
         $condition->save_condition($formdata);
 
-        $record = $DB->get_record('local_coursedynamicrules_condition', ['ruleid' => 1], '*', MUST_EXIST);
+        $record = $DB->get_record('local_coursedynamicrules_condition', ['ruleid' => $ruleid], '*', MUST_EXIST);
         $params = json_decode($record->params, true);
 
         $this->assertSame(42, $params['cmid']);
@@ -137,10 +162,12 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
 
         $this->resetAfterTest(true);
 
-        $condition = $this->create_test_condition();
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule($course->id);
+        $condition = $this->create_test_condition($ruleid, $course->id);
 
         $formdata = new stdClass();
-        $formdata->ruleid = 1;
+        $formdata->ruleid = $ruleid;
         $formdata->cmid = 42;
         $formdata->gradeitems = '2517';
 
@@ -150,6 +177,91 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
         } catch (\invalid_parameter_exception $e) {
             $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition'));
         }
+    }
+
+    /**
+     * A round-trip create -> edit must persist exactly one row, same id, and the stored
+     * gradeitemsconditions must reflect only the edited set: a threshold dropped during edit must
+     * not resurrect on save (spec: "grade_in_activity Dynamic Preload / Dynamic region round-trips").
+     * Also verifies preload_defaults() maps the stored cmid + gradeitemsconditions back onto the
+     * hidden 'cmid'/'gradeitems' fields the AMD module reads for its initial dynamicForm.load() (D5).
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_round_trip_persists_edited_set(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        [$course, $cm, $gradeitemid, ] = $this->create_graded_quiz();
+        $ruleid = $this->create_rule($course->id);
+
+        $condition = $this->create_test_condition($ruleid, $course->id);
+        $condition->save_condition((object) [
+            'ruleid' => $ruleid,
+            'cmid' => $cm->id,
+            'gradeitems' => json_encode([
+                'gradegte_' . $gradeitemid => [
+                    'gradeitem' => $gradeitemid,
+                    'condition' => 'gradegte',
+                    'value' => '6',
+                    'disabled' => false,
+                ],
+                'gradelt_' . $gradeitemid => [
+                    'gradeitem' => $gradeitemid,
+                    'condition' => 'gradelt',
+                    'value' => '9',
+                    'disabled' => false,
+                ],
+            ]),
+        ]);
+
+        $id = $condition->get_id();
+        $stored = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+        $this->assertCount(2, (array) $storedparams->gradeitemsconditions);
+
+        $reflection = new \ReflectionClass(grade_in_activity_form::class);
+        $forminstance = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('preload_defaults');
+        $method->setAccessible(true);
+        $defaults = $method->invoke($forminstance, $storedparams);
+        $this->assertSame((int) $cm->id, $defaults['cmid']);
+        $this->assertSame(
+            json_decode(json_encode($storedparams->gradeitemsconditions), true),
+            json_decode($defaults['gradeitems'], true)
+        );
+
+        // Edit: drop the "gradelt" threshold, keep only "gradegte" with a changed value.
+        $editcondition = new grade_in_activity_condition($stored, $course->id);
+        $editcondition->save_condition((object) [
+            'ruleid' => $ruleid,
+            'cmid' => $cm->id,
+            'gradeitems' => json_encode([
+                'gradegte_' . $gradeitemid => [
+                    'gradeitem' => $gradeitemid,
+                    'condition' => 'gradegte',
+                    'value' => '7',
+                    'disabled' => false,
+                ],
+                'gradelt_' . $gradeitemid => [
+                    'gradeitem' => $gradeitemid,
+                    'condition' => 'gradelt',
+                    'value' => '9',
+                    'disabled' => true,
+                ],
+            ]),
+        ]);
+
+        $this->assertEquals($id, $editcondition->get_id());
+        $this->assertEquals(1, $DB->count_records(condition::TABLE, ['ruleid' => $ruleid]));
+
+        $final = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $finalparams = json_decode($final->params, true);
+        $this->assertCount(1, $finalparams['gradeitemsconditions']);
+        $this->assertArrayHasKey('gradegte_' . $gradeitemid, $finalparams['gradeitemsconditions']);
+        $this->assertArrayNotHasKey('gradelt_' . $gradeitemid, $finalparams['gradeitemsconditions']);
+        $this->assertEquals(7.0, $finalparams['gradeitemsconditions']['gradegte_' . $gradeitemid]['value']);
     }
 
     /**

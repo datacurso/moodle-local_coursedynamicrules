@@ -54,7 +54,7 @@ $PAGE->set_pagelayout('incourse');
 echo $OUTPUT->header();
 
 // Ensure the action's rule belongs to this course before loading it.
-$action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid);
+$action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid, $ruleid);
 
 $config = get_config('local_coursedynamicrules');
 

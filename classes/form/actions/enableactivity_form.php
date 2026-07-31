@@ -60,6 +60,7 @@ class enableactivity_form extends action_form {
         $mform->addElement('hidden', 'courseid', $courseid);
         $mform->setType('type', PARAM_TEXT);
         $mform->setType('ruleid', PARAM_INT);
+        $mform->setType('courseid', PARAM_INT);
 
         $modinfo = get_fast_modinfo($courseid);
         $cms = $modinfo->get_cms();
@@ -84,9 +85,54 @@ class enableactivity_form extends action_form {
             $options,
             $attributes
         );
-        $mform->setType('coursemodule', PARAM_INT);
+        $mform->setType('coursemodules', PARAM_INT);
 
         parent::definition();
+    }
+
+    /**
+     * Reject an empty selection (FIX3-8): submitting with no course module selected would silently
+     * revert EVERY currently-managed module (restore_coursemodules() treats the whole prior set as
+     * "removed"), which is a destructive edit an operator is unlikely to intend.
+     *
+     * @param array $data Submitted form data.
+     * @param array $files Submitted files.
+     * @return array Validation errors, keyed by element name.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        // elementExists() guard (FIX4): definition() early-returns without adding 'coursemodules' at
+        // all when a required plugin (availability_user) is missing - setting an error keyed to a
+        // non-existent element would be silently lost (never rendered next to any visible field),
+        // instead of surfacing the real problem via the missing-plugin notification already shown.
+        // $this->_form can itself be null here (e.g. a form built via
+        // ReflectionClass::newInstanceWithoutConstructor() in a unit test that exercises
+        // validation() in isolation) - only treat the element as "missing" when a real $_form is
+        // available AND it confirms the element was never added.
+        $mform = $this->_form;
+        $coursemodulesmissing = $mform !== null && !$mform->elementExists('coursemodules');
+
+        if (!$coursemodulesmissing && empty($data['coursemodules'])) {
+            $errors['coursemodules'] = get_string('enableactivity_nomodulesselected', 'local_coursedynamicrules');
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Map stored params into the multi-select default consumed by set_data().
+     *
+     * @param object $params Decoded stored params for the action being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return [
+            'coursemodules' => array_map(
+                fn($cm) => (int) $cm->id,
+                $params->coursemodules ?? []
+            ),
+        ];
     }
 
     /**

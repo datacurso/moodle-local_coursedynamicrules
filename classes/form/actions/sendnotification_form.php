@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\form\actions;
 
 use context_course;
+use local_coursedynamicrules\action\sendnotification\sendnotification_action;
 use moodle_url;
 
 /**
@@ -119,13 +120,23 @@ class sendnotification_form extends action_form {
             $rolerecords = $DB->get_records_list('role', 'id', $roleids, '', 'id,shortname');
         }
 
+        // On CREATE only: default the student role to checked as a sensible starting point. On
+        // EDIT, this must be skipped entirely: setDefault() stores a FLAT bracketed key
+        // ('primaryrecipients[<id>]') in the mform's _defaultValues, which HTML_QuickForm resolves
+        // BEFORE the nested zero-fill array preload_defaults() supplies via set_data() below — so a
+        // deliberately unchecked student role would otherwise come back checked on edit (G3).
+        // array_key_exists(), not !empty(): json_decode('[]') decodes to an empty PHP array, which
+        // !empty() treats as "no record" even though the key IS present (an edit row whose stored
+        // params happen to be empty), which would spuriously re-check the student default (FIX2-12).
+        $isediting = array_key_exists('record', $customdata);
+
         $primarycheckboxes = [];
         foreach ($roles as $roleid => $rolename) {
             $fieldname = 'primaryrecipients[' . $roleid . ']';
             $primarycheckboxes[] = $mform->createElement('advcheckbox', $roleid, '', $rolename);
             $mform->setType($fieldname, PARAM_INT);
 
-            if (isset($rolerecords[$roleid]) && $rolerecords[$roleid]->shortname === 'student') {
+            if (!$isediting && isset($rolerecords[$roleid]) && $rolerecords[$roleid]->shortname === 'student') {
                 $mform->setDefault($fieldname, 1);
             }
         }
@@ -184,5 +195,39 @@ class sendnotification_form extends action_form {
         }
 
         return $errors;
+    }
+
+    /**
+     * Map stored params into the checkbox-group defaults consumed by set_data().
+     *
+     * Every role present in the form is explicitly zero-filled first: mform's own
+     * setDefault('primaryrecipients[<student>]', 1) in definition() would otherwise leave the
+     * student role checked on an edit where it was deliberately unchecked, because set_data() only
+     * overrides the keys it is given (G2/blocker 4).
+     *
+     * @param object $params Decoded stored params for the action being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        $courseid = $this->_customdata['courseid'];
+        $roles = get_default_enrol_roles(context_course::instance($courseid));
+
+        $roleids = sendnotification_action::resolve_roleids($params);
+        $primaryroleids = $roleids['primary'];
+        $copyroleids = $roleids['copy'];
+
+        $primaryrecipients = [];
+        $copyrecipients = [];
+        foreach (array_keys($roles) as $roleid) {
+            $primaryrecipients[$roleid] = in_array($roleid, $primaryroleids) ? 1 : 0;
+            $copyrecipients[$roleid] = in_array($roleid, $copyroleids) ? 1 : 0;
+        }
+
+        return [
+            'messagesubject' => $params->messagesubject ?? '',
+            'messagebody' => ['text' => $params->messagebody ?? '', 'format' => FORMAT_HTML],
+            'primaryrecipients' => $primaryrecipients,
+            'copyrecipients' => $copyrecipients,
+        ];
     }
 }

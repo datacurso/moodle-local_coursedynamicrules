@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\condition;
 
 use local_coursedynamicrules\condition\course_inactivity\course_inactivity_condition;
+use local_coursedynamicrules\core\condition;
+use local_coursedynamicrules\form\conditions\course_inactivity_form;
 use stdClass;
 
 /**
@@ -47,10 +49,13 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     /** @var int $ruleid Rule ID for testing */
     private $ruleid;
 
+    /** @var int $courseid Course ID for testing */
+    private $courseid;
+
     /**
      * Test setup.
      */
-    public function setUp(): void {
+    protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest(true);
 
@@ -61,6 +66,7 @@ final class course_inactivity_condition_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
         $user = $this->getDataGenerator()->create_user();
+        $this->courseid = $course->id;
 
         /** @var \local_coursedynamicrules_generator  $generator */
         $generator = $this->getDataGenerator()->get_plugin_generator('local_coursedynamicrules');
@@ -97,7 +103,64 @@ final class course_inactivity_condition_test extends \advanced_testcase {
 
         $currentime = $currentime ?? $this->currenttime;
 
-        return new course_inactivity_condition($conditionrecord, null, $currentime);
+        return new course_inactivity_condition($conditionrecord, $this->courseid, $currentime);
+    }
+
+    /**
+     * A round-trip create -> edit must persist exactly one row, same id, unchanged lastexecutiontime,
+     * and preload_defaults() must map the conditional timeintervals key ('recurringinterval' or
+     * 'customintervals') back onto the matching form field for both interval types.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_round_trip_persists_single_row(): void {
+        global $DB;
+
+        $condition = $this->create_test_condition();
+        $condition->save_condition((object) [
+            'ruleid' => $this->ruleid,
+            'intervaltype' => course_inactivity_condition::INTERVAL_RECURRING,
+            'recurringinterval' => '7',
+            'intervalunit' => 'days',
+            'basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT,
+        ]);
+
+        $id = $condition->get_id();
+        $DB->set_field('local_coursedynamicrules_condition', 'lastexecutiontime', 55555, ['id' => $id]);
+
+        $stored = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+        $this->assertSame('7', $storedparams->timeintervals);
+
+        $reflection = new \ReflectionClass(course_inactivity_form::class);
+        $forminstance = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('preload_defaults');
+        $method->setAccessible(true);
+        $defaults = $method->invoke($forminstance, $storedparams);
+        $this->assertSame('7', $defaults['recurringinterval']);
+
+        $editcondition = new course_inactivity_condition($stored, $this->courseid, $this->currenttime);
+        $editcondition->save_condition((object) [
+            'ruleid' => $this->ruleid,
+            'intervaltype' => course_inactivity_condition::INTERVAL_CUSTOM,
+            'customintervals' => '7,14,30',
+            'intervalunit' => 'weeks',
+            'basedatetype' => course_inactivity_condition::DATE_FROM_NOW,
+        ]);
+
+        $this->assertEquals($id, $editcondition->get_id());
+        $this->assertEquals(1, $DB->count_records(condition::TABLE, ['ruleid' => $this->ruleid]));
+
+        $final = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $this->assertEquals(55555, $final->lastexecutiontime);
+        $finalparams = json_decode($final->params);
+        $this->assertEquals(course_inactivity_condition::INTERVAL_CUSTOM, $finalparams->intervaltype);
+        $this->assertEquals('7,14,30', $finalparams->timeintervals);
+        $this->assertEquals('weeks', $finalparams->intervalunit);
+        $this->assertEquals(course_inactivity_condition::DATE_FROM_NOW, $finalparams->basedatetype);
+
+        $defaults2 = $method->invoke($forminstance, $finalparams);
+        $this->assertSame('7,14,30', $defaults2['customintervals']);
     }
 
     /**
@@ -445,10 +508,14 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $fd1->basedatetype = course_inactivity_condition::DATE_FROM_ENROLLMENT;
         $recurring->save_condition($fd1);
 
-        // Custom.
+        // Custom, on a second rule belonging to the same course (upsert()'s insert branch validates
+        // the submitted ruleid against a real row via ownership::get_rule()).
+        $generator = $this->getDataGenerator()->get_plugin_generator('local_coursedynamicrules');
+        $secondruleid = $generator->create_rule($this->courseid, [])->get_id();
+
         $custom = $this->create_test_condition();
         $fd2 = new stdClass();
-        $fd2->ruleid = $this->ruleid + 1;
+        $fd2->ruleid = $secondruleid;
         $fd2->intervaltype = course_inactivity_condition::INTERVAL_CUSTOM;
         $fd2->customintervals = '7,14,30';
         $fd2->intervalunit = 'days';
@@ -458,7 +525,7 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $rec = json_decode($DB->get_field('local_coursedynamicrules_condition', 'params', ['ruleid' => $this->ruleid]));
         $this->assertSame('7', (string) $rec->timeintervals);
 
-        $cus = json_decode($DB->get_field('local_coursedynamicrules_condition', 'params', ['ruleid' => $this->ruleid + 1]));
+        $cus = json_decode($DB->get_field('local_coursedynamicrules_condition', 'params', ['ruleid' => $secondruleid]));
         $this->assertSame('7,14,30', $cus->timeintervals);
     }
 

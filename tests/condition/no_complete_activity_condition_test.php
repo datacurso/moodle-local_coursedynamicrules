@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\condition;
 
 use local_coursedynamicrules\condition\no_complete_activity\no_complete_activity_condition;
+use local_coursedynamicrules\core\condition;
+use local_coursedynamicrules\form\conditions\no_complete_activity_form;
 
 /**
  * Tests for No Complete Activity condition.
@@ -37,7 +39,7 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     /**
      * Test setup.
      */
-    public function setUp(): void {
+    protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest(true);
 
@@ -63,6 +65,83 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
         ];
 
         return new no_complete_activity_condition($record);
+    }
+
+    /**
+     * Insert a rule row belonging to the given course and return its id.
+     *
+     * @param int $courseid Course id.
+     * @return int Rule id.
+     */
+    private function create_rule(int $courseid): int {
+        global $DB;
+        return $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'A rule',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
+     * A round-trip create -> edit must persist exactly one row, same id, with the mutated cmid and
+     * expectedcompletiondate, and preload_defaults() must map both stored keys onto the form fields.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_round_trip_persists_single_row(): void {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $ruleid = $this->create_rule($course->id);
+        $cm1 = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC]
+        );
+        $cm2 = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC]
+        );
+
+        $record = (object) [
+            'id' => null, 'ruleid' => $ruleid, 'conditiontype' => 'no_complete_activity', 'params' => json_encode([]),
+        ];
+        $condition = new no_complete_activity_condition($record, $course->id);
+        $condition->save_condition((object) [
+            'ruleid' => $ruleid,
+            'coursemodule' => $cm1->cmid,
+            'expectedcompletiondate' => $this->pastdate,
+        ]);
+
+        $id = $condition->get_id();
+        $stored = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+        $this->assertSame($cm1->cmid, $storedparams->cmid);
+        $this->assertSame($this->pastdate, $storedparams->expectedcompletiondate);
+
+        $reflection = new \ReflectionClass(no_complete_activity_form::class);
+        $forminstance = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('preload_defaults');
+        $method->setAccessible(true);
+        $defaults = $method->invoke($forminstance, $storedparams);
+        $this->assertSame($cm1->cmid, $defaults['coursemodule']);
+        $this->assertSame($this->pastdate, $defaults['expectedcompletiondate']);
+
+        $editcondition = new no_complete_activity_condition($stored, $course->id);
+        $editcondition->save_condition((object) [
+            'ruleid' => $ruleid,
+            'coursemodule' => $cm2->cmid,
+            'expectedcompletiondate' => $this->futuredate,
+        ]);
+
+        $this->assertEquals($id, $editcondition->get_id());
+        $this->assertEquals(1, $DB->count_records(condition::TABLE, ['ruleid' => $ruleid]));
+
+        $final = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $finalparams = json_decode($final->params);
+        $this->assertSame($cm2->cmid, $finalparams->cmid);
+        $this->assertSame($this->futuredate, $finalparams->expectedcompletiondate);
     }
 
     /**

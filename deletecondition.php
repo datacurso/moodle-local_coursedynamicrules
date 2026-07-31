@@ -55,7 +55,7 @@ $PAGE->set_pagelayout('incourse');
 echo $OUTPUT->header();
 
 // Ensure the condition's rule belongs to this course before loading it.
-$condition = \local_coursedynamicrules\helper\ownership::get_condition($id, $courseid);
+$condition = \local_coursedynamicrules\helper\ownership::get_condition($id, $courseid, $ruleid);
 
 $config = get_config('local_coursedynamicrules');
 

@@ -17,10 +17,33 @@
 {{!
     @template local_coursedynamicrules/conditions
 
-    TODO describe template conditions
+    Renders the list of condition/action cards for a rule, shared by conditions.php and
+    actions.php. Each card shows the component header/description and an optional edit control
+    next to the delete control.
+
+    Context variables:
+    * conditions array      - List of components, each with:
+        Required:
+        * header string      - Display header
+        * description string - Display description
+        * deleteurl string   - Delete URL
+        * deletetitle string - Delete control title/aria-label text
+        Optional (omit/empty to hide the edit control):
+        * editurl string     - Edit URL
+        * edittitle string   - Edit control title/aria-label text
 
     Example context (json):
     {
+        "conditions": [
+            {
+                "header": "Activity completed",
+                "description": "Users who have completed the course activity module 'Quiz'",
+                "deleteurl": "https://example.com/local/coursedynamicrules/deletecondition.php?id=1",
+                "deletetitle": "Delete condition",
+                "editurl": "https://example.com/local/coursedynamicrules/conditions.php?edit=1",
+                "edittitle": "Edit condition"
+            }
+        ]
     }
 }}
 {{#conditions}}
@@ -29,8 +52,13 @@
     <div class="mb-0 d-flex justify-content-between align-items-center pr-2 ">
       <span class="text-left ml-1 nomargin btn"> {{header}} </span>
         <span class="ml-auto" >
+            {{#editurl}}
+            <a class="btn btn-link pl-0 pr-2" href="{{editurl}}" >
+                <i class="icon fa fa-pencil fa-fw " title="{{edittitle}}" role="img" aria-label="{{edittitle}}" ></i>
+            </a>
+            {{/editurl}}
             <a class="btn btn-link pl-0 pr-2" href="{{deleteurl}}" >
-                <i class="icon fa fa-trash fa-fw " title="{{#str}} deletecondition, local_coursedynamicrules {{/str}}" role="img" aria-label="{{#str}} deletecondition, local_coursedynamicrules {{/str}}" ></i>
+                <i class="icon fa fa-trash fa-fw " title="{{deletetitle}}" role="img" aria-label="{{deletetitle}}" ></i>
             </a>
         </span>
     </div>

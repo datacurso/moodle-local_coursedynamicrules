@@ -23,7 +23,6 @@ use grade_item;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\grade_in_activity_form;
-use stdClass;
 
 defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/completionlib.php');
@@ -262,8 +261,6 @@ class grade_in_activity_condition extends condition {
      * @param object $formdata
      */
     public function save_condition($formdata) {
-        global $DB;
-
         $gradeitems = json_decode($formdata->gradeitems, true);
         if (!is_array($gradeitems)) {
             throw new \invalid_parameter_exception('Invalid gradeitems data: expected a JSON object of grade conditions');
@@ -296,13 +293,6 @@ class grade_in_activity_condition extends condition {
             'gradeitemsconditions' => $gradeitemsconditions,
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
-
-        $this->set_data($condition);
-
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        $this->upsert($params, $formdata);
     }
 }

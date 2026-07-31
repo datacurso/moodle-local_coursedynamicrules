@@ -16,12 +16,14 @@
 
 namespace local_coursedynamicrules\action\createaiactivity;
 
+use local_coursedynamicrules\core\action;
+
 /**
  * Tests for create AI activity action.
  *
  * @package    local_coursedynamicrules
  * @category   test
- * @covers     \local_coursedynamicrules\action\createaiactivity\createaiactivity_action
+ * @coversDefaultClass \local_coursedynamicrules\action\createaiactivity\createaiactivity_action
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -42,6 +44,82 @@ final class createaiactivity_action_test extends \advanced_testcase {
         ];
 
         return new createaiactivity_action($record, $courseid);
+    }
+
+    /**
+     * Insert a rule row belonging to the given course and return its id.
+     *
+     * @param int $courseid Course id.
+     * @return int Rule id.
+     */
+    private function create_rule(int $courseid): int {
+        global $DB;
+        return $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'A rule',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
+     * A round-trip create -> edit must persist exactly one row, update the mutated field, leave
+     * lastexecutiontime untouched, and map an unselected beforemod (null) to 0.
+     *
+     * @covers ::save_action
+     */
+    public function test_save_action_round_trip_persists_single_row_with_beforemod_null_to_zero(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule($course->id);
+
+        $record = (object) [
+            'id' => null, 'ruleid' => $ruleid, 'actiontype' => 'createaiactivity', 'params' => json_encode([]),
+        ];
+        $action = new createaiactivity_action($record, $course->id);
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'message' => 'Original prompt',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ]);
+
+        $id = $action->get_id();
+        $DB->set_field(action::TABLE, 'lastexecutiontime', 55555, ['id' => $id]);
+
+        $stored = $DB->get_record(action::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+
+        $reflection = new \ReflectionClass(\local_coursedynamicrules\form\actions\createaiactivity_form::class);
+        $forminstance = $reflection->newInstanceWithoutConstructor();
+        $method = $reflection->getMethod('preload_defaults');
+        $method->setAccessible(true);
+        $defaults = $method->invoke($forminstance, $storedparams);
+        $this->assertSame(0, $defaults['beforemod']);
+
+        $editaction = new createaiactivity_action($stored, $course->id);
+        $editaction->save_action((object) [
+            'ruleid' => $ruleid,
+            'message' => 'Updated prompt',
+            'generateimages' => true,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ]);
+
+        $this->assertEquals($id, $editaction->get_id());
+        $this->assertEquals(1, $DB->count_records(action::TABLE, ['ruleid' => $ruleid]));
+
+        $final = $DB->get_record(action::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $this->assertEquals(55555, $final->lastexecutiontime);
+        $finalparams = json_decode($final->params);
+        $this->assertEquals('Updated prompt', $finalparams->message);
+        $this->assertTrue($finalparams->generateimages);
+        $this->assertNull($finalparams->beforemod);
     }
 
     /**

@@ -48,31 +48,103 @@ $PAGE->set_course($course);
 $PAGE->set_url($url);
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
-echo $OUTPUT->header();
 
 if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid, $courseid)) {
     throw new moodle_exception('invalidruleid', 'local_coursedynamicrules');
 }
 
+// Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
+// form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
+$editid = optional_param('edit', 0, PARAM_INT);
+$conditioninstance = null;
+if ($editid > 0) {
+    // Ownership is checked here (GET) and re-checked implicitly on POST: $editid comes from
+    // optional_param() again on the resubmitted request, and the row is only writable through
+    // save_condition() -> upsert(), which never touches ruleid. get_condition() enforces that the
+    // component belongs to BOTH the requested course AND the requested rule, so a tampered hidden
+    // id (foreign course, or a different rule in the same course) is rejected before any form
+    // render or DB write.
+    $conditionrecord = \local_coursedynamicrules\helper\ownership::get_condition($editid, $courseid, $ruleid);
+    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord, $courseid);
+
+    // json_decode() returns a PHP array (not stdClass) for a JSON array such as "[]", which
+    // `empty()`-based edit-mode checks in the form base classes would treat as "no record"
+    // (empty() is only ever false for objects, so a cast is enough to make this consistent for
+    // every consumer of 'record').
+    $decodedparams = json_decode($conditionrecord->params);
+    if (!is_object($decodedparams)) {
+        $decodedparams = (object) $decodedparams;
+    }
+
+    $customdata = [
+        'courseid' => $courseid,
+        'ruleid' => $ruleid,
+        'record' => $decodedparams,
+    ];
+    $conditioninstance->build_editform(
+        new moodle_url($url, ['edit' => $editid]),
+        $customdata,
+        'post',
+        '',
+        ['class' => 'card p-4']
+    );
+
+    if ($conditioninstance->is_cancelled()) {
+        redirect($url);
+    } else if ($data = $conditioninstance->get_data()) {
+        $conditioninstance->save_condition($data);
+        redirect($url);
+    }
+} else if (!empty($type)) {
+    $conditionrecord = (object) [
+        'ruleid' => $ruleid,
+        'conditiontype' => $type,
+        'params' => json_encode([]),
+    ];
+    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord, $courseid);
+
+    $customdata = [
+        'courseid' => $courseid,
+        'ruleid' => $ruleid,
+    ];
+    $conditioninstance->build_editform($url, $customdata, 'post', '', ['class' => 'card p-4']);
+
+    if ($conditioninstance->is_cancelled()) {
+        redirect($url);
+    } else if ($data = $conditioninstance->get_data()) {
+        $conditioninstance->save_condition($data);
+        redirect($url);
+    }
+}
+
+echo $OUTPUT->header();
+
 $conditions = $DB->get_records('local_coursedynamicrules_condition', ['ruleid' => $ruleid]);
 
 $conditionsfortemplate = [];
 foreach ($conditions as $condition) {
-    $conditioninstance = rule_component_loader::create_condition_instance($condition, $courseid);
+    $listedconditioninstance = rule_component_loader::create_condition_instance($condition, $courseid);
 
-    $header = $conditioninstance->get_header();
-    $description = $conditioninstance->get_description();
+    $header = $listedconditioninstance->get_header();
+    $description = $listedconditioninstance->get_description();
 
     if (!empty($header) && !empty($description)) {
         $deleteurl = new moodle_url(
             '/local/coursedynamicrules/deletecondition.php',
             ['id' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
         );
+        $editurl = new moodle_url(
+            '/local/coursedynamicrules/conditions.php',
+            ['edit' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+        );
         $conditionsfortemplate[] = [
             'id' => $condition->id,
             'header' => $header,
             'description' => $description,
             'deleteurl' => $deleteurl->out(false),
+            'deletetitle' => get_string('deletecondition', 'local_coursedynamicrules'),
+            'editurl' => $editurl->out(false),
+            'edittitle' => get_string('editcondition', 'local_coursedynamicrules'),
         ];
     }
 }
@@ -87,27 +159,9 @@ echo html_writer::start_div('d-flex h-100');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $conditionoptions]);
 echo html_writer::start_div('col-8 h-100');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $conditionsfortemplate]);
-if (!empty($type)) {
-    $conditionrecord = (object) [
-        'conditiontype' => $type,
-        'params' => json_encode([]),
-    ];
-    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord);
 
-    $customdata = [
-        'courseid' => $courseid,
-        'ruleid' => $ruleid,
-    ];
-    $conditioninstance->build_editform($url, $customdata, 'post', '', ['class' => 'card p-4']);
-
-    if ($conditioninstance->is_cancelled()) {
-        redirect($url);
-    } else if ($data = $conditioninstance->get_data()) {
-        $conditioninstance->save_condition($data);
-        redirect($url);
-    } else {
-        $conditioninstance->show_editform();
-    }
+if ($conditioninstance !== null) {
+    $conditioninstance->show_editform();
 }
 
 echo html_writer::end_div();
