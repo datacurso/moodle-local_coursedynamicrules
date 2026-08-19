@@ -1,4 +1,4 @@
-# Ticket 589127 closure — Smart Rules notifications (Fundación Neumológica)
+# Ticket 589127 closure — Smart Rules notifications
 
 - **Date:** 2026-07-28
 - **Component:** `local_coursedynamicrules` (Smart Rules AI)
@@ -6,6 +6,10 @@
   (`2026050800`) throughout the ticket.
 - **Outcome:** Closed with **no code changes**. Every objection resolves to configuration or
   expected behaviour. Verified point by point against the code, not against the changelog.
+
+> **Note on redaction:** client names, site identifiers, personal names, and email addresses have
+> been removed from this public document. The full evidence trail (screenshots, account-level
+> validations, client-facing messages) is kept in private support records under ticket 589127.
 
 ## Executive summary
 
@@ -15,8 +19,7 @@ defect in the plugin on `release/1.7.0`**. The one original defect (wrong name i
 already fixed in `1.6.2`/`1.6.3` and confirmed by the client on 2026-06-18. The remaining live
 complaints are enrolment/role configuration and a hard-coded name typed into a message body.
 
-The client-facing closing message is kept outside the repo at
-`~/Documentos/Caso_Smart_Rules_Pantallazos/respuesta_ticket_589127.md`.
+The client-facing closing message is kept in the private support records for the ticket.
 
 ## Status by objection
 
@@ -29,7 +32,7 @@ The client-facing closing message is kept outside the repo at
 | 5 | Welcome message configuration | Resolved | Core enrolment method |
 | 6 | English "Password reset request" subject | Configuration | Core language string |
 | 7 | Forum notifications (digest vs per-message) | Configuration | Core `maildigest` |
-| + | Wrong name ("Hola Deysy") in a reminder | Configuration | Hard-coded name in message body |
+| + | Wrong (hard-coded) first name in a reminder | Configuration | Hard-coded name in message body |
 | + | In-course alerts (login/incomplete/ending reminders) | Out of scope | Different component |
 
 ## Evidence for the points that stayed open longest
@@ -44,31 +47,31 @@ Client confirmed resolved on 2026-06-18.
 
 ### #2 — Teacher receiving the reminder (EXPECTED BEHAVIOUR)
 
-Admin validation (Participants of "Curso Virtual de actualización en EPOC – AZCHOOL"):
-`caguirre@neumologica.org` is enrolled with role **Estudiante**, active. The rule condition is
-"users who have **not completed** the Customcert activity" → notify. The 2026-06-23 screenshot shows the
-message greeting him by his own name with subject "Recordatorio…" (not "Observación:"), i.e. he matched
-as a **primary** recipient — consistent with his Student role being in `primaryroleids`
+Admin validation (Participants list of the affected course): the reported teacher's account is
+enrolled with role **Student**, active. The rule condition is "users who have **not completed** the
+Customcert activity" → notify. The 2026-06-23 screenshot shows the message greeting the user by their
+own name with subject "Recordatorio…" (not "Observación:"), i.e. the account matched as a **primary**
+recipient — consistent with its Student role being in `primaryroleids`
 (`sendnotification_action.php:71-82`). The client's premise ("teacher without student role") is
-incorrect. No plugin defect. If he must not be notified, that is managed via his enrolment/role.
+incorrect. No plugin defect. If that account must not be notified, that is managed via its
+enrolment/role.
 
-### + — "Hola Deysy" reminder (CONFIGURATION)
+### + — Hard-coded first name in a reminder (CONFIGURATION)
 
-Admin validation (Users → filter by email): `fncdocencia@gmail.com` maps to **exactly one** account,
-`Usuario Prueba` (username `usuarioprueba`, first name "Usuario"). `replace_placeholders` can only inject
-the recipient's own `firstname`; it cannot produce "Deysy" for a user named "Usuario". Therefore "Deysy"
-is **literal text typed into the message body** instead of the `{$a->firstname}` marker. Configuration
-error, not code.
+Admin validation (Users → filter by email): the reporting mailbox maps to **exactly one** account, a
+test account whose first name does **not** match the name shown in the reminder.
+`replace_placeholders` can only inject the recipient's own `firstname`; it cannot produce a name that
+belongs to a different person. Therefore the name in the reminder is **literal text typed into the
+message body** instead of the `{$a->firstname}` marker. Configuration error, not code.
 
 ## Operator actions required before/at closure (no code)
 
 1. **Fix the hard-coded name.** Actions cannot be edited (see below); the fix is to **delete** the
    "Enviar notificación" action of the affected rule and **recreate** it, re-entering subject, roles,
    and a body that uses the `{$a->firstname}` marker.
-2. **Remove duplicate rules.** The EPOC – AZCHOOL course had two near-identical rules
-   ("Finalización del curso" and "Finalización del curso - 3") on the same Customcert activity, both
-   `Inactiva`. If both were ever active, that alone produces two emails. Keep one.
-3. **Unify the certificate email template** for the EPOC – AZCHOOL course to match the personalised
+2. **Remove duplicate rules.** The affected course had two near-identical rules on the same Customcert
+   activity, both `Inactiva`. If both were ever active, that alone produces two emails. Keep one.
+3. **Unify the certificate email template** for the affected course to match the personalised
    template used by the other courses (certificate module config, not this plugin).
 
 ## Constraint discovered during closure: components are add + delete only
