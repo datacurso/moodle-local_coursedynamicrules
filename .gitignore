@@ -1,2 +1,12 @@
-# Local AI tooling artifacts (Agent Teams Lite skill registry).
+# Local AI tooling artifacts — never part of the plugin.
 .atl/
+.codegraph/
+.claude/
+CLAUDE.md
+AGENTS.md
+.mcp.json
+openspec/
+
+# Internal working documentation (ticket analyses, audits) — lives in private records,
+# never in this public repository. Plugin user documentation stays in README.md + __docs/.
+docs/
