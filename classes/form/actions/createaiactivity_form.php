@@ -155,7 +155,11 @@ class createaiactivity_form extends action_form {
             ],
             [
                 'pluginname' => 'local_coursegen',
-                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
+                'downloadurl' => 'https://moodle.org/plugins/local_coursegen/versions',
+            ],
+            [
+                'pluginname' => 'aiprovider_datacurso',
+                'downloadurl' => 'https://moodle.org/plugins/aiprovider_datacurso/versions',
             ],
         ];
 
