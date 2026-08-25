@@ -28,6 +28,9 @@ namespace local_coursedynamicrules\local;
  * Handles anonymization/de-anonymization for AI payloads.
  */
 class payload_anonymizer {
+    /** @var string[] Payload keys carrying free text that may name the student. */
+    private const TEXT_KEYS = ['message', 'instructions'];
+
     /**
      * Build replacement map for student-related user fields.
      *
@@ -63,12 +66,17 @@ class payload_anonymizer {
     public static function anonymize(array $payload, \stdClass $user): array {
         $replacements = self::build_replacements($user);
 
-        if (!empty($replacements) && isset($payload['message']) && is_string($payload['message'])) {
-            $payload['message'] = str_replace(
-                array_values($replacements),
-                array_keys($replacements),
-                $payload['message']
-            );
+        if (!empty($replacements)) {
+            foreach (self::TEXT_KEYS as $key) {
+                if (!isset($payload[$key]) || !is_string($payload[$key])) {
+                    continue;
+                }
+                $payload[$key] = str_replace(
+                    array_values($replacements),
+                    array_keys($replacements),
+                    $payload[$key]
+                );
+            }
         }
 
         return [
