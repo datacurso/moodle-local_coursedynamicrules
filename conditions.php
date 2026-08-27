@@ -23,6 +23,7 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\availability_user_status;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -35,6 +36,9 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+// Declared since the capability existed, enforced nowhere until now: the menu only offers
+// this page to roles that hold it, but a URL is not a menu.
+require_capability('local/coursedynamicrules:viewcondition', $context);
 require_capability('local/coursedynamicrules:managecondition', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/conditions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
@@ -63,6 +67,9 @@ if ($editid > 0) {
 }
 $conditioninstance = null;
 if (!empty($type)) {
+    // The add menu is only rendered for a role that holds this, but the type is a URL
+    // parameter: refuse it here as well.
+    require_capability('local/coursedynamicrules:createcondition', $context);
     $conditionrecord = (object) [
         'ruleid' => $ruleid,
         'conditiontype' => $type,
@@ -123,7 +130,19 @@ $headerrow = new \local_coursedynamicrules\output\header_with_brand('conditions'
 echo $OUTPUT->render($headerrow);
 echo html_writer::link($rulesurl, get_string('backtolistrules', 'local_coursedynamicrules'), ['class' => 'mb-3 d-block']);
 echo html_writer::start_div('d-flex h-100');
-echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $conditionoptions]);
+// Losing the per-user availability restriction silently un-hides every activity the rules
+// gate, so the operator has to be told here rather than discovering it through exposed
+// content.
+if (!availability_user_status::is_enabled()) {
+    echo $OUTPUT->notification(
+        get_string('availabilityuserdisabledwarning', 'local_coursedynamicrules'),
+        \core\output\notification::NOTIFY_WARNING
+    );
+}
+
+if (has_capability('local/coursedynamicrules:createcondition', $context)) {
+    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $conditionoptions]);
+}
 echo html_writer::start_div('col-8 h-100');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $conditionsfortemplate]);
 

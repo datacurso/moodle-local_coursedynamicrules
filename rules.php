@@ -23,6 +23,7 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\availability_user_status;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 
@@ -36,6 +37,7 @@ $context = context_course::instance($courseid);
 require_login($course);
 
 require_capability('local/coursedynamicrules:managerule', $context);
+require_capability('local/coursedynamicrules:viewrule', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
 
@@ -110,14 +112,20 @@ foreach ($rules as $rule) {
     }
     $editruleurl = new moodle_url('/local/coursedynamicrules/editrule.php', ['id' => $rule->id, 'courseid' => $courseid]);
     $deleteruleurl = new moodle_url('/local/coursedynamicrules/deleterule.php', ['id' => $rule->id, 'courseid' => $courseid]);
-    $editrulelink = html_writer::link(
-        $editruleurl,
-        $OUTPUT->pix_icon('t/edit', get_string('editrule', 'local_coursedynamicrules'))
-    );
-    $deleterulelink = html_writer::link(
-        $deleteruleurl,
-        $OUTPUT->pix_icon('t/delete', get_string('deleterule', 'local_coursedynamicrules'))
-    );
+    $editrulelink = '';
+    if (has_capability('local/coursedynamicrules:updaterule', $context)) {
+        $editrulelink = html_writer::link(
+            $editruleurl,
+            $OUTPUT->pix_icon('t/edit', get_string('editrule', 'local_coursedynamicrules'))
+        );
+    }
+    $deleterulelink = '';
+    if (has_capability('local/coursedynamicrules:deleterule', $context)) {
+        $deleterulelink = html_writer::link(
+            $deleteruleurl,
+            $OUTPUT->pix_icon('t/delete', get_string('deleterule', 'local_coursedynamicrules'))
+        );
+    }
 
     $ruletext = html_writer::div($editrulelink . $deleterulelink, 'd-flex', ['style' => 'gap: .4rem']);
 
@@ -151,6 +159,18 @@ $addrulebutton = new single_button(
 // Render heading and branding on the same row.
 $headerrow = new \local_coursedynamicrules\output\header_with_brand('rules');
 echo $OUTPUT->render($headerrow);
-echo html_writer::div($OUTPUT->render($addrulebutton), 'my-3');
+
+// Losing the per-user availability restriction silently un-hides every activity the rules gate,
+// so the operator has to be told here rather than discovering it through exposed content.
+if (!availability_user_status::is_enabled()) {
+    echo $OUTPUT->notification(
+        get_string('availabilityuserdisabledwarning', 'local_coursedynamicrules'),
+        \core\output\notification::NOTIFY_WARNING
+    );
+}
+
+if (has_capability('local/coursedynamicrules:createrule', $context)) {
+    echo html_writer::div($OUTPUT->render($addrulebutton), 'my-3');
+}
 echo html_writer::table($table);
 echo $OUTPUT->footer();

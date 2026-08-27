@@ -31,7 +31,16 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
-require_capability('local/coursedynamicrules:updaterule', $context);
+
+// The operation decides the capability: an id in the URL means editing an existing rule, its
+// absence means creating a new one. Gating both on updaterule would refuse a role that is only
+// allowed to create, and gating the create flow on the button alone would let a handcrafted URL
+// straight to this page create rules regardless.
+if ($ruleid) {
+    require_capability('local/coursedynamicrules:updaterule', $context);
+} else {
+    require_capability('local/coursedynamicrules:createrule', $context);
+}
 
 $url = new moodle_url('/local/coursedynamicrules/editrule.php', ['courseid' => $courseid, 'id' => $ruleid]);
 $rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);

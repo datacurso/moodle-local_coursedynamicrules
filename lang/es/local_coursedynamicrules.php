@@ -31,6 +31,7 @@ $string['addactions'] = 'Añadir acciones';
 $string['addconditions'] = 'Añadir condiciones';
 $string['after'] = 'Después';
 $string['allcourseactivitymodules'] = 'Todos los módulos de actividad del curso';
+$string['availabilityuserdisabledwarning'] = 'La restricción de acceso «Restricción por usuario» está desactivada en este sitio. Las actividades que estas reglas liberaban alumno por alumno ahora son visibles para TODOS los estudiantes, porque Moodle ignora las restricciones cuyo plugin no está disponible. Vuelva a activarla en Administración del sitio > Plugins > Restricciones de acceso para restaurar el control.';
 $string['availableplaceholders'] = 'Marcadores disponibles';
 $string['backtolistrules'] = 'Volver a la lista de reglas';
 $string['basedate'] = 'Fecha base';
