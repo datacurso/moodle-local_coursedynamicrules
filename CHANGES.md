@@ -1,3 +1,21 @@
+## 1.9.0
+
+**Released on:** 2026-08-29
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+## Fixed
+- **The create AI activity action works again with Course Creator AI 2.x**
+  Course Creator AI 2.0.3 removed `local_coursegen\mod_manager` without leaving an alias, so the action called a class that no longer existed. The failure was swallowed by the action's own error handling and surfaced only as developer debugging output, which meant that on a site with debugging off the action simply produced nothing, silently, on every run. The action now goes through `local_coursegen\local\service\create_mod_service` and unwraps the flat result the service returns, instead of the nested shape the removed class expected.
+- **The required-plugin checks on the AI action form name the right plugins**
+  The form pointed at the wrong download page for Course Creator AI and did not check for `aiprovider_datacurso` at all, even though that plugin supplies the HTTP client the action depends on.
+
+## Changed
+- **Declared dependencies match the APIs actually used**
+  `local_coursegen` moves to 2026082400 and `aiprovider_datacurso` to 2026081000. Without this the plugin would install against a Course Creator AI that does not have `create_mod_service`, and break in exactly the way this release fixes.
+
+---
+
 ## 1.8.1
 
 **Released on:** 2026-07-31
