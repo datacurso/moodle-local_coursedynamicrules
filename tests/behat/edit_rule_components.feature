@@ -24,22 +24,28 @@ Feature: Manage existing rule conditions and actions
   # are not written yet. These two scenarios pin that the control is gone from the listing, and the
   # third pins that the endpoint itself refuses the request - hiding the control alone would leave
   # a bookmarked link working.
-  Scenario: The conditions listing offers no control to edit an existing condition
+  # The delete capability is manager-only by archetype (RISK_DATALOSS), so an editing teacher is
+  # shown NO per-row controls at all: the pencil because in-place editing is withheld in this
+  # release, and the trash because offering it invited a click that ended in a capability error
+  # page - the control was offered to a role the endpoint refuses. Never offer what would be
+  # refused. The admin scenarios below keep the positive half covered: a role holding delete*
+  # still sees and uses the control.
+  Scenario: An editing teacher sees no edit or delete control on a condition
     Given I log in as "teacher1"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     When I click on "Edit conditions" "link"
     Then I should see "Users who take more than 1 days without accessing this course."
-    And ".fa-trash" "css_element" should exist
+    And ".fa-trash" "css_element" should not exist
     And ".fa-pencil" "css_element" should not exist
 
-  Scenario: The actions listing offers no control to edit an existing action
+  Scenario: An editing teacher sees no edit or delete control on an action
     Given I log in as "teacher1"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     When I click on "Edit actions" "link"
     Then I should see "Send notification 'Original subject' to users"
-    And ".fa-trash" "css_element" should exist
+    And ".fa-trash" "css_element" should not exist
     And ".fa-pencil" "css_element" should not exist
 
   Scenario: A direct link to the condition editor is refused and the condition is left untouched

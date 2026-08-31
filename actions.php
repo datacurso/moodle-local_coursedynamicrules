@@ -107,20 +107,29 @@ foreach ($actions as $action) {
     $header = $listedactioninstance->get_header();
     $description = $listedactioninstance->get_description();
 
-    $deleteurl = new moodle_url(
-        '/local/coursedynamicrules/deleteaction.php',
-        ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
-    );
     if (!empty($header) && !empty($description)) {
         // No 'editurl' is supplied: the shared template renders the edit control only when that
         // key is present, so leaving it out is what removes the control from every row.
-        $actionsfortemplate[] = [
+        $row = [
             'id' => $action->id,
             'header' => $header,
             'description' => $description,
-            'deleteurl' => $deleteurl->out(false),
-            'deletetitle' => get_string('deleteaction', 'local_coursedynamicrules'),
         ];
+
+        // The trash can needs deleteaction - manager-only by archetype, with RISK_DATALOSS - and
+        // offering it to every row put a control in front of the editing teacher that the endpoint
+        // then refused with an error page: never offer what would be refused. The endpoint keeps
+        // its own check either way; this only aligns the offer with it.
+        if (has_capability('local/coursedynamicrules:deleteaction', $context)) {
+            $deleteurl = new moodle_url(
+                '/local/coursedynamicrules/deleteaction.php',
+                ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['deleteurl'] = $deleteurl->out(false);
+            $row['deletetitle'] = get_string('deleteaction', 'local_coursedynamicrules');
+        }
+
+        $actionsfortemplate[] = $row;
     }
 }
 
