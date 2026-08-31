@@ -57,6 +57,10 @@ if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid,
     throw new moodle_exception('invalidruleid', 'local_coursedynamicrules');
 }
 
+// One lock query per request, not per row: the fact is rule-level and constant here
+// (round-3 confirmed suggestion - rules.php pays zero per-row queries for the same fact).
+$rulelocked = rule_lock::is_locked($ruleid);
+
 // Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
 // form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
 $editid = optional_param('edit', 0, PARAM_INT);
@@ -123,7 +127,7 @@ foreach ($conditions as $condition) {
         // put a control in front of the editing teacher that the endpoint then refused with an
         // error page: never offer what would be refused. The endpoint keeps its own check either
         // way; this only aligns the offer with it.
-        if (has_capability('local/coursedynamicrules:deletecondition', $context) && !rule_lock::is_locked($ruleid)) {
+        if (has_capability('local/coursedynamicrules:deletecondition', $context) && !$rulelocked) {
             $deleteurl = new moodle_url(
                 '/local/coursedynamicrules/deletecondition.php',
                 ['id' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
@@ -154,7 +158,7 @@ if (!availability_user_status::is_enabled()) {
 
 echo html_writer::start_div('d-flex h-100');
 
-if (has_capability('local/coursedynamicrules:createcondition', $context) && !rule_lock::is_locked($ruleid)) {
+if (has_capability('local/coursedynamicrules:createcondition', $context) && !$rulelocked) {
     echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $conditionoptions]);
 }
 echo html_writer::start_div('col-8 h-100');

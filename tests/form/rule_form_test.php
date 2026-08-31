@@ -214,6 +214,70 @@ final class rule_form_test extends \advanced_testcase {
     }
 
     /**
+     * Validation never speaks about rules of other courses - or about rules that do not exist.
+     *
+     * Round-3 confirmed finding, the same ordering class as the delete endpoints: validation ran
+     * the lock and completeness checks on the RAW submitted hidden id, before ownership - so a
+     * tampered id from another course answered with the incompleteness error (state oracle) and
+     * a missing id exploded with a dml exception from inside validation. Ownership speaks first:
+     * a non-owned or missing id validates clean here and is refused uniformly at write time by
+     * resolve_writable_ruleid(), leaking nothing.
+     *
+     * @covers ::validation
+     */
+    public function test_validation_never_speaks_about_foreign_or_missing_rules(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $mycourseid = (int) $this->getDataGenerator()->create_course()->id;
+        $foreign = $this->rule_with((int) $this->getDataGenerator()->create_course()->id, 0, 0);
+
+        $errors = $this->validation_of(
+            (object) ['courseid' => $mycourseid],
+            ['id' => (int) $foreign->id, 'name' => 'Tampered', 'active' => 1]
+        );
+        $this->assertArrayNotHasKey(
+            'active',
+            $errors,
+            'A foreign rule\'s incompleteness must not leak through a validation error.'
+        );
+
+        $errors = $this->validation_of(
+            (object) ['courseid' => $mycourseid],
+            ['id' => 999999, 'name' => 'Tampered', 'active' => 1]
+        );
+        $this->assertArrayNotHasKey('active', $errors, 'A missing id neither errors nor throws here.');
+    }
+
+    /**
+     * A sealed INCOMPLETE rule keeps its active toggle - the upgrade population depends on it.
+     *
+     * Born green as a regression pin (its red counterfactual is deleting the locked-skip branch):
+     * the 2026083002 upgrade deliberately seals every active rule, component-less ones included.
+     * If validation demanded completeness from a sealed rule, every such rule that gets paused
+     * could never be reactivated - trapped by a check asking for components it can never gain.
+     *
+     * @covers ::validation
+     */
+    public function test_a_sealed_incomplete_rule_keeps_its_toggle(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+
+        $rule = $this->rule_with($courseid, 0, 0);
+        $DB->set_field('local_coursedynamicrules_rule', 'timeactivated', time(), ['id' => $rule->id]);
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $rule->id], '*', MUST_EXIST);
+
+        $errors = $this->validation_of($rule, ['id' => (int) $rule->id, 'name' => $rule->name, 'active' => 1]);
+
+        $this->assertArrayNotHasKey(
+            'active',
+            $errors,
+            'Reactivating a sealed rule must never demand components a sealed rule can never gain.'
+        );
+    }
+
+    /**
      * A complete rule activates, and saving anything while NOT activating never trips the check.
      *
      * @covers ::validation

@@ -96,5 +96,22 @@ final class upgrade_lock_stamp_test extends \advanced_testcase {
             (int) $DB->get_field('local_coursedynamicrules_rule', 'timeactivated', ['id' => $activeallzero]),
             'With every column zero, the stamp falls back to now - never to 0.'
         );
+
+        // And the statement is not just an idea in this test: the same wiring discipline as
+        // test_every_mutation_path_consults_the_lock() pins that db/upgrade.php still carries it -
+        // edit the real WHERE or drop a NULLIF and this names it (round-3 confirmed finding: the
+        // semantic test alone stayed green with the savepoint gutted).
+        global $CFG;
+        $upgrade = file_get_contents($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
+        $this->assertStringContainsString(
+            'SET timeactivated = COALESCE(NULLIF(timemodified, 0), NULLIF(timecreated, 0), :now)',
+            $upgrade,
+            'The stamping statement left db/upgrade.php.'
+        );
+        $this->assertStringContainsString(
+            'WHERE active = 1 AND timeactivated IS NULL',
+            $upgrade,
+            'The stamping WHERE left db/upgrade.php.'
+        );
     }
 }

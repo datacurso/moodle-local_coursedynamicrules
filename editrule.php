@@ -192,7 +192,6 @@ if ($ruleform->is_cancelled()) {
     // completeness; the confirm endpoint re-checks it anyway.
     $confirmactivation = !$waslocked && !empty($data->active);
     if ($confirmactivation) {
-        global $DB;
         $data->active = empty($data->id)
             ? 0
             : (int) $DB->get_field('local_coursedynamicrules_rule', 'active', ['id' => $data->id]);

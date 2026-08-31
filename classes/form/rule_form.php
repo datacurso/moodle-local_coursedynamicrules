@@ -97,8 +97,10 @@ class rule_form extends \moodleform {
      * the everyday flow, and it would have become data loss. Product decision: refuse here with a
      * field error, keep the checkbox.
      *
-     * A locked rule skips the check: it is complete by construction (it could not have been
-     * activated otherwise), and its toggle must keep working forever.
+     * A locked rule skips the check because its toggle must keep working forever - and NOT
+     * because sealed implies complete: the 2026083002 upgrade deliberately seals every active
+     * rule, component-less ones included, so a sealed incomplete rule is a real population and
+     * demanding completeness from it would trap it inactive after its first pause.
      *
      * @param array $data
      * @param array $files
@@ -112,6 +114,21 @@ class rule_form extends \moodleform {
         }
 
         $ruleid = (int) ($data['id'] ?? 0);
+
+        // Ownership speaks before the lock, same as every endpoint (round-3 confirmed finding):
+        // this id is the RAW submitted hidden field, and letting the lock or the completeness
+        // check answer about a rule of another course leaks its state through the differing
+        // responses - while a missing id would explode out of is_locked()'s MUST_EXIST from
+        // inside validation. A non-owned or missing id validates clean here and is refused
+        // uniformly at write time by ownership::resolve_writable_ruleid(), which leaks nothing.
+        if (
+            $ruleid && !\local_coursedynamicrules\helper\ownership::rule_belongs_to_course(
+                $ruleid,
+                (int) ($this->_customdata['courseid'] ?? 0)
+            )
+        ) {
+            return $errors;
+        }
 
         if ($ruleid && \local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)) {
             return $errors;
