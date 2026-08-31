@@ -65,8 +65,14 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
 
         $CFG->backup_file_logger_level = \backup::LOG_NONE;
 
-        $bc = new \backup_controller(\backup::TYPE_1COURSE, $course->id,
-            \backup::FORMAT_MOODLE, \backup::INTERACTIVE_NO, \backup::MODE_IMPORT, $USER->id);
+        $bc = new \backup_controller(
+            \backup::TYPE_1COURSE,
+            $course->id,
+            \backup::FORMAT_MOODLE,
+            \backup::INTERACTIVE_NO,
+            \backup::MODE_IMPORT,
+            $USER->id
+        );
         $backupid = $bc->get_backupid();
         $bc->execute_plan();
         $bc->destroy();
@@ -88,8 +94,14 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
         $categoryid = $DB->get_field('course_categories', 'id', ['parent' => 0], IGNORE_MULTIPLE);
         $newcourseid = \restore_dbops::create_new_course('Restored', 'RT' . random_string(4), $categoryid);
 
-        $rc = new \restore_controller($backupid, $newcourseid,
-            \backup::INTERACTIVE_NO, \backup::MODE_GENERAL, $USER->id, \backup::TARGET_NEW_COURSE);
+        $rc = new \restore_controller(
+            $backupid,
+            $newcourseid,
+            \backup::INTERACTIVE_NO,
+            \backup::MODE_GENERAL,
+            $USER->id,
+            \backup::TARGET_NEW_COURSE
+        );
         // execute_precheck() returns true only with NO errors and NO warnings
         // (restore_controller:455-458); warnings alone still leave the restore in STATUS_AWAITING,
         // executable. Annotating a bare custom role produces exactly such a warning ("cannot be
