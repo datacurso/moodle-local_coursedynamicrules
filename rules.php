@@ -144,6 +144,14 @@ foreach ($rules as $rule) {
             'badge badge-success'
         );
     }
+    // Locked is a separate fact from active: a paused locked rule shows both states. Read off the
+    // row already fetched - the listing must not pay one lock query per rule.
+    if (!empty($rule->timeactivated)) {
+        $rule->name .= ' ' . html_writer::span(
+            get_string('rulebadgelocked', 'local_coursedynamicrules'),
+            'badge badge-warning'
+        );
+    }
     $table->data[] = [
         new html_table_cell($rule->name),
         new html_table_cell($conditionstext),

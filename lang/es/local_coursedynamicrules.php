@@ -250,6 +250,7 @@ $string['ruleactive'] = 'Activa';
 $string['ruleactive_help'] = 'Habilitar o deshabilitar la regla';
 $string['ruleadd'] = 'Añadir regla';
 $string['ruleaddedsuccessfully'] = 'Regla añadida correctamente';
+$string['rulebadgelocked'] = 'Bloqueada';
 $string['ruleinactive'] = 'Inactiva';
 $string['rulelocked'] = 'Esta regla ya fue activada y no se puede modificar. Puede pausarla o reactivarla, o eliminarla por completo.';
 $string['rules'] = 'Reglas';

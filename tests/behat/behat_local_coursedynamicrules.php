@@ -52,9 +52,12 @@ class behat_local_coursedynamicrules extends behat_base {
             $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
-                'name' => 'Behat no course access rule',
+                // Optional columns, defaulted for backwards compatibility with every existing
+                // feature: a name so scenarios can tell rules apart, and active so the activation
+                // flow can start from a genuinely inactive rule.
+                'name' => trim($row['name'] ?? '') !== '' ? trim($row['name']) : 'Behat no course access rule',
                 'description' => 'Behat generated rule',
-                'active' => 1,
+                'active' => isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1,
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
                 'timemodified' => time(),

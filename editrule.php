@@ -132,15 +132,10 @@ if (
     exit;
 }
 
-echo $OUTPUT->header();
-
-$PAGE->set_title($pagetitle);
-$PAGE->set_heading($pagetitle);
-
-$headingkey = $ruleid ? 'editrule' : 'createrule';
-$headerrow = new \local_coursedynamicrules\output\header_with_brand($headingkey, 'local_coursedynamicrules', false);
-echo $OUTPUT->render($headerrow);
-
+// The form is built and processed BEFORE any output: every branch below redirects, and
+// redirect() after the header is the exact structural debt the acceptance suite surfaced the
+// first time anything created a rule through this page (every earlier scenario used the
+// generator). Same bug class, same fix, as history.php.
 $ruleform = new local_coursedynamicrules\form\rule_form($url, ['rule' => $rule, 'courseid' => $courseid]);
 
 if ($ruleform->is_cancelled()) {
@@ -207,6 +202,15 @@ if ($ruleform->is_cancelled()) {
         );
     }
 }
+
+$PAGE->set_title($pagetitle);
+$PAGE->set_heading($pagetitle);
+
+echo $OUTPUT->header();
+
+$headingkey = $ruleid ? 'editrule' : 'createrule';
+$headerrow = new \local_coursedynamicrules\output\header_with_brand($headingkey, 'local_coursedynamicrules', false);
+echo $OUTPUT->render($headerrow);
 
 $ruleform->display();
 echo $OUTPUT->footer();
