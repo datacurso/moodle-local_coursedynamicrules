@@ -104,9 +104,11 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         // with no stamp (made before the lock existed) but active gets one by the same axiom the
         // 2026083002 upgrade applies to the installed base - active means it WAS activated.
         // Inactive unstamped rules restore unlocked, same grandfathering as the upgrade.
-        $record->timeactivated = $data->timeactivated ?? null;
+        $record->timeactivated = (int) ($data->timeactivated ?? 0) ?: null;
         if (!empty($record->active) && $record->timeactivated === null) {
-            $record->timeactivated = $record->timemodified ?? $record->timecreated ?? time();
+            // Truthiness on purpose: zeros in the archive's time columns are skipped, never
+            // copied - a stamp of literally 0 would fork the sealed predicate.
+            $record->timeactivated = $record->timemodified ?: ($record->timecreated ?: time());
         }
 
         $newruleid = $DB->insert_record('local_coursedynamicrules_rule', $record);

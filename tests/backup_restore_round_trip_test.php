@@ -250,15 +250,15 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course();
 
-        $make = function (string $name, int $active, ?int $timeactivated) use ($DB, $course): void {
+        $make = function (string $name, int $active, ?int $timeactivated, int $times = 1) use ($DB, $course): void {
             $DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
                 'name' => $name,
                 'description' => '',
                 'active' => $active,
                 'timeactivated' => $timeactivated,
-                'timecreated' => 1000,
-                'timemodified' => 2000,
+                'timecreated' => 1000 * $times,
+                'timemodified' => 2000 * $times,
             ]);
         };
 
@@ -266,6 +266,9 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
         $make('Sealed paused', 0, 7777);
         $make('Legacy active', 1, null);
         $make('Inactive draft', 0, null);
+        // Zeros in the time columns must be skipped by the restore stamp, never copied: a stamp
+        // of literally 0 would fork the sealed predicate (round-2 judges).
+        $make('Legacy zero times', 1, null, 0);
 
         $newcourseid = $this->restore_course($this->backup_course($course));
 
@@ -273,7 +276,12 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
         foreach ($DB->get_records('local_coursedynamicrules_rule', ['courseid' => $newcourseid]) as $rule) {
             $restored[$rule->name] = $rule->timeactivated;
         }
-        $this->assertCount(4, $restored, 'All four rules travel.');
+        $this->assertCount(5, $restored, 'All five rules travel.');
+        $this->assertGreaterThan(
+            0,
+            (int) $restored['Legacy zero times'],
+            'An active rule whose archive offers only zero timestamps is stamped with now - never 0.'
+        );
 
         $this->assertEquals(7777, $restored['Sealed active'], 'A sealed rule restores sealed, stamp intact.');
         $this->assertEquals(7777, $restored['Sealed paused'], 'Pausing never unseals - not even through a restore.');

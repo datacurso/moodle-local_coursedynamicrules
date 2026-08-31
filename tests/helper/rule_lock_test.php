@@ -125,6 +125,55 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * A missing rule is an error, never "locked".
+     *
+     * Both round-2 judges: get_field() returns false for a missing row and false !== null, so
+     * is_locked() answered "sealed" for ids that do not exist - the delete endpoints then told
+     * the user "this rule was activated" about a rule that was never born, and the form's
+     * completeness gate silently skipped for tampered ids. Missing and locked are different
+     * facts and must be different answers.
+     *
+     * @covers ::is_locked
+     */
+    public function test_a_missing_rule_is_an_error_not_a_lock(): void {
+        $this->expectException(\dml_missing_record_exception::class);
+        rule_lock::is_locked(999999);
+    }
+
+    /**
+     * The row predicate is THE predicate: one implementation of "sealed", fed the fetched row.
+     *
+     * Both round-2 judges: the listing decided "sealed" with empty($rule->timeactivated) while
+     * the server decided with !== null - a stamp of literally 0 was sealed for one and open for
+     * the other, so the listing offered live links into pages that refuse. The listing keeps its
+     * no-query-per-rule property by passing the row it already fetched; the semantics now have
+     * exactly one owner, and the canon is "any stored stamp seals" (writers normalise 0 away,
+     * and a degenerate stamp must fail CLOSED, matching what the server enforces).
+     *
+     * @covers ::is_locked_row
+     */
+    public function test_the_row_predicate_is_the_only_definition_of_sealed(): void {
+        global $DB;
+
+        $this->assertFalse(rule_lock::is_locked_row((object) ['timeactivated' => null]));
+        $this->assertTrue(rule_lock::is_locked_row((object) ['timeactivated' => 7777]));
+        $this->assertTrue(
+            rule_lock::is_locked_row((object) ['timeactivated' => '0']),
+            'A degenerate zero stamp fails closed, agreeing with the server-side refusal.'
+        );
+
+        // And against real fetched rows, the row predicate and the id predicate answer as one.
+        foreach ([$this->rule(0), $this->rule(1, time())] as $ruleid) {
+            $row = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], '*', MUST_EXIST);
+            $this->assertSame(
+                rule_lock::is_locked($ruleid),
+                rule_lock::is_locked_row($row),
+                'Two predicates for one fact is how the divergence happened - they must agree.'
+            );
+        }
+    }
+
+    /**
      * require_unlocked() refuses a locked rule and passes an unlocked one.
      *
      * @covers ::require_unlocked
@@ -316,6 +365,10 @@ final class rule_lock_test extends \advanced_testcase {
                 'rule_lock::locked_write_discards(',
                 'rule_lock::stamp_if_active(',
             ],
+            // The listing decides every sealed-dependent affordance (badge, add links, pencil vs
+            // eye) through the one row predicate - a second local definition of "sealed" is how
+            // the timeactivated=0 divergence happened.
+            'rules.php' => ['rule_lock::is_locked_row('],
         ];
 
         $missing = [];

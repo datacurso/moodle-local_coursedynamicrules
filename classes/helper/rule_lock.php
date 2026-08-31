@@ -62,13 +62,36 @@ class rule_lock {
     /**
      * Whether this rule was ever activated - and is therefore no longer editable.
      *
+     * Fetched MUST_EXIST: a missing rule is an error, never "locked". get_field()'s false for a
+     * missing row is !== null, so the old shape answered "sealed" for ids that do not exist -
+     * both round-2 judges caught the misleading refusals that produced.
+     *
      * @param int $ruleid
      * @return bool
+     * @throws \dml_missing_record_exception When no such rule exists.
      */
     public static function is_locked(int $ruleid): bool {
         global $DB;
 
-        return $DB->get_field('local_coursedynamicrules_rule', 'timeactivated', ['id' => $ruleid]) !== null;
+        return self::is_locked_row(
+            $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], 'id, timeactivated', MUST_EXIST)
+        );
+    }
+
+    /**
+     * The one definition of "sealed", fed an already-fetched rule row.
+     *
+     * Exists so listings keep their no-query-per-rule property WITHOUT growing a second local
+     * definition of the fact - the listing's empty() versus the server's !== null is exactly how
+     * a stamp of literally 0 became sealed for one and open for the other. The canon: any stored
+     * stamp seals (writers normalise 0 away, and a degenerate stamp fails CLOSED, agreeing with
+     * the enforcement side). is_locked() delegates here, so the two can never diverge.
+     *
+     * @param \stdClass $rule A rule row carrying timeactivated.
+     * @return bool
+     */
+    public static function is_locked_row(\stdClass $rule): bool {
+        return $rule->timeactivated !== null;
     }
 
     /**

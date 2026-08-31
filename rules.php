@@ -27,6 +27,7 @@ use local_coursedynamicrules\helper\availability_user_status;
 use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
+use local_coursedynamicrules\helper\rule_lock;
 
 require('../../config.php');
 
@@ -83,7 +84,7 @@ foreach ($rules as $rule) {
         // a page whose add menu is hidden is a dead end. The fact (no conditions yet) stays,
         // muted, read off the fetched row so the listing pays no lock query per rule.
         $conditionstext = has_capability('local/coursedynamicrules:createcondition', $context)
-                && empty($rule->timeactivated)
+                && !rule_lock::is_locked_row($rule)
             ? html_writer::link($conditionsurl, get_string('addconditions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addconditions', 'local_coursedynamicrules'), 'text-muted');
     } else {
@@ -96,7 +97,7 @@ foreach ($rules as $rule) {
         // promise otherwise: the eye replaces the pencil, the navigation stays.
         $editlink = html_writer::link(
             $conditionsurl,
-            empty($rule->timeactivated)
+            !rule_lock::is_locked_row($rule)
                 ? $OUTPUT->pix_icon('t/edit', get_string('editconditions', 'local_coursedynamicrules'))
                 : $OUTPUT->pix_icon('i/preview', get_string('viewconditions', 'local_coursedynamicrules'))
         );
@@ -106,7 +107,7 @@ foreach ($rules as $rule) {
     if (empty($actions)) {
         // Same gate as the conditions column: capability AND unsealed.
         $actionstext = has_capability('local/coursedynamicrules:createaction', $context)
-                && empty($rule->timeactivated)
+                && !rule_lock::is_locked_row($rule)
             ? html_writer::link($actionsurl, get_string('addactions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addactions', 'local_coursedynamicrules'), 'text-muted');
     } else {
@@ -118,7 +119,7 @@ foreach ($rules as $rule) {
         // Same gate as the conditions column: the eye replaces the pencil on sealed rules.
         $editlink = html_writer::link(
             $actionsurl,
-            empty($rule->timeactivated)
+            !rule_lock::is_locked_row($rule)
                 ? $OUTPUT->pix_icon('t/edit', get_string('editactions', 'local_coursedynamicrules'))
                 : $OUTPUT->pix_icon('i/preview', get_string('viewactions', 'local_coursedynamicrules'))
         );
@@ -157,7 +158,7 @@ foreach ($rules as $rule) {
     }
     // Locked is a separate fact from active: a paused locked rule shows both states. Read off the
     // row already fetched - the listing must not pay one lock query per rule.
-    if (!empty($rule->timeactivated)) {
+    if (rule_lock::is_locked_row($rule)) {
         $rule->name .= ' ' . html_writer::span(
             get_string('rulebadgelocked', 'local_coursedynamicrules'),
             'badge badge-warning'

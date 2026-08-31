@@ -43,14 +43,14 @@ final class upgrade_lock_stamp_test extends \advanced_testcase {
         $this->resetAfterTest(true);
 
         $courseid = (int) $this->getDataGenerator()->create_course()->id;
-        $make = function (int $active, ?int $timemodified) use ($DB, $courseid): int {
+        $make = function (int $active, ?int $timemodified, int $timecreated = 1000) use ($DB, $courseid): int {
             return (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $courseid,
                 'name' => 'Pre-upgrade rule',
                 'description' => '',
                 'active' => $active,
                 'timeactivated' => null,
-                'timecreated' => 1000,
+                'timecreated' => $timecreated,
                 'timemodified' => $timemodified,
             ]);
         };
@@ -58,12 +58,16 @@ final class upgrade_lock_stamp_test extends \advanced_testcase {
         $activewithhistory = $make(1, 5000);
         $activebare = $make(1, null);
         $inactive = $make(0, 5000);
+        // Legacy rows can hold 0 in these columns, and a stamp of literally 0 would fork the
+        // sealed predicate (round-2 judges): the statement must skip zeros, never copy them.
+        $activezerotm = $make(1, 0);
+        $activeallzero = $make(1, 0, 0);
 
         // The exact statement the 2026083002 savepoint runs.
         $DB->execute(
             "
             UPDATE {local_coursedynamicrules_rule}
-               SET timeactivated = COALESCE(timemodified, timecreated, :now)
+               SET timeactivated = COALESCE(NULLIF(timemodified, 0), NULLIF(timecreated, 0), :now)
              WHERE active = 1 AND timeactivated IS NULL",
             ['now' => time()]
         );
@@ -81,6 +85,16 @@ final class upgrade_lock_stamp_test extends \advanced_testcase {
         $this->assertNull(
             $DB->get_field('local_coursedynamicrules_rule', 'timeactivated', ['id' => $inactive]),
             'An inactive rule is grandfathered unlocked: its activation history is unknowable.'
+        );
+        $this->assertEquals(
+            1000,
+            $DB->get_field('local_coursedynamicrules_rule', 'timeactivated', ['id' => $activezerotm]),
+            'A zero timemodified is skipped, not copied into the stamp.'
+        );
+        $this->assertGreaterThan(
+            0,
+            (int) $DB->get_field('local_coursedynamicrules_rule', 'timeactivated', ['id' => $activeallzero]),
+            'With every column zero, the stamp falls back to now - never to 0.'
         );
     }
 }

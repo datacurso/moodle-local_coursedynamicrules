@@ -216,7 +216,7 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         $DB->execute(
             "
             UPDATE {local_coursedynamicrules_rule}
-               SET timeactivated = COALESCE(timemodified, timecreated, :now)
+               SET timeactivated = COALESCE(NULLIF(timemodified, 0), NULLIF(timecreated, 0), :now)
              WHERE active = 1 AND timeactivated IS NULL",
             ['now' => time()]
         );
