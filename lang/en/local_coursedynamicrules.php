@@ -116,7 +116,6 @@ $string['editaction'] = 'Edit action';
 $string['editactions'] = 'Edit actions';
 $string['editcondition'] = 'Edit condition';
 $string['editconditions'] = 'Edit conditions';
-$string['editingunavailable'] = 'Editing an existing condition or action is not available in this version.';
 $string['editrule'] = 'Edit rule';
 $string['enableactivity'] = 'Enable activity';
 $string['enableactivity_action_info'] = 'This action will enable selected activities modules for users who meet the rule conditions criteria.';

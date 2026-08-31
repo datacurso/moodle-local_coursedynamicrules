@@ -52,6 +52,8 @@ Feature: A rule can be edited only until its first activation
     And I should see "it can never be modified again"
     When I press "Activate permanently"
     Then I should see "The rule was activated"
+    # 'Active' substring-matches inside 'Inactive' (case-insensitive matcher): pin the absence too.
+    And I should not see "Inactive"
     And I should see "Active"
 
   Scenario: Cancelling the confirmation keeps every edit saved and the rule inactive

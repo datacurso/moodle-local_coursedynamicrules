@@ -57,8 +57,9 @@ final class capability_enforcement_test extends \advanced_testcase {
      * bind is being lied to. The dormancy test below keeps this list honest in both directions.
      */
     private const DECLARED_BUT_DORMANT = [
-        'updateaction',
-        'updatecondition',
+        // Empty since the bounded component editor woke updateaction/updatecondition
+        // (2026-08-31): every declared capability is now consulted somewhere. The scan keeps
+        // this honest in both directions - a capability added here must truly do nothing.
     ];
 
     /**
