@@ -154,7 +154,9 @@ final class createaiactivity_action_test extends \advanced_testcase {
         $description = $action->get_description();
 
         $this->assertStringContainsString(get_section_name($course, 0), $description);
-        $this->assertStringContainsString(shorten_text($prompt, 80), $description);
+        // Full text, never the 80-char cut: the operator reading the card must see the whole
+        // prompt the AI will receive (product ask 2026-08-31 - "que se vea todo sin cortar").
+        $this->assertStringContainsString($prompt, $description);
         $this->assertStringContainsString(get_string('yes'), $description);
         $this->assertStringContainsString('Reference assignment', $description);
     }

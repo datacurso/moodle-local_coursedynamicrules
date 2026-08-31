@@ -326,12 +326,15 @@ class sendnotification_action extends action {
         $rolenames = role_get_names($coursecontext, ROLENAME_ALIAS, true);
 
         $messagebody = $this->params->messagebody ?? '';
-        $shortbody = shorten_text(trim(html_to_text($messagebody, 0, false)), 80);
+        // The WHOLE body, never an 80-char teaser: the operator reading this card is reading
+        // what learners will actually receive (product ask 2026-08-31). html_to_text with
+        // width 0 keeps lines unwrapped; trim only strips the conversion's edge whitespace.
+        $bodytext = trim(html_to_text($messagebody, 0, false));
 
         $details = get_string('sendnotification_description_details', 'local_coursedynamicrules', (object) [
             'primaryroles' => $this->get_role_names_string($primaryroleids, $rolenames),
             'copyroles' => $this->get_role_names_string($copyroleids, $rolenames),
-            'body' => $shortbody,
+            'body' => $bodytext,
         ]);
 
         return $subjectpart . ' ' . $details;

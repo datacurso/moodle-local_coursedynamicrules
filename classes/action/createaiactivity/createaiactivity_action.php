@@ -275,12 +275,13 @@ class createaiactivity_action extends action {
         $course = get_course($this->courseid);
         $sectionnum = (int) ($this->params->sectionnum ?? 0);
         $sectionname = get_section_name($course, $sectionnum);
+        // The WHOLE prompt, never an 80-char teaser: the operator reading this card is reading
+        // what the AI service will actually receive (product ask 2026-08-31).
         $prompt = $this->params->message ?? '';
-        $shortprompt = shorten_text($prompt, 80);
 
         $data = (object) [
             'section' => $sectionname,
-            'prompt' => $shortprompt,
+            'prompt' => $prompt,
         ];
 
         $description = get_string('createaiactivity_description', 'local_coursedynamicrules', $data);
