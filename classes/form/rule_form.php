@@ -32,16 +32,21 @@ class rule_form extends \moodleform {
         $customdata = $this->_customdata;
 
         $courseid = $customdata['courseid'];
+
+        // A rule being CREATED has no record yet: editrule.php hands this an empty stdClass, so every
+        // read below has to tolerate a property that is not there. Reading them unguarded emitted
+        // three PHP warnings on the most-used screen in the plugin - invisible in production, fatal
+        // under Behat, and the reason 18 acceptance scenarios could not run at all.
         $rule = $customdata['rule'];
 
         $mform->addElement('text', 'name', get_string('name', 'local_coursedynamicrules'));
         $mform->setType('name', PARAM_TEXT);
         $mform->addRule('name', null, 'required', null, 'client');
-        $mform->setDefault('name', $rule->name);
+        $mform->setDefault('name', $rule->name ?? '');
 
         $mform->addElement('textarea', 'description', get_string('description', 'local_coursedynamicrules'));
         $mform->setType('description', PARAM_RAW);
-        $mform->setDefault('description', $rule->description);
+        $mform->setDefault('description', $rule->description ?? '');
 
         $mform->addElement('checkbox', 'active', get_string('ruleactive', 'local_coursedynamicrules'));
         $mform->setDefault('active', $rule->active ?? 0);
@@ -50,7 +55,7 @@ class rule_form extends \moodleform {
         $mform->addElement('hidden', 'courseid', $courseid);
         $mform->setType('courseid', PARAM_INT);
 
-        $mform->addElement('hidden', 'id', $rule->id);
+        $mform->addElement('hidden', 'id', $rule->id ?? 0);
         $mform->setType('id', PARAM_INT);
 
         $this->add_action_buttons(true, get_string('savechanges'));

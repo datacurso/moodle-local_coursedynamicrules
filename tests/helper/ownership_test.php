@@ -181,8 +181,10 @@ final class ownership_test extends \advanced_testcase {
      * @covers ::resolve_writable_ruleid
      */
     public function test_resolve_writable_ruleid_returns_zero_for_create(): void {
-        $this->assertSame(0, ownership::resolve_writable_ruleid(0, $this->coursea));
-        $this->assertSame(0, ownership::resolve_writable_ruleid('', $this->coursea));
+        $this->setAdminUser();
+        $context = \context_course::instance($this->coursea);
+        $this->assertSame(0, ownership::resolve_writable_ruleid(0, $this->coursea, $context));
+        $this->assertSame(0, ownership::resolve_writable_ruleid('', $this->coursea, $context));
     }
 
     /**
@@ -191,7 +193,11 @@ final class ownership_test extends \advanced_testcase {
      * @covers ::resolve_writable_ruleid
      */
     public function test_resolve_writable_ruleid_returns_owned_id(): void {
-        $this->assertSame($this->ruleid, ownership::resolve_writable_ruleid($this->ruleid, $this->coursea));
+        $this->setAdminUser();
+        $this->assertSame(
+            $this->ruleid,
+            ownership::resolve_writable_ruleid($this->ruleid, $this->coursea, \context_course::instance($this->coursea))
+        );
     }
 
     /**
@@ -201,6 +207,65 @@ final class ownership_test extends \advanced_testcase {
      */
     public function test_resolve_writable_ruleid_rejects_foreign_course(): void {
         $this->expectException(\dml_missing_record_exception::class);
-        ownership::resolve_writable_ruleid($this->ruleid, $this->courseb);
+        $this->setAdminUser();
+        ownership::resolve_writable_ruleid($this->ruleid, $this->courseb, \context_course::instance($this->courseb));
+    }
+
+    /**
+     * Grant a user exactly one of this plugin's capabilities in the course, nothing else.
+     *
+     * A non-editing teacher is the vehicle because that archetype holds none of them, so whatever
+     * the test adds is the whole story.
+     *
+     * @param string $capability Frankenstyle capability name.
+     * @return \context_course The course context the tests decide against.
+     */
+    private function user_holding_only(string $capability): \context_course {
+        global $DB;
+
+        $context = \context_course::instance($this->coursea);
+        $user = $this->getDataGenerator()->create_and_enrol(
+            $DB->get_record('course', ['id' => $this->coursea]),
+            'teacher'
+        );
+        $teacherrole = $DB->get_field('role', 'id', ['shortname' => 'teacher'], MUST_EXIST);
+        assign_capability($capability, CAP_ALLOW, $teacherrole, $context->id, true);
+        $this->setUser($user);
+
+        return $context;
+    }
+
+    /**
+     * A role allowed only to CREATE cannot smuggle an update through the hidden form id.
+     *
+     * The page decides its capability from the URL: no ?id means creating, so createrule is
+     * checked. But the write target is the FORM's hidden id, a client-controlled field, and course
+     * ownership alone used to be the only validation on it. A user allowed to create but denied
+     * updaterule could GET the page without an id - passing the create check - and POST the id of
+     * an existing rule in the same course. The denied update went through.
+     *
+     * The capability therefore has to be decided HERE, on the id that will actually be written,
+     * not on the id the URL advertised. Deciding it at the page reads one value and acts on
+     * another - the exact seam this suite exists to close.
+     *
+     * @covers ::resolve_writable_ruleid
+     */
+    public function test_a_create_only_role_cannot_update_through_the_hidden_id(): void {
+        $context = $this->user_holding_only('local/coursedynamicrules:createrule');
+
+        $this->expectException(\required_capability_exception::class);
+        ownership::resolve_writable_ruleid($this->ruleid, $this->coursea, $context);
+    }
+
+    /**
+     * The mirror: a role allowed only to UPDATE cannot create by posting id=0.
+     *
+     * @covers ::resolve_writable_ruleid
+     */
+    public function test_an_update_only_role_cannot_create_through_a_zero_id(): void {
+        $context = $this->user_holding_only('local/coursedynamicrules:updaterule');
+
+        $this->expectException(\required_capability_exception::class);
+        ownership::resolve_writable_ruleid(0, $this->coursea, $context);
     }
 }

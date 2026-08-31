@@ -23,6 +23,7 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\availability_user_status;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -35,6 +36,10 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+// Both halves of the declared contract: viewing is what this page does, managing is what its
+// controls do, and a capability that is declared but never checked anywhere is a promise the
+// plugin does not keep.
+require_capability('local/coursedynamicrules:viewaction', $context);
 require_capability('local/coursedynamicrules:manageaction', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/actions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
@@ -63,6 +68,9 @@ if ($editid > 0) {
 }
 $actioninstance = null;
 if (!empty($type)) {
+    // The add menu is only rendered for a role that holds this, but the type is a URL
+    // parameter: refuse it here as well.
+    require_capability('local/coursedynamicrules:createaction', $context);
     $actionrecord = (object) [
         'ruleid' => $ruleid,
         'actiontype' => $type,
@@ -123,8 +131,21 @@ $actionoptions = local_coursedynamicrules_load_action_options();
 $headerrow = new \local_coursedynamicrules\output\header_with_brand('actions');
 echo $OUTPUT->render($headerrow);
 echo html_writer::link($rulesurl, get_string('backtolistrules', 'local_coursedynamicrules'), ['class' => 'mb-3 d-block']);
+// Losing the per-user availability restriction silently un-hides every activity the rules
+// gate, so the operator has to be told here rather than discovering it through exposed
+// content.
+if (!availability_user_status::is_enabled()) {
+    echo $OUTPUT->notification(
+        get_string('availabilityuserdisabledwarning', 'local_coursedynamicrules'),
+        \core\output\notification::NOTIFY_WARNING
+    );
+}
+
 echo html_writer::start_div('d-flex');
-echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
+
+if (has_capability('local/coursedynamicrules:createaction', $context)) {
+    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
+}
 echo html_writer::start_div('col-8');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $actionsfortemplate]);
 

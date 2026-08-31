@@ -31,7 +31,16 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
-require_capability('local/coursedynamicrules:updaterule', $context);
+
+// A first, fast refusal based on the URL id - which form gets RENDERED. It is not the
+// authoritative check: the id that gets WRITTEN is the form's hidden field, decided separately in
+// ownership::resolve_writable_ruleid() below, because the two ids are different fields and only
+// the second one matters for the write.
+if ($ruleid) {
+    require_capability('local/coursedynamicrules:updaterule', $context);
+} else {
+    require_capability('local/coursedynamicrules:createrule', $context);
+}
 
 $url = new moodle_url('/local/coursedynamicrules/editrule.php', ['courseid' => $courseid, 'id' => $ruleid]);
 $rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
@@ -72,7 +81,7 @@ if ($ruleform->is_cancelled()) {
     $data->courseid = $courseid;
     // Never trust the submitted rule id either: a tampered hidden id must not update another
     // course's rule. Re-validate the write target against the course (throws if foreign).
-    $data->id = \local_coursedynamicrules\helper\ownership::resolve_writable_ruleid($data->id ?? 0, $courseid);
+    $data->id = \local_coursedynamicrules\helper\ownership::resolve_writable_ruleid($data->id ?? 0, $courseid, $context);
     if (empty($data->id)) {
         $data->timecreated = time();
         $newruleid = $DB->insert_record('local_coursedynamicrules_rule', $data);

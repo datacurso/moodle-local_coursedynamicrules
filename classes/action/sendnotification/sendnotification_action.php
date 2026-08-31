@@ -32,6 +32,23 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class sendnotification_action extends action {
+    /**
+     * Every `params` key that has ever held a list of recipient role ids, current and legacy.
+     *
+     * resolve_roleids() applies a precedence among them to decide who is notified; anything that
+     * must treat these ids AS ids - the backup annotating them, the restore remapping them - has to
+     * cover them ALL instead, or an action stored in an older shape keeps role ids nobody remapped.
+     *
+     * @var string[]
+     */
+    public const ROLE_PARAM_KEYS = [
+        'primaryroleids',
+        'observedroleids',
+        'roleids',
+        'copyroleids',
+        'observerroleids',
+    ];
+
     /** @var string type of the action, should be overridden by each action type */
     protected $type = 'sendnotification';
 

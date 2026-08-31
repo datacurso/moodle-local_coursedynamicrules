@@ -67,6 +67,73 @@ class enableactivity_action extends action {
     }
 
     /**
+     * Rewrite the ownership markers of an availability tree onto a new set of action ids.
+     *
+     * A restore copies the course module's availability JSON verbatim, so the restored restriction
+     * still carries `MARKER_PREFIX . <old action id>` while the restored action was inserted under a
+     * brand-new id. Nothing then recognises the node as its own: the action can neither grant nor
+     * revoke, and the activity stays hidden from every student for good. This is the seam the
+     * restore uses to reconcile the two, and it lives here because this class owns the marker
+     * format - the marker is identity-bearing, so remapping it is part of that identity's contract.
+     *
+     * The tree is walked recursively: apply_availability() nests the existing tree under a new AND
+     * root when the root operator is not AND, so a marked node is not necessarily a direct child.
+     *
+     * @param string|null $availabilityjson The course module's availability JSON, possibly null/empty.
+     * @param array $actionidmap Map of old action id => new action id.
+     * @return string|null The rewritten JSON, or the input unchanged when there was nothing to remap.
+     */
+    public static function remap_ownership_markers(?string $availabilityjson, array $actionidmap): ?string {
+        if (empty($availabilityjson) || empty($actionidmap)) {
+            return $availabilityjson;
+        }
+
+        $tree = json_decode($availabilityjson);
+        if (!is_object($tree)) {
+            // Not a decodable availability tree: never rewrite what cannot be parsed.
+            return $availabilityjson;
+        }
+
+        $changed = false;
+        self::remap_markers_in_node($tree, $actionidmap, $changed);
+
+        if (!$changed) {
+            return $availabilityjson;
+        }
+
+        return json_encode($tree);
+    }
+
+    /**
+     * Rewrite the ownership markers of one availability node and its children, in place.
+     *
+     * @param object $node A decoded availability tree node.
+     * @param array $actionidmap Map of old action id => new action id.
+     * @param bool $changed Set to true as soon as one marker is rewritten.
+     * @return void
+     */
+    private static function remap_markers_in_node(object $node, array $actionidmap, bool &$changed): void {
+        $marker = $node->{self::MARKER_KEY} ?? null;
+        if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+            $oldactionid = (int) substr($marker, strlen(self::MARKER_PREFIX));
+            if ($oldactionid > 0 && isset($actionidmap[$oldactionid])) {
+                $node->{self::MARKER_KEY} = self::MARKER_PREFIX . (int) $actionidmap[$oldactionid];
+                $changed = true;
+            }
+        }
+
+        if (!isset($node->c) || !is_array($node->c)) {
+            return;
+        }
+
+        foreach ($node->c as $child) {
+            if (is_object($child)) {
+                self::remap_markers_in_node($child, $actionidmap, $changed);
+            }
+        }
+    }
+
+    /**
      * Execute the action
      * @param object $context Context of the rule
      */

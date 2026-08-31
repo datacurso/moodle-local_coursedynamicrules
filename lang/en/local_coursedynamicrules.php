@@ -31,6 +31,7 @@ $string['addactions'] = 'Add actions';
 $string['addconditions'] = 'Add conditions';
 $string['after'] = 'After';
 $string['allcourseactivitymodules'] = 'All course activity modules';
+$string['availabilityuserdisabledwarning'] = 'The "Restriction by user" availability restriction is disabled on this site. Activities that these rules were releasing student by student are now visible to EVERY student, because Moodle ignores restrictions whose plugin is unavailable. Re-enable it in Site administration > Plugins > Availability restrictions to restore the gating.';
 $string['availableplaceholders'] = 'Available placeholders';
 $string['backtolistrules'] = 'Back to list rules';
 $string['basedate'] = 'Base date';
