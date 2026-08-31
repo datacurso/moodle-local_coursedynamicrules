@@ -268,4 +268,24 @@ final class ownership_test extends \advanced_testcase {
         $this->expectException(\required_capability_exception::class);
         ownership::resolve_writable_ruleid(0, $this->coursea, $context);
     }
+
+    /**
+     * Omitting the context is a fatal error, not a silent skip of the capability check.
+     *
+     * The first version of this method made the context optional, with a comment claiming that was
+     * "so old call sites fail loudly in review rather than silently". Two independent reviewers
+     * caught that the mechanism does the exact opposite: an optional parameter is what lets a
+     * caller omit the argument and run the write path with NO capability check at all - silently,
+     * guided by prose asserting the reverse. A required parameter is what fails loudly: PHP refuses
+     * the call before any query runs.
+     *
+     * This test is the executable form of that argument. If somebody makes the parameter optional
+     * again, the two-argument call below stops throwing and this goes red.
+     */
+    public function test_omitting_the_context_is_refused_not_skipped(): void {
+        $this->setAdminUser();
+
+        $this->expectException(\ArgumentCountError::class);
+        ownership::resolve_writable_ruleid($this->ruleid, $this->coursea);
+    }
 }
