@@ -24,6 +24,7 @@
 
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\availability_user_status;
+use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 
@@ -36,8 +37,10 @@ $context = context_course::instance($courseid);
 
 require_login($course);
 
-require_capability('local/coursedynamicrules:managerule', $context);
-require_capability('local/coursedynamicrules:viewrule', $context);
+// The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
+// unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and
+// the wiring test there pins that this page still makes the call.
+page_gate::require_listing('rule', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
 

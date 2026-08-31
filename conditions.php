@@ -24,6 +24,7 @@
 
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\availability_user_status;
+use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -36,10 +37,10 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
-// Declared since the capability existed, enforced nowhere until now: the menu only offers
-// this page to roles that hold it, but a URL is not a menu.
-require_capability('local/coursedynamicrules:viewcondition', $context);
-require_capability('local/coursedynamicrules:managecondition', $context);
+// The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
+// unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and
+// the wiring test there pins that this page still makes the call.
+page_gate::require_listing('condition', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/conditions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
 $rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
@@ -69,7 +70,7 @@ $conditioninstance = null;
 if (!empty($type)) {
     // The add menu is only rendered for a role that holds this, but the type is a URL
     // parameter: refuse it here as well.
-    require_capability('local/coursedynamicrules:createcondition', $context);
+    page_gate::require_creation('condition', $context);
     $conditionrecord = (object) [
         'ruleid' => $ruleid,
         'conditiontype' => $type,
