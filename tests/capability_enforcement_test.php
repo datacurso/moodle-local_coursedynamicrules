@@ -21,7 +21,6 @@ use local_coursedynamicrules\helper\availability_user_status;
 /**
  * Behavioural cover for the capability enforcement and the availability warning.
  *
- * capabilities_test.php proves the eight previously-inert capabilities are NAMED in a real check,
  * by reading the page sources as text. That is a structural claim: it cannot tell whether an
  * ordinary editing teacher still gets through, nor whether a denial is actually obeyed. This class
  * asserts the effect instead of the wording.
@@ -131,7 +130,6 @@ final class capability_enforcement_test extends \advanced_testcase {
     /**
      * The warning's own condition, exercised rather than read.
      *
-     * availability_user_warning_test.php greps the page sources for the string key. That proves the
      * warning is wired, not that it fires at the right moment - this does.
      */
     public function test_availability_status_follows_the_plugin_being_enabled_or_disabled(): void {

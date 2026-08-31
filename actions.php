@@ -131,7 +131,6 @@ $actionoptions = local_coursedynamicrules_load_action_options();
 $headerrow = new \local_coursedynamicrules\output\header_with_brand('actions');
 echo $OUTPUT->render($headerrow);
 echo html_writer::link($rulesurl, get_string('backtolistrules', 'local_coursedynamicrules'), ['class' => 'mb-3 d-block']);
-echo html_writer::start_div('d-flex');
 // Losing the per-user availability restriction silently un-hides every activity the rules
 // gate, so the operator has to be told here rather than discovering it through exposed
 // content.
@@ -141,6 +140,8 @@ if (!availability_user_status::is_enabled()) {
         \core\output\notification::NOTIFY_WARNING
     );
 }
+
+echo html_writer::start_div('d-flex');
 
 if (has_capability('local/coursedynamicrules:createaction', $context)) {
     echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);

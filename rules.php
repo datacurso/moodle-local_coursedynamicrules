@@ -75,10 +75,12 @@ foreach ($rules as $rule) {
 
 
     if (empty($conditions)) {
-        $conditionstext = html_writer::link(
-            $conditionsurl,
-            get_string('addconditions', 'local_coursedynamicrules')
-        );
+        // Never offer what would be refused: the listing's add menu needs createcondition, so a
+        // role without it gets the fact (no conditions yet) without a link into a page section it
+        // cannot use.
+        $conditionstext = has_capability('local/coursedynamicrules:createcondition', $context)
+            ? html_writer::link($conditionsurl, get_string('addconditions', 'local_coursedynamicrules'))
+            : html_writer::span(get_string('addconditions', 'local_coursedynamicrules'), 'text-muted');
     } else {
         $conditioninstances = array_map(
             fn($condition) => rule_component_loader::create_condition_instance($condition, $courseid),
@@ -93,10 +95,9 @@ foreach ($rules as $rule) {
         $conditionstext = html_writer::div($conditionstext . $editlink, 'd-flex', ['style' => 'gap: .8rem']);
     }
     if (empty($actions)) {
-        $actionstext = html_writer::link(
-            $actionsurl,
-            get_string('addactions', 'local_coursedynamicrules')
-        );
+        $actionstext = has_capability('local/coursedynamicrules:createaction', $context)
+            ? html_writer::link($actionsurl, get_string('addactions', 'local_coursedynamicrules'))
+            : html_writer::span(get_string('addactions', 'local_coursedynamicrules'), 'text-muted');
     } else {
         $actioninstances = array_map(
             fn($action) => rule_component_loader::create_action_instance($action, $courseid),
