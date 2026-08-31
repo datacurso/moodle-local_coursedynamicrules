@@ -105,6 +105,86 @@ class enableactivity_action extends action {
     }
 
     /**
+     * Re-adopt an ownership marker that core's restore stripped from the tree.
+     *
+     * remap_ownership_markers() can only rename markers that SURVIVED - and core's
+     * update_after_restore (availability/classes/info.php) re-encodes the whole tree through each
+     * condition's save() whenever any sibling changed, and availability_user::save() emits only
+     * {type, userids}: the marker property is gone before the remap ever runs. Any gated activity
+     * carrying a teacher-added completion/grade/date restriction beside ours - the normal case,
+     * since apply_availability() deliberately merges with existing restrictions - restores with an
+     * owner-less node. This pass runs AFTER core's re-encode (after_restore_course is a later step
+     * of restore_final_task, verified against core), so what it writes is the last word.
+     *
+     * Adoption uses the SAME heuristic execute() applies to pre-marker legacy rows in production:
+     * claim a user-type node only when it is the single unmarked one in the tree - ambiguity means
+     * hands off, exactly as at execute time. A node already marked for this action id means the
+     * remap already did the job and nothing is written.
+     *
+     * @param string|null $availabilityjson The course module's availability JSON, possibly null/empty.
+     * @param int $actionid The RESTORED action's id, whose marker the tree should carry.
+     * @return string|null The rewritten JSON, or null when nothing was (or could be) adopted.
+     */
+    public static function adopt_stripped_marker(?string $availabilityjson, int $actionid): ?string {
+        if (empty($availabilityjson) || $actionid <= 0) {
+            return null;
+        }
+
+        $tree = json_decode($availabilityjson);
+        if (!is_object($tree)) {
+            return null;
+        }
+
+        $marked = [];
+        $unmarked = [];
+        self::collect_user_nodes($tree, $marked, $unmarked);
+
+        foreach ($marked as $node) {
+            if ($node->{self::MARKER_KEY} === self::MARKER_PREFIX . $actionid) {
+                // The marker survived (or was remapped): nothing to adopt.
+                return null;
+            }
+        }
+
+        if (count($unmarked) !== 1) {
+            // Zero nodes: nothing of ours survived to own. Two or more: ambiguous, hands off -
+            // the same refusal execute() applies to ambiguous legacy trees.
+            return null;
+        }
+
+        $unmarked[0]->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
+
+        return json_encode($tree);
+    }
+
+    /**
+     * Collect the user-type nodes of an availability tree, split by marker presence.
+     *
+     * @param object $node A decoded availability tree node.
+     * @param object[] $marked Collects nodes carrying any ownership marker of this plugin.
+     * @param object[] $unmarked Collects user-type nodes carrying none.
+     * @return void
+     */
+    private static function collect_user_nodes(object $node, array &$marked, array &$unmarked): void {
+        if (($node->type ?? null) === 'user') {
+            $marker = $node->{self::MARKER_KEY} ?? null;
+            if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+                $marked[] = $node;
+            } else {
+                $unmarked[] = $node;
+            }
+        }
+
+        if (isset($node->c) && is_array($node->c)) {
+            foreach ($node->c as $child) {
+                if (is_object($child)) {
+                    self::collect_user_nodes($child, $marked, $unmarked);
+                }
+            }
+        }
+    }
+
+    /**
      * Rewrite the ownership markers of one availability node and its children, in place.
      *
      * @param object $node A decoded availability tree node.

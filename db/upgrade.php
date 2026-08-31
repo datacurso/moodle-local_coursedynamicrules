@@ -308,6 +308,13 @@ function local_coursedynamicrules_upgrade_grant_component_deletion(): void {
 
     foreach (get_archetype_roles('editingteacher') as $role) {
         foreach (['deleterule', 'deletecondition', 'deleteaction'] as $capability) {
+            // Guarded: assign_capability() throws when the capability is not registered yet, and
+            // update_capabilities() only runs AFTER db/upgrade.php - every released version
+            // declares these three, so this only shields never-released early installs from a
+            // hard-aborted upgrade (final-review hardening).
+            if (!get_capability_info('local/coursedynamicrules:' . $capability)) {
+                continue;
+            }
             assign_capability(
                 'local/coursedynamicrules:' . $capability,
                 CAP_ALLOW,

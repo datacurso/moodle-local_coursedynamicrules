@@ -519,6 +519,9 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_skips_creation_when_init_has_no_thread(): void {
+        // The failure now reaches the task log by contract (final-review observability fix):
+        // this asserts the mtrace happens - delete it and this test names the regression.
+        $this->expectOutputRegex('/createaiactivity failed/');
         global $DB;
 
         $this->resetAfterTest(true);
@@ -549,6 +552,9 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_skips_creation_when_stream_fails(): void {
+        // The failure now reaches the task log by contract (final-review observability fix):
+        // this asserts the mtrace happens - delete it and this test names the regression.
+        $this->expectOutputRegex('/createaiactivity failed/');
         global $DB;
 
         $this->resetAfterTest(true);

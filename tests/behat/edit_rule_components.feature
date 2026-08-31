@@ -55,9 +55,9 @@ Feature: Manage existing rule conditions and actions
     And I should see "Users who take more than 1 days without accessing this course."
     And "periodvalue" "field" should not exist
 
-  # Deletion is manager-only by design: deletecondition and deleteaction carry RISK_DATALOSS and are
-  # granted to the manager archetype alone, while createcondition/createaction are granted to
-  # editingteacher. These two scenarios therefore run as an administrator.
+  # Since 1.9.0 the editing teacher holds deletecondition/deleteaction (RISK_DATALOSS, explicit
+  # PROHIBITs respected by the upgrade): whoever may build rules may also unbuild them. These
+  # delete-flow scenarios therefore run as the teacher - proving the grant works end to end.
   Scenario: Deleting a condition through the real confirmation page removes only that condition
     Given I log in as "teacher1"
     And I am on "C1" course homepage
