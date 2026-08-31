@@ -1,34 +1,34 @@
 ## 1.9.0
 
-**Released on:** 2026-08-29
+**Released on:** 2026-08-31
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
+## Added
+- **An editing teacher can delete rule components and rules**
+  The three delete capabilities were manager-only, so a component created by mistake meant an escalation request to an administrator - multiplied by every teacher on the site. Whoever may build rules may also unbuild them: the editing teacher archetype now holds `deleterule`, `deletecondition` and `deleteaction`, on fresh installs and through the upgrade step on existing sites alike. A role where an administrator explicitly prohibited any of these keeps that decision - the upgrade does not overrule it.
+
+## Changed
+- **Declared capabilities are now enforced where their pages and controls live**
+  Entering the rules, conditions and actions pages now requires the matching `view*` capability alongside the `manage*` one; adding a component requires `create*` both on the menu and on the URL it posts to; controls that would be refused are no longer offered - including the per-row delete controls, which are shown only to roles holding the matching `delete*` capability. **Site administrators with custom roles, note:** a custom role built without an archetype that was granted only `manage*` capabilities - previously the only ones checked - must now also be granted the matching `view*` (and `create*`, if it adds components) or it will lose access to these pages on upgrade. Roles based on the editing teacher or manager archetypes are unaffected. Two declared capabilities remain intentionally dormant: `updateaction` and `updatecondition` belong to in-place component editing, which this release withholds entirely, so granting or prohibiting them currently has no effect.
+- **Both component listings warn when the availability_user plugin is disabled**
+  Losing the per-user restriction silently un-hides every activity the rules gate, so the operator is told where they work instead of discovering it through exposed content.
+- **Declared dependencies match the APIs actually used**
+  `local_coursegen` moves to 2026082400 and `aiprovider_datacurso` to 2026081000. Without this the plugin would install against a Course Creator AI that does not have `create_mod_service`, and break in exactly the way this release fixes.
+
 ## Fixed
+- **The create AI activity action works again with Course Creator AI 2.x**
+  Course Creator AI 2.0.3 removed `local_coursegen\mod_manager` without leaving an alias, so the action called a class that no longer existed. The failure was swallowed by the action's own error handling and surfaced only as developer debugging output, which meant that on a site with debugging off the action simply produced nothing, silently, on every run. The action now goes through `local_coursegen\local\service\create_mod_service` and unwraps the flat result the service returns, instead of the nested shape the removed class expected.
+- **The required-plugin checks on the AI action form name the right plugins**
+  The form pointed at the wrong download page for Course Creator AI and did not check for `aiprovider_datacurso` at all, even though that plugin supplies the HTTP client the action depends on.
 - **Saving a rule enforces the capability on the rule actually written**
-  The page decided between `createrule` and `updaterule` from the id in the URL, but wrote to the id in the form - a hidden, client-controlled field. A role allowed only to create could update an existing rule by posting its id, and a role allowed only to update could create by posting zero. The capability is now decided where the write target is resolved, on the id that is actually written.
+  The page decided between `createrule` and `updaterule` from the id in the URL, but wrote to the id in the form - a hidden, client-controlled field. A role allowed only to create could update an existing rule by posting its id, and a role allowed only to update could create by posting zero. The capability is now decided where the write target is resolved, on the id that is actually written, and omitting the context there is a fatal error rather than a silent skip.
 - **The create-a-rule form no longer emits PHP warnings**
   Building the form for a rule that does not exist yet read three properties off an empty object. Invisible in production; fatal under acceptance testing, where it took the whole rule form screen down.
 - **Learner names are anonymised as whole words only**
   A name that is the prefix of another word (such as "Eva" inside "Evaluación") is no longer mangled in the prompt sent to the AI service, and the full name is replaced before its parts.
 - **Restoring a course reconciles notification roles and ownership markers**
   Role ids stored inside notification actions are remapped to the restored course's roles, and ownership markers survive the round trip.
-
-## Changed
-- **Declared capabilities are now enforced where their pages and controls live**
-  Entering the rules, conditions and actions pages now requires the matching `view*` capability alongside the `manage*` one; adding a component requires `create*` both on the menu and on the URL it posts to; controls that would be refused are no longer offered. **Site administrators with custom roles, note:** a custom role built without an archetype that was granted only `manage*` capabilities - previously the only ones checked - must now also be granted the matching `view*` (and `create*`, if it adds components) or it will lose access to these pages on upgrade. Roles based on the editing teacher or manager archetypes are unaffected.
-- **Both component listings warn when the availability_user plugin is disabled**
-  Losing the per-user restriction silently un-hides every activity the rules gate, so the operator is told where they work instead of discovering it through exposed content.
-
-## Fixed (Course Creator AI compatibility)
-- **The create AI activity action works again with Course Creator AI 2.x**
-  Course Creator AI 2.0.3 removed `local_coursegen\mod_manager` without leaving an alias, so the action called a class that no longer existed. The failure was swallowed by the action's own error handling and surfaced only as developer debugging output, which meant that on a site with debugging off the action simply produced nothing, silently, on every run. The action now goes through `local_coursegen\local\service\create_mod_service` and unwraps the flat result the service returns, instead of the nested shape the removed class expected.
-- **The required-plugin checks on the AI action form name the right plugins**
-  The form pointed at the wrong download page for Course Creator AI and did not check for `aiprovider_datacurso` at all, even though that plugin supplies the HTTP client the action depends on.
-
-## Changed
-- **Declared dependencies match the APIs actually used**
-  `local_coursegen` moves to 2026082400 and `aiprovider_datacurso` to 2026081000. Without this the plugin would install against a Course Creator AI that does not have `create_mod_service`, and break in exactly the way this release fixes.
 
 ---
 

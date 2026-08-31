@@ -24,6 +24,7 @@
 
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\availability_user_status;
+use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -36,10 +37,10 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
-// Declared since the capability existed, enforced nowhere until now: the menu only offers
-// this page to roles that hold it, but a URL is not a menu.
-require_capability('local/coursedynamicrules:viewcondition', $context);
-require_capability('local/coursedynamicrules:managecondition', $context);
+// The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
+// unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and
+// the wiring test there pins that this page still makes the call.
+page_gate::require_listing('condition', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/conditions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
 $rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
@@ -69,7 +70,7 @@ $conditioninstance = null;
 if (!empty($type)) {
     // The add menu is only rendered for a role that holds this, but the type is a URL
     // parameter: refuse it here as well.
-    require_capability('local/coursedynamicrules:createcondition', $context);
+    page_gate::require_creation('condition', $context);
     $conditionrecord = (object) [
         'ruleid' => $ruleid,
         'conditiontype' => $type,
@@ -107,19 +108,27 @@ foreach ($conditions as $condition) {
     $description = $listedconditioninstance->get_description();
 
     if (!empty($header) && !empty($description)) {
-        $deleteurl = new moodle_url(
-            '/local/coursedynamicrules/deletecondition.php',
-            ['id' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
-        );
-        // No 'editurl' is supplied: the shared template renders the edit control only when that
-        // key is present, so leaving it out is what removes the control from every row.
-        $conditionsfortemplate[] = [
+        $row = [
             'id' => $condition->id,
             'header' => $header,
             'description' => $description,
-            'deleteurl' => $deleteurl->out(false),
-            'deletetitle' => get_string('deletecondition', 'local_coursedynamicrules'),
         ];
+
+        // The trash can needs deletecondition - manager-only by archetype, with RISK_DATALOSS - and
+        // the shared template renders it whenever 'deleteurl' is present. Offering it to every row
+        // put a control in front of the editing teacher that the endpoint then refused with an
+        // error page: never offer what would be refused. The endpoint keeps its own check either
+        // way; this only aligns the offer with it.
+        if (has_capability('local/coursedynamicrules:deletecondition', $context)) {
+            $deleteurl = new moodle_url(
+                '/local/coursedynamicrules/deletecondition.php',
+                ['id' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['deleteurl'] = $deleteurl->out(false);
+            $row['deletetitle'] = get_string('deletecondition', 'local_coursedynamicrules');
+        }
+
+        $conditionsfortemplate[] = $row;
     }
 }
 

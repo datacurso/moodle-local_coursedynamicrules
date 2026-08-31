@@ -61,12 +61,21 @@ class ownership {
      * only, and the record write must target a rule that actually belongs to it. An empty id
      * means a new rule is being created.
      *
+     * Resolving the write target and authorising the write are ONE operation, on purpose: the page
+     * decides which form to render from the URL id, but the id that gets written is this one, and
+     * deciding the capability anywhere else re-opens the gap where a create-only role updated an
+     * existing rule by posting its id. The context is REQUIRED so that a call site which skips it
+     * fails with an ArgumentCountError before any query runs - an optional parameter here would let
+     * a future caller run the write path with no capability check at all, silently.
+     *
      * @param int|string $submittedid Rule id submitted by the form (0/'' for a new rule).
      * @param int $courseid Course id from the request.
+     * @param \context $context Context the capability is decided against (the rule's course).
      * @return int 0 for a create, or the validated rule id for an update.
      * @throws \dml_missing_record_exception If the submitted rule does not belong to the course.
+     * @throws \required_capability_exception If the user may not perform the resolved operation.
      */
-    public static function resolve_writable_ruleid($submittedid, $courseid, \context $context = null) {
+    public static function resolve_writable_ruleid($submittedid, $courseid, \context $context) {
         $submittedid = (int) $submittedid;
 
         if (!empty($submittedid)) {
@@ -74,21 +83,13 @@ class ownership {
             self::get_rule($submittedid, $courseid);
         }
 
-        // The capability is decided HERE, on the id that will actually be written - never at the
-        // page, which reads the URL. The two ids are different fields under different control: the
-        // URL id chooses which form is rendered, the hidden form id chooses which row is written,
-        // and a client can put anything in the second. Deciding the capability on the first let a
-        // create-only role update an existing rule by posting its id, and an update-only role
-        // create by posting zero. Both directions are pinned in ownership_test.php.
-        //
-        // The context is optional only so old call sites fail loudly in review rather than
-        // silently: production has exactly one caller and it passes it.
-        if ($context !== null) {
-            if ($submittedid) {
-                require_capability('local/coursedynamicrules:updaterule', $context);
-            } else {
-                require_capability('local/coursedynamicrules:createrule', $context);
-            }
+        // On the id that will actually be written - never the URL id, which only chose the form.
+        // Both directions of the mismatch are pinned in ownership_test.php: a create-only role
+        // posting an existing id, and an update-only role posting zero.
+        if ($submittedid) {
+            require_capability('local/coursedynamicrules:updaterule', $context);
+        } else {
+            require_capability('local/coursedynamicrules:createrule', $context);
         }
 
         return $submittedid;

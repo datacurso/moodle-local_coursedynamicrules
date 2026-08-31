@@ -26,9 +26,10 @@
         Required:
         * header string      - Display header
         * description string - Display description
+        Optional (omit to hide the matching control - both are offered only to roles
+        the endpoint would accept):
         * deleteurl string   - Delete URL
         * deletetitle string - Delete control title/aria-label text
-        Optional (omit/empty to hide the edit control):
         * editurl string     - Edit URL
         * edittitle string   - Edit control title/aria-label text
 
@@ -57,9 +58,11 @@
                 <i class="icon fa fa-pencil fa-fw " title="{{edittitle}}" role="img" aria-label="{{edittitle}}" ></i>
             </a>
             {{/editurl}}
+            {{#deleteurl}}
             <a class="btn btn-link pl-0 pr-2" href="{{deleteurl}}" >
                 <i class="icon fa fa-trash fa-fw " title="{{deletetitle}}" role="img" aria-label="{{deletetitle}}" ></i>
             </a>
+            {{/deleteurl}}
         </span>
     </div>
   </div>

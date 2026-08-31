@@ -24,6 +24,7 @@
 
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\availability_user_status;
+use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -36,11 +37,10 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
-// Both halves of the declared contract: viewing is what this page does, managing is what its
-// controls do, and a capability that is declared but never checked anywhere is a promise the
-// plugin does not keep.
-require_capability('local/coursedynamicrules:viewaction', $context);
-require_capability('local/coursedynamicrules:manageaction', $context);
+// The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
+// unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and
+// the wiring test there pins that this page still makes the call.
+page_gate::require_listing('action', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/actions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
 $rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
@@ -70,7 +70,7 @@ $actioninstance = null;
 if (!empty($type)) {
     // The add menu is only rendered for a role that holds this, but the type is a URL
     // parameter: refuse it here as well.
-    require_capability('local/coursedynamicrules:createaction', $context);
+    page_gate::require_creation('action', $context);
     $actionrecord = (object) [
         'ruleid' => $ruleid,
         'actiontype' => $type,
@@ -107,20 +107,29 @@ foreach ($actions as $action) {
     $header = $listedactioninstance->get_header();
     $description = $listedactioninstance->get_description();
 
-    $deleteurl = new moodle_url(
-        '/local/coursedynamicrules/deleteaction.php',
-        ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
-    );
     if (!empty($header) && !empty($description)) {
         // No 'editurl' is supplied: the shared template renders the edit control only when that
         // key is present, so leaving it out is what removes the control from every row.
-        $actionsfortemplate[] = [
+        $row = [
             'id' => $action->id,
             'header' => $header,
             'description' => $description,
-            'deleteurl' => $deleteurl->out(false),
-            'deletetitle' => get_string('deleteaction', 'local_coursedynamicrules'),
         ];
+
+        // The trash can needs deleteaction - manager-only by archetype, with RISK_DATALOSS - and
+        // offering it to every row put a control in front of the editing teacher that the endpoint
+        // then refused with an error page: never offer what would be refused. The endpoint keeps
+        // its own check either way; this only aligns the offer with it.
+        if (has_capability('local/coursedynamicrules:deleteaction', $context)) {
+            $deleteurl = new moodle_url(
+                '/local/coursedynamicrules/deleteaction.php',
+                ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['deleteurl'] = $deleteurl->out(false);
+            $row['deletetitle'] = get_string('deleteaction', 'local_coursedynamicrules');
+        }
+
+        $actionsfortemplate[] = $row;
     }
 }
 

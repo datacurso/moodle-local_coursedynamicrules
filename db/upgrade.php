@@ -182,6 +182,14 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026042300, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026083001) {
+        // The editing teacher can delete what they can create - see the function's docblock for
+        // why db/access.php alone cannot deliver this to an existing site.
+        local_coursedynamicrules_upgrade_grant_component_deletion();
+
+        upgrade_plugin_savepoint(true, 2026083001, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 
@@ -243,4 +251,37 @@ function local_coursedynamicrules_upgrade_migrate_sendnotification_roles(): void
 
         $DB->set_field('local_coursedynamicrules_action', 'params', json_encode($params), ['id' => $action->id]);
     }
+}
+
+/**
+ * Grant the three component-deletion capabilities to every editing-teacher-archetype role.
+ *
+ * Extracted from the savepoint so the upgrade path itself is testable: core's
+ * update_capabilities() applies archetype defaults ONLY to capabilities it is seeing for the
+ * first time (it iterates $newcaps - lib/accesslib.php), and these three shipped releases ago as
+ * manager-only. Editing db/access.php therefore changes nothing on any site that already has the
+ * plugin: this function is what carries the product decision - whoever may build rules may also
+ * unbuild them - to every existing site.
+ *
+ * assign_capability() is called WITHOUT overwrite: a site that explicitly prohibited or allowed
+ * any of these on some role made a decision, and an upgrade must not undo it. Only roles with no
+ * explicit entry receive the new default.
+ *
+ * @return void
+ */
+function local_coursedynamicrules_upgrade_grant_component_deletion(): void {
+    $systemcontext = context_system::instance();
+
+    foreach (get_archetype_roles('editingteacher') as $role) {
+        foreach (['deleterule', 'deletecondition', 'deleteaction'] as $capability) {
+            assign_capability(
+                'local/coursedynamicrules:' . $capability,
+                CAP_ALLOW,
+                $role->id,
+                $systemcontext->id
+            );
+        }
+    }
+
+    $systemcontext->mark_dirty();
 }

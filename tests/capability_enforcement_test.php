@@ -21,9 +21,13 @@ use local_coursedynamicrules\helper\availability_user_status;
 /**
  * Behavioural cover for the capability enforcement and the availability warning.
  *
- * by reading the page sources as text. That is a structural claim: it cannot tell whether an
- * ordinary editing teacher still gets through, nor whether a denial is actually obeyed. This class
- * asserts the effect instead of the wording.
+ * The cheap way to check an enforcement batch is to read the page sources as text and confirm the
+ * require_capability() calls are written down. That is a structural claim: it cannot tell whether
+ * an ordinary editing teacher still gets through, nor whether a denial is actually obeyed. This
+ * class asserts the effect instead of the wording - real roles, real contexts, has_capability()
+ * answering for a user. The one deliberate exception is the dormancy tripwire at the bottom, which
+ * IS an occurrence scan, because there the occurrence is itself the claim under test: that nothing
+ * consults the dormant capabilities.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -32,22 +36,35 @@ use local_coursedynamicrules\helper\availability_user_status;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class capability_enforcement_test extends \advanced_testcase {
-    /** @var string[] The capabilities that were declared but never checked before this batch. */
+    /** @var string[] Capabilities that were declared but unchecked, and this batch now enforces. */
     private const PREVIOUSLY_INERT = [
         'local/coursedynamicrules:createrule',
         'local/coursedynamicrules:createaction',
         'local/coursedynamicrules:createcondition',
-        'local/coursedynamicrules:updateaction',
-        'local/coursedynamicrules:updatecondition',
         'local/coursedynamicrules:viewrule',
         'local/coursedynamicrules:viewaction',
         'local/coursedynamicrules:viewcondition',
     ];
 
     /**
+     * @var string[] Capabilities that are declared and STILL checked nowhere, on purpose.
+     *
+     * They belong to in-place component editing, which this release withholds entirely - the ?edit
+     * endpoints bounce every request, refusing more than a capability check would. They stay
+     * declared because removing a shipped capability erases any override an administrator has made
+     * to it, and the editing flow that consumes them already exists on a future branch. What is NOT
+     * acceptable is announcing them as enforced: an admin who prohibits one expecting the denial to
+     * bind is being lied to. The dormancy test below keeps this list honest in both directions.
+     */
+    private const DECLARED_BUT_DORMANT = [
+        'updateaction',
+        'updatecondition',
+    ];
+
+    /**
      * Enforcing a capability is only safe if the role that used to do the work still holds it.
      *
-     * The eight capabilities were declared with the archetypes of the `manage*` capabilities that
+     * The capabilities were declared with the archetypes of the `manage*` capabilities that
      * stood in for them, so an ordinary editing teacher must pass every one of them. If this fails,
      * enforcing them locked out the very people the plugin is for.
      */
@@ -130,7 +147,9 @@ final class capability_enforcement_test extends \advanced_testcase {
     /**
      * The warning's own condition, exercised rather than read.
      *
-     * warning is wired, not that it fires at the right moment - this does.
+     * Grepping the listings for the notification call would only prove the warning is wired, not
+     * that it fires at the right moment - this does: it drives availability_user through enabled
+     * and disabled and asserts the helper's answer tracks the state.
      */
     public function test_availability_status_follows_the_plugin_being_enabled_or_disabled(): void {
         $this->resetAfterTest(true);
@@ -146,6 +165,82 @@ final class capability_enforcement_test extends \advanced_testcase {
         $this->assertFalse(
             availability_user_status::is_enabled(),
             'With the restriction disabled every gated activity is exposed, so the warning IS due.'
+        );
+    }
+
+    /**
+     * An editing teacher can DELETE what they can create.
+     *
+     * The three delete capabilities were manager-only, so the everyday flow was: a teacher creates
+     * a component by mistake, cannot remove it, and escalates - multiplied by every teacher on the
+     * site, a queue of requests for a two-click operation. Product decision 2026-08-31: whoever may
+     * build rules may also unbuild them; RISK_DATALOSS stays declared so admins reviewing the role
+     * still see the risk.
+     *
+     * Archetype defaults only reach NEW capabilities (accesslib's update_capabilities iterates
+     * $newcaps), so this grant needs BOTH halves: db/access.php for fresh installs - which is what
+     * this test's install-time role sees - and an upgrade step for every existing site, which the
+     * companion upgrade test covers.
+     */
+    public function test_an_editing_teacher_can_delete_what_they_can_create(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $context = \context_course::instance($course->id);
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+
+        foreach (['deleterule', 'deletecondition', 'deleteaction'] as $capability) {
+            $this->assertTrue(
+                has_capability('local/coursedynamicrules:' . $capability, $context, $teacher),
+                "An editing teacher must hold {$capability}: they can create the thing, so making "
+                . 'them escalate to remove it turns every mistake into a support request.'
+            );
+        }
+    }
+
+    /**
+     * The dormant capabilities are checked NOWHERE in the plugin - and the moment that changes,
+     * this test demands the announcement change with it.
+     *
+     * An occurrence scan is normally the wrong kind of assertion, but here occurrence IS the claim
+     * under test: the changelog must not say "enforced" about a capability no code consults. If a
+     * future change starts consulting updateaction or updatecondition (in-place editing returning,
+     * say), this goes red - not because anything broke, but because PREVIOUSLY_INERT, the changelog
+     * and the role documentation all need to move together, and this is the tripwire.
+     */
+    public function test_the_dormant_capabilities_are_consulted_nowhere(): void {
+        global $CFG;
+
+        $offenders = [];
+        $root = $CFG->dirroot . '/local/coursedynamicrules';
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(
+            $root,
+            \FilesystemIterator::SKIP_DOTS
+        ));
+
+        foreach ($iterator as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+            $relative = str_replace($root . '/', '', $file->getPathname());
+            // Where a capability may legitimately be NAMED without being consulted: its declaration,
+            // its language strings, and the two files that document its dormancy.
+            if (preg_match('#^(db/access\.php|lang/|tests/capability_enforcement_test\.php|CHANGES\.md)#', $relative)) {
+                continue;
+            }
+            $content = file_get_contents($file->getPathname());
+            foreach (self::DECLARED_BUT_DORMANT as $capability) {
+                if (strpos($content, 'coursedynamicrules:' . $capability) !== false) {
+                    $offenders[] = "$relative consults $capability";
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offenders,
+            'A dormant capability is now consulted somewhere: promote it out of DECLARED_BUT_DORMANT '
+            . 'and update the changelog that currently tells administrators it does nothing.'
         );
     }
 }

@@ -24,7 +24,13 @@ Feature: Manage existing rule conditions and actions
   # are not written yet. These two scenarios pin that the control is gone from the listing, and the
   # third pins that the endpoint itself refuses the request - hiding the control alone would leave
   # a bookmarked link working.
-  Scenario: The conditions listing offers no control to edit an existing condition
+  # Product decision 2026-08-31: an editing teacher can DELETE what they can create - the three
+  # delete capabilities were manager-only, which turned every mistakenly created component into an
+  # escalation request. The trash can is therefore offered to the editing teacher again, and it
+  # WORKS (the delete-flow scenarios below run as the teacher, not as admin). The pencil stays
+  # absent: in-place editing is withheld in this release. The offer is still capability-gated, so
+  # a custom role without delete* gets no control - never offer what would be refused.
+  Scenario: An editing teacher sees the delete control but no edit control on a condition
     Given I log in as "teacher1"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
@@ -33,7 +39,7 @@ Feature: Manage existing rule conditions and actions
     And ".fa-trash" "css_element" should exist
     And ".fa-pencil" "css_element" should not exist
 
-  Scenario: The actions listing offers no control to edit an existing action
+  Scenario: An editing teacher sees the delete control but no edit control on an action
     Given I log in as "teacher1"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
@@ -53,7 +59,7 @@ Feature: Manage existing rule conditions and actions
   # granted to the manager archetype alone, while createcondition/createaction are granted to
   # editingteacher. These two scenarios therefore run as an administrator.
   Scenario: Deleting a condition through the real confirmation page removes only that condition
-    Given I log in as "admin"
+    Given I log in as "teacher1"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit conditions" "link"
@@ -68,7 +74,7 @@ Feature: Manage existing rule conditions and actions
     And I should see "Send notification 'Original subject' to users"
 
   Scenario: Deleting an action through the real confirmation page removes only that action
-    Given I log in as "admin"
+    Given I log in as "teacher1"
     And I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit actions" "link"

@@ -43,7 +43,16 @@ if ($ruleid) {
 }
 
 $url = new moodle_url('/local/coursedynamicrules/editrule.php', ['courseid' => $courseid, 'id' => $ruleid]);
-$rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
+
+// Where to land after saving or cancelling. The listing needs viewrule AND managerule; a role that
+// may only create reaches this page by URL, saves successfully, and would then be redirected into a
+// permission error AFTER the write - work done, error shown. Such a role lands on the course page
+// instead, with the same success message.
+$canseelisting = has_capability('local/coursedynamicrules:viewrule', $context)
+    && has_capability('local/coursedynamicrules:managerule', $context);
+$rulesurl = $canseelisting
+    ? new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid])
+    : new moodle_url('/course/view.php', ['id' => $courseid]);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);
