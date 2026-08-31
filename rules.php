@@ -158,23 +158,24 @@ foreach ($rules as $rule) {
 
     $ruletext = html_writer::div($editrulelink . $deleterulelink, 'd-flex', ['style' => 'gap: .4rem']);
 
-    if (!$rule->active) {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('ruleinactive', 'local_coursedynamicrules'),
-            'badge badge-secondary'
-        );
-    } else {
+    // One badge, three states (product directive 2026-08-31): the state pair encodes the seal on
+    // its own, read off the row already fetched. Active = running (and sealed by definition);
+    // Paused = was activated once and is stopped (sealed, resumable forever); Inactive = never
+    // activated (the only editable state).
+    if ($rule->active) {
         $rule->name .= ' ' . html_writer::span(
             get_string('ruleactive', 'local_coursedynamicrules'),
             'badge badge-success'
         );
-    }
-    // Locked is a separate fact from active: a paused locked rule shows both states. Read off the
-    // row already fetched - the listing must not pay one lock query per rule.
-    if (rule_lock::is_locked_row($rule)) {
+    } else if (rule_lock::is_locked_row($rule)) {
         $rule->name .= ' ' . html_writer::span(
-            get_string('rulebadgelocked', 'local_coursedynamicrules'),
+            get_string('rulepaused', 'local_coursedynamicrules'),
             'badge badge-warning'
+        );
+    } else {
+        $rule->name .= ' ' . html_writer::span(
+            get_string('ruleinactive', 'local_coursedynamicrules'),
+            'badge badge-secondary'
         );
     }
     $table->data[] = [

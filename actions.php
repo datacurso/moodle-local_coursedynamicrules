@@ -64,15 +64,22 @@ $rulelocked = rule_lock::is_locked($ruleid);
 // Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
 // form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
 $editid = optional_param('edit', 0, PARAM_INT);
-if ($editid > 0) {
-    // Editing an existing action in place is not available in this release. Bounce a bookmarked
-    // link, or a form left open before the upgrade, back to the listing. This must happen before
-    // the create branch below, because an edit submission also carries a 'type' and would
-    // otherwise be read as a request to create a brand new action.
-    redirect($url, get_string('editingunavailable', 'local_coursedynamicrules'));
-}
 $actioninstance = null;
-if (!empty($type)) {
+$editingexisting = false;
+$formurl = $url;
+if ($editid > 0) {
+    // Bounded in-place editing (product directive 2026-08-31): a component can be edited only
+    // while its rule was never activated - the seal is exactly the advisory boundary the 1.8.1
+    // withholding was waiting for. This branch must run before the create branch below, because
+    // an edit submission also carries a 'type' and would otherwise create a brand new action.
+    require_capability('local/coursedynamicrules:updateaction', $context);
+    rule_lock::require_unlocked($ruleid);
+    $actionrecord = \local_coursedynamicrules\helper\ownership::get_action($editid, $courseid, $ruleid);
+    $actioninstance = rule_component_loader::create_action_instance($actionrecord, $courseid);
+    $editingexisting = true;
+    // The form must post back into THIS branch, or the hidden 'type' would create a duplicate.
+    $formurl = new moodle_url($url, ['edit' => $editid]);
+} else if (!empty($type)) {
     // The add menu is only rendered for a role that holds this, but the type is a URL
     // parameter: refuse it here as well.
     page_gate::require_creation('action', $context);
@@ -85,17 +92,27 @@ if (!empty($type)) {
         'params' => json_encode([]),
     ];
     $actioninstance = rule_component_loader::create_action_instance($actionrecord, $courseid);
+}
+
+if ($actioninstance !== null) {
     $customdata = [
         'courseid' => $courseid,
         'ruleid' => $ruleid,
     ];
-    $actioninstance->build_editform($url, $customdata, 'post', '', ['class' => 'card p-4']);
+    if ($editingexisting) {
+        // The stored params preload the form (action_form reads customdata['record']).
+        $customdata['record'] = json_decode((string) $actionrecord->params);
+    }
+    $actioninstance->build_editform($formurl, $customdata, 'post', '', ['class' => 'card p-4']);
 
     if ($actioninstance->is_cancelled()) {
         redirect($url);
     } else if ($data = $actioninstance->get_data()) {
         $actionid = $actioninstance->save_action($data);
-        \local_coursedynamicrules\event\action_created::create([
+        $eventclass = $editingexisting
+            ? \local_coursedynamicrules\event\action_updated::class
+            : \local_coursedynamicrules\event\action_created::class;
+        $eventclass::create([
             'context' => $context,
             'objectid' => $actionid,
         ])->trigger();
@@ -116,6 +133,16 @@ foreach ($actions as $action) {
     $description = $listedactioninstance->get_description();
 
     if (!empty($header) && !empty($description)) {
+        // Bounded editing: the pencil appears only while the rule was never activated and the
+        // role holds updateaction - the same pair of gates the edit endpoint enforces.
+        if (has_capability('local/coursedynamicrules:updateaction', $context) && !$rulelocked) {
+            $editurl = new moodle_url(
+                '/local/coursedynamicrules/actions.php',
+                ['edit' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['editurl'] = $editurl->out(false);
+            $row['edittitle'] = get_string('editaction', 'local_coursedynamicrules');
+        }
         // No 'editurl' is supplied: the shared template renders the edit control only when that
         // key is present, so leaving it out is what removes the control from every row.
         $row = [
