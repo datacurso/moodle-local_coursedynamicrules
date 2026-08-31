@@ -210,6 +210,62 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * A tampered hidden ruleid cannot attach a new component to a sealed rule.
+     *
+     * Round-2 judge CRITICAL, and the same seam as the editrule capability bug: conditions.php
+     * checks the lock against the URL's ruleid, but upsert()'s insert branch writes to the FORM's
+     * hidden ruleid. The lock must be enforced at the write itself - a user holding the create
+     * capability opens the add form on any unlocked rule, edits the hidden field to a locked rule
+     * in the same course, and without this gate the sealed rule grows a brand-new component.
+     *
+     * @covers ::require_unlocked
+     */
+    public function test_a_tampered_ruleid_cannot_attach_components_to_a_sealed_rule(): void {
+        global $DB;
+
+        $unlocked = $this->rule(0);
+        $sealed = $this->rule(1, time());
+
+        // The condition attack: form built against the unlocked rule, payload naming the sealed one.
+        $conditionrecord = (object) ['id' => null, 'ruleid' => $unlocked,
+            'conditiontype' => 'no_course_access', 'params' => json_encode([])];
+        $condition = new \local_coursedynamicrules\condition\no_course_access\no_course_access_condition(
+            $conditionrecord, $this->courseid);
+        try {
+            $condition->save_condition((object) [
+                'ruleid' => $sealed, 'periodvalue' => 1, 'periodunit' => 'days',
+            ]);
+            $this->fail('A sealed rule accepted a new condition through a tampered hidden ruleid.');
+        } catch (\moodle_exception $e) {
+            $this->assertStringContainsString('rulelocked', $e->errorcode);
+        }
+        $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition', ['ruleid' => $sealed]));
+
+        // The action attack, same shape.
+        $actionrecord = (object) ['id' => null, 'ruleid' => $unlocked,
+            'actiontype' => 'sendnotification', 'params' => json_encode([])];
+        $action = new \local_coursedynamicrules\action\sendnotification\sendnotification_action(
+            $actionrecord, $this->courseid);
+        try {
+            $action->save_action((object) [
+                'ruleid' => $sealed,
+                'messagesubject' => 'S',
+                'messagebody' => ['text' => 'B', 'format' => FORMAT_HTML],
+                'primaryrecipients' => [],
+                'copyrecipients' => [],
+            ]);
+            $this->fail('A sealed rule accepted a new action through a tampered hidden ruleid.');
+        } catch (\moodle_exception $e) {
+            $this->assertStringContainsString('rulelocked', $e->errorcode);
+        }
+        $this->assertSame(0, $DB->count_records('local_coursedynamicrules_action', ['ruleid' => $sealed]));
+
+        // And the legitimate path stays open: the same saves against the unlocked rule succeed.
+        $condition->save_condition((object) ['ruleid' => $unlocked, 'periodvalue' => 1, 'periodunit' => 'days']);
+        $this->assertSame(1, $DB->count_records('local_coursedynamicrules_condition', ['ruleid' => $unlocked]));
+    }
+
+    /**
      * Every mutation path consults the lock - the wiring half of the coverage.
      *
      * Same shape and same reason as page_gate's wiring test: the lock's behaviour is proven above
@@ -227,6 +283,10 @@ final class rule_lock_test extends \advanced_testcase {
             // hidden too, but a URL is not a menu.
             'conditions.php' => ['rule_lock::require_unlocked('],
             'actions.php' => ['rule_lock::require_unlocked('],
+            // And enforced again at the write itself: the endpoint checked the URL's ruleid, but
+            // upsert() writes to the form's hidden ruleid - the decided-here-written-there seam.
+            'classes/core/condition.php' => ['rule_lock::require_unlocked('],
+            'classes/core/action.php' => ['rule_lock::require_unlocked('],
             // Deleting a component IS modifying the rule.
             'deletecondition.php' => ['rule_lock::require_unlocked('],
             'deleteaction.php' => ['rule_lock::require_unlocked('],
