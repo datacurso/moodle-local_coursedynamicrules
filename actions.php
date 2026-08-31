@@ -133,6 +133,12 @@ foreach ($actions as $action) {
     $description = $listedactioninstance->get_description();
 
     if (!empty($header) && !empty($description)) {
+        $row = [
+            'id' => $action->id,
+            'header' => $header,
+            'description' => $description,
+        ];
+
         // Bounded editing: the pencil appears only while the rule was never activated and the
         // role holds updateaction - the same pair of gates the edit endpoint enforces.
         if (has_capability('local/coursedynamicrules:updateaction', $context) && !$rulelocked) {
@@ -143,13 +149,6 @@ foreach ($actions as $action) {
             $row['editurl'] = $editurl->out(false);
             $row['edittitle'] = get_string('editaction', 'local_coursedynamicrules');
         }
-        // No 'editurl' is supplied: the shared template renders the edit control only when that
-        // key is present, so leaving it out is what removes the control from every row.
-        $row = [
-            'id' => $action->id,
-            'header' => $header,
-            'description' => $description,
-        ];
 
         // The trash can needs deleteaction - held by managers AND, since 1.9.0, the editing
         // teacher archetype (RISK_DATALOSS, explicit PROHIBITs respected) - and offering it to a
