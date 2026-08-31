@@ -61,6 +61,42 @@ $PAGE->set_url($url);
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 
+// The activation confirmation's Continue lands here, BEFORE any output: activating is the one
+// moment the rule locks forever, so it happens only through this sesskey-protected step - the
+// save path below deliberately holds 'active' back and sends the user here instead.
+if ($ruleid && optional_param('doactivate', 0, PARAM_INT)) {
+    require_sesskey();
+    \local_coursedynamicrules\helper\ownership::get_rule($ruleid, $courseid);
+
+    // Re-checked server-side: the form validated completeness, but this URL is reachable on its
+    // own, and an incomplete locked rule can never fire and never be finished.
+    if (
+        !\local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)
+            && \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)
+    ) {
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
+        $DB->set_field('local_coursedynamicrules_rule', 'timemodified', time(), ['id' => $ruleid]);
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
+        \local_coursedynamicrules\event\rule_updated::create([
+            'context' => $context,
+            'objectid' => $ruleid,
+        ])->trigger();
+        redirect(
+            $rulesurl,
+            get_string('ruleactivatedsuccessfully', 'local_coursedynamicrules'),
+            null,
+            \core\output\notification::NOTIFY_SUCCESS
+        );
+    }
+
+    redirect(
+        $rulesurl,
+        get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+        null,
+        \core\output\notification::NOTIFY_ERROR
+    );
+}
+
 $rule = new stdClass();
 if ($ruleid) {
     $pagetitle = get_string('editrule', 'local_coursedynamicrules');
@@ -68,6 +104,32 @@ if ($ruleid) {
     $rule = \local_coursedynamicrules\helper\ownership::get_rule($ruleid, $courseid);
 } else {
     $pagetitle = get_string('createrule', 'local_coursedynamicrules');
+}
+
+// The confirmation between saving and activating. Cancel keeps everything saved and inactive;
+// Continue goes through the sesskey-protected doactivate branch above. Rendered before the form so
+// the page shows one question, not a form beside a question.
+if (
+    $ruleid && optional_param('confirmactivate', 0, PARAM_INT)
+        && !\local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)
+        && \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)
+) {
+    echo $OUTPUT->header();
+    $continueurl = new moodle_url('/local/coursedynamicrules/editrule.php', [
+        'courseid' => $courseid, 'id' => $ruleid, 'doactivate' => 1, 'sesskey' => sesskey(),
+    ]);
+    echo $OUTPUT->confirm(
+        get_string('ruleactivateconfirm', 'local_coursedynamicrules'),
+        new single_button(
+            $continueurl,
+            get_string('ruleactivateconfirmbutton', 'local_coursedynamicrules'),
+            'post',
+            single_button::BUTTON_PRIMARY
+        ),
+        $rulesurl
+    );
+    echo $OUTPUT->footer();
+    exit;
 }
 
 echo $OUTPUT->header();
@@ -91,6 +153,27 @@ if ($ruleform->is_cancelled()) {
     // Never trust the submitted rule id either: a tampered hidden id must not update another
     // course's rule. Re-validate the write target against the course (throws if foreign).
     $data->id = \local_coursedynamicrules\helper\ownership::resolve_writable_ruleid($data->id ?? 0, $courseid, $context);
+
+    // A locked rule accepts exactly one change - the active toggle. The frozen form is the polite
+    // face; THIS is the enforcement: a tab opened before the rule locked still submits a full
+    // payload, and the server re-decides at write time.
+    $waslocked = !empty($data->id) && \local_coursedynamicrules\helper\rule_lock::is_locked((int) $data->id);
+    if ($waslocked) {
+        $data = \local_coursedynamicrules\helper\rule_lock::sanitise_locked_write($data);
+    }
+
+    // First activation never happens inside a plain save. Activating is the moment the rule locks
+    // forever, so the save persists every edit with 'active' held at its stored value, and the
+    // user is sent to a confirmation that owns the actual activation. The form already validated
+    // completeness; the confirm endpoint re-checks it anyway.
+    $confirmactivation = !$waslocked && !empty($data->active);
+    if ($confirmactivation) {
+        global $DB;
+        $data->active = empty($data->id)
+            ? 0
+            : (int) $DB->get_field('local_coursedynamicrules_rule', 'active', ['id' => $data->id]);
+    }
+
     if (empty($data->id)) {
         $data->timecreated = time();
         $newruleid = $DB->insert_record('local_coursedynamicrules_rule', $data);
@@ -110,6 +193,12 @@ if ($ruleform->is_cancelled()) {
             'context' => $context,
             'objectid' => $data->id,
         ])->trigger();
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $data->id);
+        if ($confirmactivation) {
+            redirect(new moodle_url('/local/coursedynamicrules/editrule.php', [
+                'courseid' => $courseid, 'id' => $data->id, 'confirmactivate' => 1,
+            ]));
+        }
         redirect(
             $rulesurl,
             get_string('ruleupdatedsuccessfully', 'local_coursedynamicrules'),

@@ -38,6 +38,9 @@ $context = context_course::instance($courseid);
 
 require_login($course);
 require_capability('local/coursedynamicrules:deleteaction', $context);
+// Removing a component IS modifying the rule: a locked rule keeps what it was activated
+// with. The listing hides the control; this is for the URL the control no longer offers.
+\local_coursedynamicrules\helper\rule_lock::require_unlocked($ruleid);
 
 $url = new moodle_url(
     '/local/coursedynamicrules/deleteaction.php',

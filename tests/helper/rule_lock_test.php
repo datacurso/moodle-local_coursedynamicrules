@@ -174,4 +174,42 @@ final class rule_lock_test extends \advanced_testcase {
         $this->expectException(\coding_exception::class);
         rule_lock::sanitise_locked_write((object) ['id' => $freeid, 'name' => 'x']);
     }
+
+    /**
+     * Every mutation path consults the lock - the wiring half of the coverage.
+     *
+     * Same shape and same reason as page_gate's wiring test: the lock's behaviour is proven above
+     * with real rules, but no effect test can see from outside a page script whether the page
+     * still makes the call. Delete rule_lock from any of these files and this names it.
+     *
+     * @coversNothing
+     */
+    public function test_every_mutation_path_consults_the_lock(): void {
+        global $CFG;
+
+        $root = $CFG->dirroot . '/local/coursedynamicrules/';
+        $expected = [
+            // Creating a component on a locked rule is refused at the ?type= branch - the menu is
+            // hidden too, but a URL is not a menu.
+            'conditions.php' => ['rule_lock::require_unlocked('],
+            'actions.php' => ['rule_lock::require_unlocked('],
+            // Deleting a component IS modifying the rule.
+            'deletecondition.php' => ['rule_lock::require_unlocked('],
+            'deleteaction.php' => ['rule_lock::require_unlocked('],
+            // The save path sanitises a locked rule's payload and stamps after an activation write.
+            'editrule.php' => ['rule_lock::sanitise_locked_write(', 'rule_lock::stamp_if_active('],
+        ];
+
+        $missing = [];
+        foreach ($expected as $file => $calls) {
+            $content = file_get_contents($root . $file);
+            foreach ($calls as $call) {
+                if (strpos($content, $call) === false) {
+                    $missing[] = "$file no longer calls $call)";
+                }
+            }
+        }
+
+        $this->assertSame([], $missing, 'A mutation path stopped consulting the lock.');
+    }
 }

@@ -72,6 +72,24 @@ class rule_lock {
     }
 
     /**
+     * Whether the rule has what activation requires: at least one condition AND one action.
+     *
+     * Activation is the moment the rule locks forever, so activating an incomplete rule would
+     * produce a locked rule that can never fire and can never be completed - its only exit is
+     * deletion. The check lives with the lock because they are two halves of one contract, and the
+     * form's validation and the confirm endpoint must agree on it.
+     *
+     * @param int $ruleid
+     * @return bool
+     */
+    public static function is_complete(int $ruleid): bool {
+        global $DB;
+
+        return $DB->record_exists('local_coursedynamicrules_condition', ['ruleid' => $ruleid])
+            && $DB->record_exists('local_coursedynamicrules_action', ['ruleid' => $ruleid]);
+    }
+
+    /**
      * Refuse to proceed when the rule is locked.
      *
      * For the mutation paths that a locked rule refuses outright: adding a component, deleting a
