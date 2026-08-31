@@ -176,10 +176,14 @@ if ($ruleform->is_cancelled()) {
 
     // A locked rule accepts exactly one change - the active toggle. The frozen form is the polite
     // face; THIS is the enforcement: a tab opened before the rule locked still submits a full
-    // payload, and the server re-decides at write time.
+    // payload, and the server re-decides at write time. When that re-decision actually threw an
+    // edit away, the user is told so instead of "updated successfully".
     $waslocked = !empty($data->id) && \local_coursedynamicrules\helper\rule_lock::is_locked((int) $data->id);
+    $lockeddiscards = false;
     if ($waslocked) {
+        $submitted = clone $data;
         $data = \local_coursedynamicrules\helper\rule_lock::sanitise_locked_write($data);
+        $lockeddiscards = \local_coursedynamicrules\helper\rule_lock::locked_write_discards($submitted, $data);
     }
 
     // First activation never happens inside a plain save. Activating is the moment the rule locks
@@ -218,6 +222,14 @@ if ($ruleform->is_cancelled()) {
             redirect(new moodle_url('/local/coursedynamicrules/editrule.php', [
                 'courseid' => $courseid, 'id' => $data->id, 'confirmactivate' => 1,
             ]));
+        }
+        if ($lockeddiscards) {
+            redirect(
+                $rulesurl,
+                get_string('rulelockededitsdiscarded', 'local_coursedynamicrules'),
+                null,
+                \core\output\notification::NOTIFY_WARNING
+            );
         }
         redirect(
             $rulesurl,

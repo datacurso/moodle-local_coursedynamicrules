@@ -141,4 +141,31 @@ class rule_lock {
 
         return $clean;
     }
+
+    /**
+     * Whether sanitising a locked write actually threw a submitted edit away.
+     *
+     * Discarding is the contract; reporting "updated successfully" over a discarded rename is a
+     * lie. The frozen form is innocent by construction - disabled inputs never post, so its
+     * payload carries no name or description at all. Only a tab rendered before the rule locked
+     * submits values that can differ from what the row kept, and that difference is exactly what
+     * the user must be warned about. Lives beside the whitelist it mirrors: a field added to one
+     * cannot silently escape the other.
+     *
+     * @param \stdClass $submitted The payload as the form submitted it, before sanitising.
+     * @param \stdClass $clean The payload sanitise_locked_write() returned.
+     * @return bool True when a submitted field differs from the value the row kept.
+     */
+    public static function locked_write_discards(\stdClass $submitted, \stdClass $clean): bool {
+        foreach (get_object_vars($clean) as $field => $kept) {
+            if (in_array($field, ['id', 'active', 'timemodified'], true)) {
+                continue;
+            }
+            if (property_exists($submitted, $field) && (string) $submitted->{$field} !== (string) $kept) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

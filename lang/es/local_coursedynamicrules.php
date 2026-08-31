@@ -253,6 +253,7 @@ $string['ruleadd'] = 'Añadir regla';
 $string['ruleaddedsuccessfully'] = 'Regla añadida correctamente';
 $string['rulebadgelocked'] = 'Bloqueada';
 $string['ruleinactive'] = 'Inactiva';
+$string['rulelockededitsdiscarded'] = 'Esta regla está bloqueada, así que solo se guardó su estado de activación: los demás cambios fueron descartados.';
 $string['rulelocked'] = 'Esta regla ya fue activada y no se puede modificar. Puede pausarla o reactivarla, o eliminarla por completo.';
 $string['rules'] = 'Reglas';
 $string['rules_help'] = 'Las reglas se utilizan para definir un conjunto de condiciones y acciones que se ejecutarán';

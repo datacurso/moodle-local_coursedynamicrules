@@ -176,6 +176,40 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * The discard detector tells a stale-tab edit apart from a legitimate locked save.
+     *
+     * Judge finding: sanitising a locked write is correct, but reporting "updated successfully"
+     * after silently throwing away the user's rename is a lie. The frozen form's own submission
+     * carries no name/description (disabled inputs never post), so the honest rule is: warn only
+     * when a submitted field actually differed from what the row kept. The predicate lives here,
+     * beside the whitelist it mirrors, so adding a field to one cannot silently skip the other.
+     *
+     * @covers ::locked_write_discards
+     */
+    public function test_discard_detection_tells_stale_edits_from_legitimate_saves(): void {
+        $ruleid = $this->rule(1, time());
+        $clean = rule_lock::sanitise_locked_write((object) ['id' => $ruleid, 'active' => 0, 'timemodified' => 5]);
+
+        $stale = (object) ['id' => $ruleid, 'name' => 'Renamed from a stale tab', 'active' => 0, 'timemodified' => 5];
+        $this->assertTrue(
+            rule_lock::locked_write_discards($stale, $clean),
+            'A submitted name that differs from the kept one was discarded - the user must be told.'
+        );
+
+        $frozen = (object) ['id' => $ruleid, 'active' => 0, 'timemodified' => 5];
+        $this->assertFalse(
+            rule_lock::locked_write_discards($frozen, $clean),
+            'The frozen form submits no name or description: nothing was discarded, success is honest.'
+        );
+
+        $unchanged = (object) ['id' => $ruleid, 'name' => 'Lock probe', 'description' => '', 'active' => 0];
+        $this->assertFalse(
+            rule_lock::locked_write_discards($unchanged, $clean),
+            'A payload matching the stored values discards nothing, whatever fields it carries.'
+        );
+    }
+
+    /**
      * Every mutation path consults the lock - the wiring half of the coverage.
      *
      * Same shape and same reason as page_gate's wiring test: the lock's behaviour is proven above
@@ -196,8 +230,13 @@ final class rule_lock_test extends \advanced_testcase {
             // Deleting a component IS modifying the rule.
             'deletecondition.php' => ['rule_lock::require_unlocked('],
             'deleteaction.php' => ['rule_lock::require_unlocked('],
-            // The save path sanitises a locked rule's payload and stamps after an activation write.
-            'editrule.php' => ['rule_lock::sanitise_locked_write(', 'rule_lock::stamp_if_active('],
+            // The save path sanitises a locked rule's payload, tells the user when that sanitising
+            // actually discarded an edit, and stamps after an activation write.
+            'editrule.php' => [
+                'rule_lock::sanitise_locked_write(',
+                'rule_lock::locked_write_discards(',
+                'rule_lock::stamp_if_active(',
+            ],
         ];
 
         $missing = [];
