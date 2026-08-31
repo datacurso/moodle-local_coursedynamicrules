@@ -19,6 +19,8 @@
   Losing the per-user restriction silently un-hides every activity the rules gate, so the operator is told where they work instead of discovering it through exposed content.
 - **Declared dependencies match the APIs actually used**
   `local_coursegen` moves to 2026082400 and `aiprovider_datacurso` to 2026081000. Without this the plugin would install against a Course Creator AI that does not have `create_mod_service`, and break in exactly the way this release fixes.
+- **Component descriptions are trimmed on the rules list and shown whole on the component pages**
+  A long condition or action description (a notification body, an AI prompt) used to stretch its row and make the rules list ragged. The list now trims every description to 80 characters with an ellipsis so all rows keep the same height, while the conditions and actions pages reached through each rule's magnifier show the full text. The cut is made on the plain text before HTML escaping, so no escaped entity is ever sliced in half.
 
 ## Fixed
 - **The create AI activity action works again with Course Creator AI 2.x**

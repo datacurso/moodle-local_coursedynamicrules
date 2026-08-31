@@ -52,10 +52,31 @@ final class component_renderer_test extends \advanced_testcase {
 
         $html = component_renderer::descriptions_html([$action]);
 
-        // The raw payload must not survive into the HTML.
-        $this->assertStringNotContainsString('<script>', $html);
+        // The raw payload must not survive into the HTML. The 80-character listing trim can cut
+        // through the middle of the payload, so the assertions anchor on the tag OPENING, which
+        // survives any cut point: an unescaped '<script' anywhere is the vulnerability.
+        $this->assertStringNotContainsString('<script', $html);
         // It must appear escaped instead.
-        $this->assertStringContainsString('&lt;script&gt;', $html);
+        $this->assertStringContainsString('&lt;script', $html);
+    }
+
+    /**
+     * Listing descriptions longer than 80 characters are cut at the character level with an
+     * ellipsis; shorter ones pass through whole. The cut happens on the plain text BEFORE
+     * escaping, so no entity is ever sliced in half.
+     */
+    public function test_long_description_is_trimmed_short_one_is_not(): void {
+        $long = str_repeat('a', 100);
+        $short = str_repeat('b', 80);
+
+        $html = component_renderer::descriptions_html([
+            $this->component_stub('Header', $long),
+            $this->component_stub('Header', $short),
+        ]);
+
+        $this->assertStringContainsString('<p>' . str_repeat('a', 80) . '…</p>', $html);
+        $this->assertStringNotContainsString(str_repeat('a', 81), $html);
+        $this->assertStringContainsString('<p>' . $short . '</p>', $html);
     }
 
     /**

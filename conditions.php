@@ -32,7 +32,7 @@ require('../../config.php');
 
 $courseid = required_param('courseid', PARAM_INT);
 $ruleid = required_param('ruleid', PARAM_INT);
-$type = optional_param('type', '', PARAM_TEXT);
+$type = optional_param('type', '', PARAM_ALPHAEXT);
 
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);

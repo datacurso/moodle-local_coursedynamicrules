@@ -102,18 +102,17 @@ class enableactivity_form extends action_form {
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
 
-        // ElementExists() guard (FIX4): definition() early-returns without adding 'coursemodules' at
-        // all when a required plugin (availability_user) is missing - setting an error keyed to a
-        // non-existent element would be silently lost (never rendered next to any visible field),
-        // instead of surfacing the real problem via the missing-plugin notification already shown.
+        // ElementExists() guard: definition() early-returns without adding 'coursemodules' at all
+        // when a required plugin (availability_user) is missing. A browser never submits that
+        // degraded form, but a forged POST can - and skipping the emptiness check here would let
+        // get_data() hand save_action() an action with no target modules. The error is set either
+        // way: an error keyed to a non-existent element renders nowhere, but any validation error
+        // makes get_data() return null, which is the refusal that matters; the visible explanation
+        // stays with the missing-plugin notification the page already shows.
         // $this->_form can itself be null here (e.g. a form built via
         // ReflectionClass::newInstanceWithoutConstructor() in a unit test that exercises
-        // validation() in isolation) - only treat the element as "missing" when a real $_form is
-        // available AND it confirms the element was never added.
-        $mform = $this->_form;
-        $coursemodulesmissing = $mform !== null && !$mform->elementExists('coursemodules');
-
-        if (!$coursemodulesmissing && empty($data['coursemodules'])) {
+        // validation() in isolation) - that case still validates the submitted data.
+        if (empty($data['coursemodules'])) {
             $errors['coursemodules'] = get_string('enableactivity_nomodulesselected', 'local_coursedynamicrules');
         }
 

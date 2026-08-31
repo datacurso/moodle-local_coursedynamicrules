@@ -44,10 +44,14 @@ class component_renderer {
             $description = $instance->get_description();
             if (!empty($header) && !empty($description)) {
                 // The LISTING trims for uniform row height (product directive 2026-08-31); the
-                // magnifier's page shows the untrimmed description. Presentation-layer cut on
-                // purpose: shorten the raw text FIRST, escape after - the other order can slice
-                // an HTML entity in half and leak a broken escape into the cell.
-                $html .= html_writer::tag('p', s(shorten_text($description, 80)));
+                // magnifier's page shows the untrimmed description. Plain-text cut on purpose:
+                // shorten_text() is HTML-aware and mangles plain text containing '<' or '>'
+                // (tokenises them as tags and appends fabricated closers - final-review finding),
+                // so a character cut runs first and escaping runs last, on the short string.
+                $short = \core_text::strlen($description) > 80
+                    ? \core_text::substr($description, 0, 80) . '…'
+                    : $description;
+                $html .= html_writer::tag('p', s($short));
             }
         }
         return $html;

@@ -134,10 +134,13 @@ final class enableactivity_form_test extends \advanced_testcase {
     }
 
     /**
-     * FIX4: when the required availability_user plugin is missing, definition() early-returns
-     * before adding the 'coursemodules' element at all - validation() must not set an error keyed
-     * to a non-existent element (it would be silently lost, never rendered) nor throw when calling
-     * elementExists() on a real (populated) $_form.
+     * When the required availability_user plugin is missing, definition() early-returns before
+     * adding the 'coursemodules' element at all - a browser never submits that degraded form, so
+     * the only way this validation runs is a forged POST, and it must be REJECTED: the error is
+     * never rendered (its element does not exist), but any validation error makes get_data()
+     * return null, which is the refusal that keeps save_action() from receiving an action with no
+     * target modules. This inverts the earlier FIX4 contract, which skipped the check and let the
+     * forged submission through.
      *
      * Mirrors the FIX3-1 skip guard on test_definition_sets_int_type_on_the_real_coursemodules_element():
      * this scenario can only be exercised for real in an environment that does NOT have
@@ -146,7 +149,7 @@ final class enableactivity_form_test extends \advanced_testcase {
      *
      * @covers ::validation
      */
-    public function test_validation_does_not_set_coursemodules_error_when_element_is_missing(): void {
+    public function test_validation_rejects_empty_selection_even_when_element_is_missing(): void {
         $this->resetAfterTest(true);
 
         if (\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
@@ -162,6 +165,6 @@ final class enableactivity_form_test extends \advanced_testcase {
 
         $errors = $form->validation(['coursemodules' => []], []);
 
-        $this->assertArrayNotHasKey('coursemodules', $errors);
+        $this->assertArrayHasKey('coursemodules', $errors);
     }
 }
