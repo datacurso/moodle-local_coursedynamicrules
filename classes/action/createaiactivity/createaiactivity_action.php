@@ -204,6 +204,10 @@ class createaiactivity_action extends action {
             set_coursemodule_visible($newcm->coursemodule, 1);
             rebuild_course_cache($courseid, true);
         } catch (\Throwable $e) {
+            // The task log keeps a durable record even with debugging off: a failed PAID
+            // generation must never be invisible (final-review finding - the same silence this
+            // release's changelog criticizes about the 1.8.x breakage).
+            mtrace('local_coursedynamicrules createaiactivity failed: ' . $e->getMessage());
             debugging(
                 get_string('error_unexpected_creating_aiactivity', 'local_coursedynamicrules', $e->getMessage()),
                 DEBUG_DEVELOPER

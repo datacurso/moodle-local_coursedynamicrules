@@ -62,6 +62,15 @@ $table->head[] = get_string('conditions', 'local_coursedynamicrules');
 $table->head[] = get_string('actions', 'local_coursedynamicrules');
 $table->head[] = '';
 
+// The column links must obey the pair their target pages enforce (page_gate::require_listing):
+// offering conditions.php/actions.php to a role that holds the rule pair but not the component
+// pair is a live link into a guaranteed permission error (final-review finding). Hoisted:
+// capabilities are context-constant for the whole listing.
+$canlistconditions = has_capability('local/coursedynamicrules:viewcondition', $context)
+    && has_capability('local/coursedynamicrules:managecondition', $context);
+$canlistactions = has_capability('local/coursedynamicrules:viewaction', $context)
+    && has_capability('local/coursedynamicrules:manageaction', $context);
+
 foreach ($rules as $rule) {
     $conditions = $DB->get_records('local_coursedynamicrules_condition', ['ruleid' => $rule->id]);
     $actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $rule->id]);
@@ -83,7 +92,8 @@ foreach ($rules as $rule) {
         // the upgrade seals every active rule, component-less ones included, and a live link into
         // a page whose add menu is hidden is a dead end. The fact (no conditions yet) stays,
         // muted, read off the fetched row so the listing pays no lock query per rule.
-        $conditionstext = has_capability('local/coursedynamicrules:createcondition', $context)
+        $conditionstext = $canlistconditions
+                && has_capability('local/coursedynamicrules:createcondition', $context)
                 && !rule_lock::is_locked_row($rule)
             ? html_writer::link($conditionsurl, get_string('addconditions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addconditions', 'local_coursedynamicrules'), 'text-muted');
@@ -94,8 +104,9 @@ foreach ($rules as $rule) {
         );
         $conditionstext = component_renderer::descriptions_html($conditioninstances);
         // A sealed rule's components can be seen but never changed, and the affordance must not
-        // promise otherwise: the eye replaces the pencil, the navigation stays.
-        $editlink = html_writer::link(
+        // promise otherwise: the eye replaces the pencil, the navigation stays. And no link at
+        // all for a role the target page would refuse (the view*+manage* pair).
+        $editlink = !$canlistconditions ? '' : html_writer::link(
             $conditionsurl,
             !rule_lock::is_locked_row($rule)
                 ? $OUTPUT->pix_icon('t/edit', get_string('editconditions', 'local_coursedynamicrules'))
@@ -106,7 +117,8 @@ foreach ($rules as $rule) {
     }
     if (empty($actions)) {
         // Same gate as the conditions column: capability AND unsealed.
-        $actionstext = has_capability('local/coursedynamicrules:createaction', $context)
+        $actionstext = $canlistactions
+                && has_capability('local/coursedynamicrules:createaction', $context)
                 && !rule_lock::is_locked_row($rule)
             ? html_writer::link($actionsurl, get_string('addactions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addactions', 'local_coursedynamicrules'), 'text-muted');
@@ -116,8 +128,9 @@ foreach ($rules as $rule) {
             $actions
         );
         $actionstext = component_renderer::descriptions_html($actioninstances);
-        // Same gate as the conditions column: the eye replaces the pencil on sealed rules.
-        $editlink = html_writer::link(
+        // Same gate as the conditions column: the eye replaces the pencil on sealed rules,
+        // and no link at all for a role the target page would refuse.
+        $editlink = !$canlistactions ? '' : html_writer::link(
             $actionsurl,
             !rule_lock::is_locked_row($rule)
                 ? $OUTPUT->pix_icon('t/edit', get_string('editactions', 'local_coursedynamicrules'))

@@ -122,9 +122,10 @@ foreach ($conditions as $condition) {
             'description' => $description,
         ];
 
-        // The trash can needs deletecondition - manager-only by archetype, with RISK_DATALOSS - and
-        // the shared template renders it whenever 'deleteurl' is present. Offering it to every row
-        // put a control in front of the editing teacher that the endpoint then refused with an
+        // The trash can needs deletecondition - held by managers AND, since 1.9.0, the editing
+        // teacher archetype (RISK_DATALOSS, explicit PROHIBITs respected) - and the shared
+        // template renders it whenever 'deleteurl' is present. Offering it to a role without the
+        // capability puts a control in front of them that the endpoint then refuses with an
         // error page: never offer what would be refused. The endpoint keeps its own check either
         // way; this only aligns the offer with it.
         if (has_capability('local/coursedynamicrules:deletecondition', $context) && !$rulelocked) {

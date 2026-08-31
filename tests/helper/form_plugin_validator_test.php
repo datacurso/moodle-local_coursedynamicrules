@@ -16,6 +16,11 @@
 
 namespace local_coursedynamicrules\helper;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->libdir . '/formslib.php');
+
 /**
  * Tests for the form plugin validator helper.
  *
