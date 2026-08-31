@@ -64,15 +64,24 @@ $rulelocked = rule_lock::is_locked($ruleid);
 // Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
 // form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
 $editid = optional_param('edit', 0, PARAM_INT);
-if ($editid > 0) {
-    // Editing an existing condition in place is not available in this release. Bounce a bookmarked
-    // link, or a form left open before the upgrade, back to the listing. This must happen before
-    // the create branch below, because an edit submission also carries a 'type' and would
-    // otherwise be read as a request to create a brand new condition.
-    redirect($url, get_string('editingunavailable', 'local_coursedynamicrules'));
-}
 $conditioninstance = null;
-if (!empty($type)) {
+$editingexisting = false;
+$formurl = $url;
+if ($editid > 0) {
+    // Bounded in-place editing (product directive 2026-08-31): a component can be edited only
+    // while its rule was never activated - the seal is exactly the advisory boundary the 1.8.1
+    // withholding was waiting for, so the editor returns inside that boundary. This branch must
+    // run before the create branch below, because an edit submission also carries a 'type' and
+    // would otherwise be read as a request to create a brand new condition.
+    require_capability('local/coursedynamicrules:updatecondition', $context);
+    rule_lock::require_unlocked($ruleid);
+    // Ownership binds the edited component to this course AND this rule before anything renders.
+    $conditionrecord = \local_coursedynamicrules\helper\ownership::get_condition($editid, $courseid, $ruleid);
+    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord, $courseid);
+    $editingexisting = true;
+    // The form must post back into THIS branch, or the hidden 'type' would create a duplicate.
+    $formurl = new moodle_url($url, ['edit' => $editid]);
+} else if (!empty($type)) {
     // The add menu is only rendered for a role that holds this, but the type is a URL
     // parameter: refuse it here as well.
     page_gate::require_creation('condition', $context);
@@ -85,18 +94,28 @@ if (!empty($type)) {
         'params' => json_encode([]),
     ];
     $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord, $courseid);
+}
 
+if ($conditioninstance !== null) {
     $customdata = [
         'courseid' => $courseid,
         'ruleid' => $ruleid,
     ];
-    $conditioninstance->build_editform($url, $customdata, 'post', '', ['class' => 'card p-4']);
+    if ($editingexisting) {
+        // The stored params preload the form (condition_form reads customdata['record']); without
+        // this the pencil would open every field empty.
+        $customdata['record'] = json_decode((string) $conditionrecord->params);
+    }
+    $conditioninstance->build_editform($formurl, $customdata, 'post', '', ['class' => 'card p-4']);
 
     if ($conditioninstance->is_cancelled()) {
         redirect($url);
     } else if ($data = $conditioninstance->get_data()) {
         $conditionid = $conditioninstance->save_condition($data);
-        \local_coursedynamicrules\event\condition_created::create([
+        $eventclass = $editingexisting
+            ? \local_coursedynamicrules\event\condition_updated::class
+            : \local_coursedynamicrules\event\condition_created::class;
+        $eventclass::create([
             'context' => $context,
             'objectid' => $conditionid,
         ])->trigger();
@@ -121,6 +140,17 @@ foreach ($conditions as $condition) {
             'header' => $header,
             'description' => $description,
         ];
+
+        // Bounded editing: the pencil appears only while the rule was never activated and the
+        // role holds updatecondition - the same pair of gates the edit endpoint enforces.
+        if (has_capability('local/coursedynamicrules:updatecondition', $context) && !$rulelocked) {
+            $editurl = new moodle_url(
+                '/local/coursedynamicrules/conditions.php',
+                ['edit' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['editurl'] = $editurl->out(false);
+            $row['edittitle'] = get_string('editcondition', 'local_coursedynamicrules');
+        }
 
         // The trash can needs deletecondition - held by managers AND, since 1.9.0, the editing
         // teacher archetype (RISK_DATALOSS, explicit PROHIBITs respected) - and the shared

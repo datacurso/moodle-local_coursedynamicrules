@@ -52,7 +52,6 @@ Feature: A rule can be edited only until its first activation
     And I should see "it can never be modified again"
     When I press "Activate permanently"
     Then I should see "The rule was activated"
-    And I should see "Locked"
     And I should see "Active"
 
   Scenario: Cancelling the confirmation keeps every edit saved and the rule inactive
@@ -70,7 +69,7 @@ Feature: A rule can be edited only until its first activation
     # The rename survived the cancelled activation - edits are never hostage to the confirmation.
     Then I should see "Renamed but cautious"
     And I should see "Inactive"
-    And I should not see "Locked"
+    And I should not see "Paused"
 
   Scenario: A locked rule offers no way to modify itself, and pausing still works
     Given the following local coursedynamicrules no course access rules exist:
@@ -103,8 +102,9 @@ Feature: A rule can be edited only until its first activation
     And I click on "//tr[contains(., 'Sealed rule')]//a[contains(@href, 'editrule.php')]" "xpath_element"
     And I set the field "Active" to ""
     And I press "Save changes"
-    Then I should see "Inactive"
-    And I should see "Locked"
+    # A sealed, stopped rule reads "Paused" - "Inactive" is reserved for never-activated drafts.
+    Then I should see "Paused"
+    And I should not see "Inactive"
 
   Scenario: Replaying the activation confirmation on a sealed rule tells the truth
     # Both judges flagged the replay lie: back button, double click or an old tab reaches the
