@@ -16,6 +16,11 @@
 
 namespace local_coursedynamicrules\form;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->libdir . '/formslib.php');
+
 /**
  * Class rule_form
  *
@@ -28,6 +33,8 @@ class rule_form extends \moodleform {
      * Defines the form.
      */
     public function definition() {
+        global $OUTPUT;
+
         $mform = $this->_form;
         $customdata = $this->_customdata;
 
@@ -58,6 +65,62 @@ class rule_form extends \moodleform {
         $mform->addElement('hidden', 'id', $rule->id ?? 0);
         $mform->setType('id', PARAM_INT);
 
+        // A locked rule accepts one change: the active toggle. hardFreeze (never plain freeze: a
+        // frozen-but-required name fails validation and bricks the form, so a locked rule could
+        // never even be paused) removes the fields' rules and re-exports their defaults, and the
+        // server-side whitelist in rule_lock::sanitise_locked_write() is what actually protects
+        // the row - this freeze is the honest UI for it, not the enforcement.
+        if (!empty($rule->id) && \local_coursedynamicrules\helper\rule_lock::is_locked((int) $rule->id)) {
+            $mform->hardFreeze('name');
+            $mform->hardFreeze('description');
+            $mform->addElement(
+                'static',
+                'lockednotice',
+                '',
+                $OUTPUT->notification(
+                    get_string('rulelocked', 'local_coursedynamicrules'),
+                    \core\output\notification::NOTIFY_INFO
+                )
+            );
+        }
+
         $this->add_action_buttons(true, get_string('savechanges'));
+    }
+
+    /**
+     * Activation requires a complete rule - and a new rule is never complete.
+     *
+     * Activation is the moment the rule locks forever (see rule_lock), so activating a rule with
+     * no conditions or no actions would create a locked rule that can never fire and can never be
+     * finished: its only exit is deletion. The adversarial review of the plan found this as its
+     * first critical - creating a rule with the box already ticked, then adding components, was
+     * the everyday flow, and it would have become data loss. Product decision: refuse here with a
+     * field error, keep the checkbox.
+     *
+     * A locked rule skips the check: it is complete by construction (it could not have been
+     * activated otherwise), and its toggle must keep working forever.
+     *
+     * @param array $data
+     * @param array $files
+     * @return array
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        if (empty($data['active'])) {
+            return $errors;
+        }
+
+        $ruleid = (int) ($data['id'] ?? 0);
+
+        if ($ruleid && \local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)) {
+            return $errors;
+        }
+
+        if (!$ruleid || !\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+            $errors['active'] = get_string('ruleactivationincomplete', 'local_coursedynamicrules');
+        }
+
+        return $errors;
     }
 }

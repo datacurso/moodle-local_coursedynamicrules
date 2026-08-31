@@ -47,6 +47,7 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
             'description',
             'active',
             'lastexecutiontime',
+            'timeactivated',
             'timecreated',
             'timemodified',
         ]);

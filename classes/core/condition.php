@@ -138,6 +138,17 @@ abstract class condition {
         $existingid = $this->get_id();
         $record = new stdClass();
 
+        // The lock is enforced AT THE WRITE, not only at the endpoint: conditions.php checked the
+        // URL's ruleid, but the insert below targets the form's hidden ruleid - the same
+        // decided-here-written-there seam as the editrule capability bug. Resolve the rule this
+        // write actually lands on (the stored component's rule on update, the ownership-validated
+        // form ruleid on insert) and refuse if it is sealed. Rule deletion is NOT gated here:
+        // deleting a whole rule deletes its components and stays allowed by contract.
+        $targetruleid = !empty($existingid)
+            ? (int) $this->ruleid
+            : (int) ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+        \local_coursedynamicrules\helper\rule_lock::require_unlocked($targetruleid);
+
         if (!empty($existingid)) {
             foreach ($this->runtime_param_keys() as $key) {
                 // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
@@ -160,7 +171,8 @@ abstract class condition {
             $record->conditiontype = $this->type;
             $record->lastexecutiontime = $this->lastexecutiontime;
         } else {
-            $record->ruleid = ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+            // The very id the lock was decided on - one resolution, one write target.
+            $record->ruleid = $targetruleid;
             $record->conditiontype = $this->type;
             $record->params = json_encode($params);
             $record->id = $DB->insert_record(static::TABLE, $record);

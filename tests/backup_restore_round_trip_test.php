@@ -65,8 +65,14 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
 
         $CFG->backup_file_logger_level = \backup::LOG_NONE;
 
-        $bc = new \backup_controller(\backup::TYPE_1COURSE, $course->id,
-            \backup::FORMAT_MOODLE, \backup::INTERACTIVE_NO, \backup::MODE_IMPORT, $USER->id);
+        $bc = new \backup_controller(
+            \backup::TYPE_1COURSE,
+            $course->id,
+            \backup::FORMAT_MOODLE,
+            \backup::INTERACTIVE_NO,
+            \backup::MODE_IMPORT,
+            $USER->id
+        );
         $backupid = $bc->get_backupid();
         $bc->execute_plan();
         $bc->destroy();
@@ -88,8 +94,14 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
         $categoryid = $DB->get_field('course_categories', 'id', ['parent' => 0], IGNORE_MULTIPLE);
         $newcourseid = \restore_dbops::create_new_course('Restored', 'RT' . random_string(4), $categoryid);
 
-        $rc = new \restore_controller($backupid, $newcourseid,
-            \backup::INTERACTIVE_NO, \backup::MODE_GENERAL, $USER->id, \backup::TARGET_NEW_COURSE);
+        $rc = new \restore_controller(
+            $backupid,
+            $newcourseid,
+            \backup::INTERACTIVE_NO,
+            \backup::MODE_GENERAL,
+            $USER->id,
+            \backup::TARGET_NEW_COURSE
+        );
         // execute_precheck() returns true only with NO errors and NO warnings
         // (restore_controller:455-458); warnings alone still leave the restore in STATUS_AWAITING,
         // executable. Annotating a bare custom role produces exactly such a warning ("cannot be
@@ -219,6 +231,68 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
             $DB->get_field('role', 'shortname', ['id' => (int) $roleids[0]], MUST_EXIST),
             'It resolves to the role with the annotated shortname - the people the author meant - '
             . 'not to the number the source site happened to use.'
+        );
+    }
+
+    /**
+     * The activation lock survives the round trip - restore cannot be the lock's back door.
+     *
+     * Found by both blind judges independently: without timeactivated in the backup structure,
+     * duplicating or importing a course returns every sealed rule ACTIVE AND EDITABLE - "edit a
+     * locked rule" becomes "import the course and edit the copy". Four states must land right:
+     * a sealed rule keeps its stamp whether active or paused; a rule arriving active but unstamped
+     * (an archive from before the lock existed) is stamped by the same axiom the 2026083002
+     * upgrade applies to the installed base - active means it WAS activated; and an inactive
+     * draft stays unlocked, because its activation history is unknowable.
+     */
+    public function test_the_activation_lock_survives_the_round_trip(): void {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course();
+
+        $make = function (string $name, int $active, ?int $timeactivated, int $times = 1) use ($DB, $course): void {
+            $DB->insert_record('local_coursedynamicrules_rule', (object) [
+                'courseid' => $course->id,
+                'name' => $name,
+                'description' => '',
+                'active' => $active,
+                'timeactivated' => $timeactivated,
+                'timecreated' => 1000 * $times,
+                'timemodified' => 2000 * $times,
+            ]);
+        };
+
+        $make('Sealed active', 1, 7777);
+        $make('Sealed paused', 0, 7777);
+        $make('Legacy active', 1, null);
+        $make('Inactive draft', 0, null);
+        // Zeros in the time columns must be skipped by the restore stamp, never copied: a stamp
+        // of literally 0 would fork the sealed predicate (round-2 judges).
+        $make('Legacy zero times', 1, null, 0);
+
+        $newcourseid = $this->restore_course($this->backup_course($course));
+
+        $restored = [];
+        foreach ($DB->get_records('local_coursedynamicrules_rule', ['courseid' => $newcourseid]) as $rule) {
+            $restored[$rule->name] = $rule->timeactivated;
+        }
+        $this->assertCount(5, $restored, 'All five rules travel.');
+        $this->assertGreaterThan(
+            0,
+            (int) $restored['Legacy zero times'],
+            'An active rule whose archive offers only zero timestamps is stamped with now - never 0.'
+        );
+
+        $this->assertEquals(7777, $restored['Sealed active'], 'A sealed rule restores sealed, stamp intact.');
+        $this->assertEquals(7777, $restored['Sealed paused'], 'Pausing never unseals - not even through a restore.');
+        $this->assertNotNull(
+            $restored['Legacy active'],
+            'An old archive cannot say WHEN this rule was activated, but active says THAT it was: '
+            . 'restoring it unlocked would reopen for every old backup the hole the upgrade closed.'
+        );
+        $this->assertNull(
+            $restored['Inactive draft'],
+            'An inactive rule is grandfathered unlocked, same as the upgrade decides.'
         );
     }
 

@@ -190,6 +190,40 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026083001, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026083002) {
+        // A rule may be edited only until its FIRST activation, never again. The column records
+        // that moment: stamped once, never cleared - pausing and reactivating leave it alone.
+        $table = new xmldb_table('local_coursedynamicrules_rule');
+        $field = new xmldb_field(
+            'timeactivated',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            null,
+            null,
+            null,
+            'lastexecutiontime'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Product decision 2026-08-31: rules that are ACTIVE at upgrade time were activated at some
+        // point, so they are stamped - locked from day one, still pausable forever - or the
+        // requirement would be void for the whole installed base. Inactive rules are grandfathered
+        // unlocked: their activation history is unknowable, and stamping them would lock rules
+        // that may never have run. The stamp borrows the best timestamp the row can offer.
+        $DB->execute(
+            "
+            UPDATE {local_coursedynamicrules_rule}
+               SET timeactivated = COALESCE(NULLIF(timemodified, 0), NULLIF(timecreated, 0), :now)
+             WHERE active = 1 AND timeactivated IS NULL",
+            ['now' => time()]
+        );
+
+        upgrade_plugin_savepoint(true, 2026083002, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 

@@ -99,6 +99,18 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $record->timecreated = $data->timecreated ?? time();
         $record->timemodified = $data->timemodified ?? time();
 
+        // The activation lock travels with the rule, or restore becomes its back door: without
+        // this, "edit a locked rule" is just "import the course and edit the copy". An archive
+        // with no stamp (made before the lock existed) but active gets one by the same axiom the
+        // 2026083002 upgrade applies to the installed base - active means it WAS activated.
+        // Inactive unstamped rules restore unlocked, same grandfathering as the upgrade.
+        $record->timeactivated = (int) ($data->timeactivated ?? 0) ?: null;
+        if (!empty($record->active) && $record->timeactivated === null) {
+            // Truthiness on purpose: zeros in the archive's time columns are skipped, never
+            // copied - a stamp of literally 0 would fork the sealed predicate.
+            $record->timeactivated = $record->timemodified ?: ($record->timecreated ?: time());
+        }
+
         $newruleid = $DB->insert_record('local_coursedynamicrules_rule', $record);
         $this->set_mapping('local_coursedynamicrules_rule', $data->id, $newruleid, false);
     }

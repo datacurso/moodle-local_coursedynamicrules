@@ -50,11 +50,22 @@ class behat_local_coursedynamicrules extends behat_base {
 
         foreach ($table->getHash() as $row) {
             $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            // The generator obeys the production axiom "active means it WAS activated": every
+            // production writer that sets active=1 also stamps timeactivated (editrule, the
+            // upgrade, restore), so an active-but-unstamped rule is a state no real site can
+            // hold post-2026083002 - and a suite exercising impossible states proves nothing.
+            // Round-2 judge CRITICAL. An explicit timeactivated column still overrides.
+            $active = isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1;
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
-                'name' => 'Behat no course access rule',
+                // Optional columns, defaulted for backwards compatibility with every existing
+                // feature: a name so scenarios can tell rules apart, and active so the activation
+                // flow can start from a genuinely inactive rule.
+                'name' => trim($row['name'] ?? '') !== '' ? trim($row['name']) : 'Behat no course access rule',
                 'description' => 'Behat generated rule',
-                'active' => 1,
+                'active' => $active,
+                'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                    ? (int)$row['timeactivated'] : ($active ? time() : null),
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
                 'timemodified' => time(),
@@ -89,6 +100,59 @@ class behat_local_coursedynamicrules extends behat_base {
     }
 
     /**
+     * Create bare rules - a rule row with NO conditions and NO actions.
+     *
+     * The population the 2026083002 upgrade seals incomplete: pre-lock sites could save a rule
+     * active with zero components. Scenarios about what the listing offers such rules need to
+     * build one, and no UI path can any more.
+     *
+     * @Given /^the following local coursedynamicrules bare rules exist:$/
+     * @param TableNode $table Table data with columns: course, name, active, timeactivated.
+     */
+    public function the_following_local_coursedynamicrules_bare_rules_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $DB->insert_record('local_coursedynamicrules_rule', (object) [
+                'courseid' => $course->id,
+                'name' => trim($row['name']),
+                'description' => 'Behat generated bare rule',
+                'active' => isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 0,
+                // Same axiom as every generator here: active without an explicit stamp is sealed
+                // now, because no production writer leaves an active rule unstamped.
+                'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                    ? (int)$row['timeactivated']
+                    : (!empty($row['active']) && (int)$row['active'] === 1 ? time() : null),
+                'lastexecutiontime' => null,
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+        }
+    }
+
+    /**
+     * Visit the activation confirmation page for a rule, addressed by name.
+     *
+     * The page a replayed link or an old browser tab lands on: editrule.php?confirmactivate=1.
+     * Reaching it directly is the point - the scenario exercises what the page says when the
+     * confirmation is no longer applicable, and no UI path can produce that URL twice.
+     *
+     * @When /^I visit the activation confirmation page for the rule "(?P<name>[^"]*)"$/
+     * @param string $name The rule name.
+     */
+    public function i_visit_the_activation_confirmation_page_for_the_rule(string $name): void {
+        global $DB;
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['name' => $name], '*', MUST_EXIST);
+        $this->execute('behat_general::i_visit', [new moodle_url('/local/coursedynamicrules/editrule.php', [
+            'courseid' => $rule->courseid,
+            'id' => $rule->id,
+            'confirmactivate' => 1,
+        ])]);
+    }
+
+    /**
      * Create rules with a create AI activity action carrying the given prompt.
      *
      * @Given /^the following local coursedynamicrules AI activity actions exist:$/
@@ -99,11 +163,16 @@ class behat_local_coursedynamicrules extends behat_base {
 
         foreach ($table->getHash() as $row) {
             $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            // Optional active column; the default obeys the axiom below (active arrives sealed).
+            $active = isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1;
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
                 'name' => 'Behat AI activity rule',
                 'description' => 'Behat generated rule',
-                'active' => 1,
+                'active' => $active,
+                // Active means it WAS activated: production never holds an active-unstamped rule,
+                // so neither does any rule this context fabricates.
+                'timeactivated' => $active ? time() : null,
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
                 'timemodified' => time(),
@@ -358,6 +427,9 @@ class behat_local_coursedynamicrules extends behat_base {
                 'name' => 'Behat grade in activity rule',
                 'description' => 'Behat generated rule',
                 'active' => 1,
+                // Active means it WAS activated: production never holds an active-unstamped rule,
+                // so neither does any rule this context fabricates.
+                'timeactivated' => time(),
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
                 'timemodified' => time(),

@@ -27,6 +27,7 @@ use local_coursedynamicrules\helper\availability_user_status;
 use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
+use local_coursedynamicrules\helper\rule_lock;
 
 require('../../config.php');
 
@@ -78,10 +79,12 @@ foreach ($rules as $rule) {
 
 
     if (empty($conditions)) {
-        // Never offer what would be refused: the listing's add menu needs createcondition, so a
-        // role without it gets the fact (no conditions yet) without a link into a page section it
-        // cannot use.
+        // Never offer what would be refused: adding needs createcondition AND an unsealed rule -
+        // the upgrade seals every active rule, component-less ones included, and a live link into
+        // a page whose add menu is hidden is a dead end. The fact (no conditions yet) stays,
+        // muted, read off the fetched row so the listing pays no lock query per rule.
         $conditionstext = has_capability('local/coursedynamicrules:createcondition', $context)
+                && !rule_lock::is_locked_row($rule)
             ? html_writer::link($conditionsurl, get_string('addconditions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addconditions', 'local_coursedynamicrules'), 'text-muted');
     } else {
@@ -90,15 +93,21 @@ foreach ($rules as $rule) {
             $conditions
         );
         $conditionstext = component_renderer::descriptions_html($conditioninstances);
+        // A sealed rule's components can be seen but never changed, and the affordance must not
+        // promise otherwise: the eye replaces the pencil, the navigation stays.
         $editlink = html_writer::link(
             $conditionsurl,
-            $OUTPUT->pix_icon('t/edit', get_string('editconditions', 'local_coursedynamicrules'))
+            !rule_lock::is_locked_row($rule)
+                ? $OUTPUT->pix_icon('t/edit', get_string('editconditions', 'local_coursedynamicrules'))
+                : $OUTPUT->pix_icon('i/preview', get_string('viewconditions', 'local_coursedynamicrules'))
         );
         $conditionstext = html_writer::div($conditionstext);
         $conditionstext = html_writer::div($conditionstext . $editlink, 'd-flex', ['style' => 'gap: .8rem']);
     }
     if (empty($actions)) {
+        // Same gate as the conditions column: capability AND unsealed.
         $actionstext = has_capability('local/coursedynamicrules:createaction', $context)
+                && !rule_lock::is_locked_row($rule)
             ? html_writer::link($actionsurl, get_string('addactions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addactions', 'local_coursedynamicrules'), 'text-muted');
     } else {
@@ -107,9 +116,12 @@ foreach ($rules as $rule) {
             $actions
         );
         $actionstext = component_renderer::descriptions_html($actioninstances);
+        // Same gate as the conditions column: the eye replaces the pencil on sealed rules.
         $editlink = html_writer::link(
             $actionsurl,
-            $OUTPUT->pix_icon('t/edit', get_string('editactions', 'local_coursedynamicrules'))
+            !rule_lock::is_locked_row($rule)
+                ? $OUTPUT->pix_icon('t/edit', get_string('editactions', 'local_coursedynamicrules'))
+                : $OUTPUT->pix_icon('i/preview', get_string('viewactions', 'local_coursedynamicrules'))
         );
         $actionstext = html_writer::div($actionstext);
         $actionstext = html_writer::div($actionstext . $editlink, 'd-flex', ['style' => 'gap: .8rem']);
@@ -142,6 +154,14 @@ foreach ($rules as $rule) {
         $rule->name .= ' ' . html_writer::span(
             get_string('ruleactive', 'local_coursedynamicrules'),
             'badge badge-success'
+        );
+    }
+    // Locked is a separate fact from active: a paused locked rule shows both states. Read off the
+    // row already fetched - the listing must not pay one lock query per rule.
+    if (rule_lock::is_locked_row($rule)) {
+        $rule->name .= ' ' . html_writer::span(
+            get_string('rulebadgelocked', 'local_coursedynamicrules'),
+            'badge badge-warning'
         );
     }
     $table->data[] = [

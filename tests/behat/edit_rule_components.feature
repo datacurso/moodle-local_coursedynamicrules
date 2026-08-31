@@ -16,8 +16,8 @@ Feature: Manage existing rule conditions and actions
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
     And the following local coursedynamicrules no course access rules exist:
-      | course | periodvalue | periodunit | primaryroles | copyroles | subject           | body                  |
-      | C1     | 1           | days       | student      |           | Original subject  | Original body content |
+      | course | active | periodvalue | periodunit | primaryroles | copyroles | subject           | body                  |
+      | C1     | 0      | 1           | days       | student      |           | Original subject  | Original body content |
 
   # In-place editing is implemented but withheld in this release: changing a component alters what
   # an already-running rule does to learners, and the advisory messages that must accompany that

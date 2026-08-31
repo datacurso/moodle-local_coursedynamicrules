@@ -115,4 +115,122 @@ final class rule_form_test extends \advanced_testcase {
             'The hidden id is what makes this an edit instead of a second rule.'
         );
     }
+
+    /**
+     * Build a rule row, optionally with components.
+     *
+     * @param int $courseid
+     * @param int $conditions How many condition rows to attach.
+     * @param int $actions How many action rows to attach.
+     * @return \stdClass The rule record.
+     */
+    private function rule_with(int $courseid, int $conditions, int $actions): \stdClass {
+        global $DB;
+
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'Completeness probe',
+            'description' => '',
+            'active' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        for ($i = 0; $i < $conditions; $i++) {
+            $DB->insert_record('local_coursedynamicrules_condition', (object) [
+                'ruleid' => $ruleid, 'name' => 'c', 'conditiontype' => 'complete_activity', 'params' => '{}',
+            ]);
+        }
+        for ($i = 0; $i < $actions; $i++) {
+            $DB->insert_record('local_coursedynamicrules_action', (object) [
+                'ruleid' => $ruleid, 'name' => 'a', 'actiontype' => 'sendnotification', 'params' => '{}',
+            ]);
+        }
+
+        return $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], '*', MUST_EXIST);
+    }
+
+    /**
+     * Run the form's validation for a rule with the given payload.
+     *
+     * @param \stdClass $rule
+     * @param array $data
+     * @return array Errors keyed by element.
+     */
+    private function validation_of(\stdClass $rule, array $data): array {
+        $form = new rule_form(
+            new \moodle_url('/local/coursedynamicrules/editrule.php', ['courseid' => $rule->courseid]),
+            ['rule' => $rule, 'courseid' => $rule->courseid]
+        );
+
+        return $form->validation($data, []);
+    }
+
+    /**
+     * A brand-new rule cannot be created already active.
+     *
+     * Activation is the moment the rule locks forever, and a new rule has zero conditions and zero
+     * actions by definition: activating it would produce a locked rule that can never fire and can
+     * never be completed - its only exit is deletion. This was the first critical the adversarial
+     * review found in the PLAN: the most common flow (create with the box ticked, add components
+     * after) would have become data loss. Product decision: refuse with a validation error, keep
+     * the checkbox.
+     *
+     * @covers ::validation
+     */
+    public function test_a_new_rule_cannot_be_born_active(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+
+        $errors = $this->validation_of(
+            (object) ['courseid' => $courseid],
+            ['name' => 'New rule', 'active' => 1]
+        );
+
+        $this->assertArrayHasKey('active', $errors, 'A rule with no components must not be activatable.');
+    }
+
+    /**
+     * An incomplete existing rule cannot be activated either - and the completeness is BOTH halves.
+     *
+     * @covers ::validation
+     */
+    public function test_an_incomplete_rule_cannot_be_activated(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+
+        $onlyconditions = $this->rule_with($courseid, 1, 0);
+        $errors = $this->validation_of($onlyconditions, [
+            'id' => $onlyconditions->id, 'name' => 'x', 'active' => 1,
+        ]);
+        $this->assertArrayHasKey('active', $errors, 'Conditions without actions cannot act on anybody.');
+
+        $onlyactions = $this->rule_with($courseid, 0, 1);
+        $errors = $this->validation_of($onlyactions, [
+            'id' => $onlyactions->id, 'name' => 'x', 'active' => 1,
+        ]);
+        $this->assertArrayHasKey('active', $errors, 'Actions without conditions never fire.');
+    }
+
+    /**
+     * A complete rule activates, and saving anything while NOT activating never trips the check.
+     *
+     * @covers ::validation
+     */
+    public function test_a_complete_rule_activates_and_inactive_saves_pass(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+
+        $complete = $this->rule_with($courseid, 1, 1);
+        $this->assertArrayNotHasKey('active', $this->validation_of($complete, [
+            'id' => $complete->id, 'name' => 'x', 'active' => 1,
+        ]), 'One condition and one action: activatable.');
+
+        $empty = $this->rule_with($courseid, 0, 0);
+        $this->assertArrayNotHasKey('active', $this->validation_of($empty, [
+            'id' => $empty->id, 'name' => 'x',
+        ]), 'Saving without activating is always allowed - the gate is on activation, not on saving.');
+    }
 }

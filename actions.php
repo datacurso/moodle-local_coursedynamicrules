@@ -25,6 +25,7 @@
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\availability_user_status;
 use local_coursedynamicrules\helper\page_gate;
+use local_coursedynamicrules\helper\rule_lock;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -71,6 +72,9 @@ if (!empty($type)) {
     // The add menu is only rendered for a role that holds this, but the type is a URL
     // parameter: refuse it here as well.
     page_gate::require_creation('action', $context);
+    // A locked rule accepts no new components - the menu below is hidden too, but a URL is
+    // not a menu.
+    rule_lock::require_unlocked($ruleid);
     $actionrecord = (object) [
         'ruleid' => $ruleid,
         'actiontype' => $type,
@@ -120,7 +124,7 @@ foreach ($actions as $action) {
         // offering it to every row put a control in front of the editing teacher that the endpoint
         // then refused with an error page: never offer what would be refused. The endpoint keeps
         // its own check either way; this only aligns the offer with it.
-        if (has_capability('local/coursedynamicrules:deleteaction', $context)) {
+        if (has_capability('local/coursedynamicrules:deleteaction', $context) && !rule_lock::is_locked($ruleid)) {
             $deleteurl = new moodle_url(
                 '/local/coursedynamicrules/deleteaction.php',
                 ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
@@ -152,7 +156,7 @@ if (!availability_user_status::is_enabled()) {
 
 echo html_writer::start_div('d-flex');
 
-if (has_capability('local/coursedynamicrules:createaction', $context)) {
+if (has_capability('local/coursedynamicrules:createaction', $context) && !rule_lock::is_locked($ruleid)) {
     echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
 }
 echo html_writer::start_div('col-8');
