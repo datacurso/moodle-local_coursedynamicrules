@@ -247,6 +247,7 @@ $string['ruleactive_help'] = 'Habilitar o deshabilitar la regla';
 $string['ruleadd'] = 'Añadir regla';
 $string['ruleaddedsuccessfully'] = 'Regla añadida correctamente';
 $string['ruleinactive'] = 'Inactiva';
+$string['rulelocked'] = 'Esta regla ya fue activada y no se puede modificar. Puede pausarla o reactivarla, o eliminarla por completo.';
 $string['rules'] = 'Reglas';
 $string['rules_help'] = 'Las reglas se utilizan para definir un conjunto de condiciones y acciones que se ejecutarán';
 $string['ruleupdatedsuccessfully'] = 'Regla actualizada correctamente';

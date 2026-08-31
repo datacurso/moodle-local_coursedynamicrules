@@ -248,6 +248,7 @@ $string['ruleactive_help'] = 'Enable or disable the rule';
 $string['ruleadd'] = 'Add rule';
 $string['ruleaddedsuccessfully'] = 'Rule added successfully';
 $string['ruleinactive'] = 'Inactive';
+$string['rulelocked'] = 'This rule was activated and can no longer be modified. You can pause or reactivate it, or delete it entirely.';
 $string['rules'] = 'Rules';
 $string['rules_help'] = 'Rules are used to define set of conditions and actions that will be executed';
 $string['ruleupdatedsuccessfully'] = 'Rule updated successfully';

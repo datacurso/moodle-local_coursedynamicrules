@@ -193,6 +193,10 @@ class rule {
         global $DB;
         $this->active = $active ? 1 : 0;
         $DB->set_field('local_coursedynamicrules_rule', 'active', $this->active, ['id' => $this->id]);
+
+        // After the write, never before: the stamp is conditional on what the ROW says, and it is
+        // idempotent, so every path that touches 'active' calls it unconditionally.
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $this->id);
     }
 
     /**
