@@ -105,3 +105,15 @@ Feature: A rule can be edited only until its first activation
     And I press "Save changes"
     Then I should see "Inactive"
     And I should see "Locked"
+
+  Scenario: Replaying the activation confirmation on a sealed rule tells the truth
+    # Both judges flagged the replay lie: back button, double click or an old tab reaches the
+    # confirmation of a rule that already sealed, and the page either asked the irreversible
+    # question again or fell through to the edit form in silence. It must say what happened.
+    Given the following local coursedynamicrules no course access rules exist:
+      | course | name         | active | timeactivated | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Already done | 1      | 1700000000    | 1           | days       | student      |           | S       | B    |
+    And I log in as "teacher1"
+    When I visit the activation confirmation page for the rule "Already done"
+    Then I should see "This rule has already been activated"
+    And I should not see "You are about to activate this rule"

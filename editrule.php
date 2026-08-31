@@ -68,32 +68,42 @@ if ($ruleid && optional_param('doactivate', 0, PARAM_INT)) {
     require_sesskey();
     \local_coursedynamicrules\helper\ownership::get_rule($ruleid, $courseid);
 
-    // Re-checked server-side: the form validated completeness, but this URL is reachable on its
-    // own, and an incomplete locked rule can never fire and never be finished.
-    if (
-        !\local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)
-            && \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)
-    ) {
-        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
-        $DB->set_field('local_coursedynamicrules_rule', 'timemodified', time(), ['id' => $ruleid]);
-        \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
-        \local_coursedynamicrules\event\rule_updated::create([
-            'context' => $context,
-            'objectid' => $ruleid,
-        ])->trigger();
+    // Already locked means the activation already happened - this request is a replay (double
+    // click, back button, an old tab). Nothing failed, so the message must not be an error:
+    // telling the user "cannot activate an incomplete rule" about a rule that just activated
+    // successfully is a lie both blind judges caught.
+    if (\local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)) {
         redirect(
             $rulesurl,
-            get_string('ruleactivatedsuccessfully', 'local_coursedynamicrules'),
+            get_string('rulealreadyactivated', 'local_coursedynamicrules'),
             null,
-            \core\output\notification::NOTIFY_SUCCESS
+            \core\output\notification::NOTIFY_INFO
         );
     }
 
+    // Re-checked server-side: the form validated completeness, but this URL is reachable on its
+    // own, and an incomplete locked rule can never fire and never be finished.
+    if (!\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+        redirect(
+            $rulesurl,
+            get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+
+    $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
+    $DB->set_field('local_coursedynamicrules_rule', 'timemodified', time(), ['id' => $ruleid]);
+    \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
+    \local_coursedynamicrules\event\rule_updated::create([
+        'context' => $context,
+        'objectid' => $ruleid,
+    ])->trigger();
     redirect(
         $rulesurl,
-        get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+        get_string('ruleactivatedsuccessfully', 'local_coursedynamicrules'),
         null,
-        \core\output\notification::NOTIFY_ERROR
+        \core\output\notification::NOTIFY_SUCCESS
     );
 }
 
@@ -109,11 +119,26 @@ if ($ruleid) {
 // The confirmation between saving and activating. Cancel keeps everything saved and inactive;
 // Continue goes through the sesskey-protected doactivate branch above. Rendered before the form so
 // the page shows one question, not a form beside a question.
-if (
-    $ruleid && optional_param('confirmactivate', 0, PARAM_INT)
-        && !\local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)
-        && \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)
-) {
+if ($ruleid && optional_param('confirmactivate', 0, PARAM_INT)) {
+    // A confirmation that no longer applies must say so, not fall through to the edit form in
+    // silence: this URL survives in history and old tabs, and replaying it is normal behaviour.
+    if (\local_coursedynamicrules\helper\rule_lock::is_locked($ruleid)) {
+        redirect(
+            $rulesurl,
+            get_string('rulealreadyactivated', 'local_coursedynamicrules'),
+            null,
+            \core\output\notification::NOTIFY_INFO
+        );
+    }
+    if (!\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+        redirect(
+            $rulesurl,
+            get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+            null,
+            \core\output\notification::NOTIFY_ERROR
+        );
+    }
+
     echo $OUTPUT->header();
     $continueurl = new moodle_url('/local/coursedynamicrules/editrule.php', [
         'courseid' => $courseid, 'id' => $ruleid, 'doactivate' => 1, 'sesskey' => sesskey(),

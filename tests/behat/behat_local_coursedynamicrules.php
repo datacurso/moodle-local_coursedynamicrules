@@ -58,6 +58,10 @@ class behat_local_coursedynamicrules extends behat_base {
                 'name' => trim($row['name'] ?? '') !== '' ? trim($row['name']) : 'Behat no course access rule',
                 'description' => 'Behat generated rule',
                 'active' => isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1,
+                // A non-empty timeactivated creates the rule already SEALED, so scenarios can
+                // start from a locked rule without replaying the whole activation flow.
+                'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                    ? (int)$row['timeactivated'] : null,
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
                 'timemodified' => time(),
@@ -89,6 +93,27 @@ class behat_local_coursedynamicrules extends behat_base {
                 'lastexecutiontime' => null,
             ]);
         }
+    }
+
+    /**
+     * Visit the activation confirmation page for a rule, addressed by name.
+     *
+     * The page a replayed link or an old browser tab lands on: editrule.php?confirmactivate=1.
+     * Reaching it directly is the point - the scenario exercises what the page says when the
+     * confirmation is no longer applicable, and no UI path can produce that URL twice.
+     *
+     * @When /^I visit the activation confirmation page for the rule "(?P<name>[^"]*)"$/
+     * @param string $name The rule name.
+     */
+    public function i_visit_the_activation_confirmation_page_for_the_rule(string $name): void {
+        global $DB;
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['name' => $name], '*', MUST_EXIST);
+        $this->execute('behat_general::i_visit', [new moodle_url('/local/coursedynamicrules/editrule.php', [
+            'courseid' => $rule->courseid,
+            'id' => $rule->id,
+            'confirmactivate' => 1,
+        ])]);
     }
 
     /**

@@ -244,6 +244,7 @@ $string['rolestonotify'] = 'Roles a notificar';
 $string['rolestonotify_help'] = 'Seleccione los roles que el usuario debe tener para recibir la notificación. Debe seleccionar al menos uno.';
 $string['ruleactivateconfirm'] = 'Está a punto de activar esta regla. Una vez activada no se podrá modificar nunca más: su nombre, condiciones y acciones quedan permanentes. Podrá pausarla y reactivarla en cualquier momento, y eliminarla por completo. Pausar tiene su propio riesgo: mientras está en pausa la regla no hace nada, y al reactivarla actúa sobre todos los que cumplan sus condiciones en ese momento, incluidas las personas sobre las que ya actuó. Las reglas de un solo disparo se pausan solas tras ejecutarse y siguen el mismo comportamiento al reactivarse, sin más advertencias.';
 $string['ruleactivateconfirmbutton'] = 'Activar permanentemente';
+$string['rulealreadyactivated'] = 'Esta regla ya fue activada. La activación ocurre solo una vez: desde la lista de reglas puede pausarla o reactivarla, o eliminarla por completo.';
 $string['ruleactivatedsuccessfully'] = 'La regla fue activada. Ya no se puede modificar: solo pausar, reactivar o eliminar.';
 $string['ruleactivationincomplete'] = 'Una regla no se puede activar hasta que tenga al menos una condición y una acción. Guárdela, agregue sus componentes y actívela entonces: la activación es permanente.';
 $string['ruleactive'] = 'Activa';

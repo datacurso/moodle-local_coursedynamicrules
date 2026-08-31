@@ -245,6 +245,7 @@ $string['rolestonotify'] = 'Roles to notify';
 $string['rolestonotify_help'] = 'Select the roles the user must have to receive the notification. You must select at least one.';
 $string['ruleactivateconfirm'] = 'You are about to activate this rule. Once activated it can never be modified again: its name, conditions and actions become permanent. You will still be able to pause and reactivate it at any time, and to delete it entirely. Pausing carries its own risk: while paused the rule does nothing, and when reactivated it acts on everyone who currently meets its conditions - including people it already acted on. One-shot rules pause themselves after firing and follow the same reactivation behaviour, without further warnings.';
 $string['ruleactivateconfirmbutton'] = 'Activate permanently';
+$string['rulealreadyactivated'] = 'This rule has already been activated. Activation happens only once - from the rules list you can pause or reactivate it, or delete it entirely.';
 $string['ruleactivatedsuccessfully'] = 'The rule was activated. It can no longer be modified - only paused, reactivated or deleted.';
 $string['ruleactivationincomplete'] = 'A rule cannot be activated until it has at least one condition and one action. Save it, add its components, and activate it then - activation is permanent.';
 $string['ruleactive'] = 'Active';
