@@ -102,6 +102,16 @@ class rule_lock {
      * deletion. The check lives with the lock because they are two halves of one contract, and the
      * form's validation and the confirm endpoint must agree on it.
      *
+     * KNOWN LIMITATION (deliberately deferred, 2026-08-31 round-2 review): this counts ROWS, and a
+     * "ghost" component - one whose target was deleted, e.g. complete_activity with a removed cm -
+     * still counts. Ghosts are invisible in the listings (conditions.php:114 renders only
+     * components with non-empty header AND description; complete_activity_condition returns ''
+     * for a missing cm), unremovable from the UI, evaluate false forever, and conditions combine
+     * with AND (rule.php:105-108) - so a rule carrying one can be activated, sealed, and never
+     * fire. All of that PREDATES the lock (the ghost was equally dead and equally unremovable
+     * before); the complete fix needs ghost VISIBILITY in the listings first, a UX decision that
+     * belongs to its own change, not a completeness tweak here.
+     *
      * @param int $ruleid
      * @return bool
      */
