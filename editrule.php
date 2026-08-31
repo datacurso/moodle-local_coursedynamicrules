@@ -183,7 +183,7 @@ if ($ruleform->is_cancelled()) {
     if ($waslocked) {
         $submitted = clone $data;
         $data = \local_coursedynamicrules\helper\rule_lock::sanitise_locked_write($data);
-        $lockeddiscards = \local_coursedynamicrules\helper\rule_lock::locked_write_discards($submitted, $data);
+        $lockeddiscards = \local_coursedynamicrules\helper\rule_lock::locked_write_discards($submitted);
     }
 
     // First activation never happens inside a plain save. Activating is the moment the rule locks

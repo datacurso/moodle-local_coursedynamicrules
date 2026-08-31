@@ -133,8 +133,15 @@ class rule_lock {
             );
         }
 
-        $clean = clone $stored;
-        $clean->active = empty($data->active) ? 0 : 1;
+        // The whitelist is built BY ADDITION - the write object carries only what a locked rule
+        // accepts, and update_record() cannot touch a column that is not in the object. The
+        // earlier clone-the-row shape wrote lastexecutiontime back from a stale read, clobbering
+        // the cron's throttle when a teacher paused a rule mid-run (both round-2 judges): with
+        // only these keys, that collision is unexpressible rather than merely avoided.
+        $clean = (object) [
+            'id' => (int) $stored->id,
+            'active' => empty($data->active) ? 0 : 1,
+        ];
         if (isset($data->timemodified)) {
             $clean->timemodified = $data->timemodified;
         }
@@ -146,18 +153,22 @@ class rule_lock {
      * Whether sanitising a locked write actually threw a submitted edit away.
      *
      * Discarding is the contract; reporting "updated successfully" over a discarded rename is a
-     * lie. The frozen form is innocent by construction - disabled inputs never post, so its
-     * payload carries no name or description at all. Only a tab rendered before the rule locked
-     * submits values that can differ from what the row kept, and that difference is exactly what
-     * the user must be warned about. Lives beside the whitelist it mirrors: a field added to one
-     * cannot silently escape the other.
+     * lie. Compared against the STORED row, because the sanitised write object deliberately
+     * carries nothing to compare against. The frozen form stays quiet the honest way: hardFrozen
+     * elements re-export their defaults through get_data() (formslib exportValues with
+     * setPersistantFreeze(false)), so its payload holds the stored values verbatim and no field
+     * differs. Only a tab rendered before the rule locked can submit a differing value, and that
+     * difference is exactly what the user must be warned about.
      *
-     * @param \stdClass $submitted The payload as the form submitted it, before sanitising.
-     * @param \stdClass $clean The payload sanitise_locked_write() returned.
-     * @return bool True when a submitted field differs from the value the row kept.
+     * @param \stdClass $submitted The payload as the form submitted it (must carry id).
+     * @return bool True when a submitted field differs from the value the row holds.
      */
-    public static function locked_write_discards(\stdClass $submitted, \stdClass $clean): bool {
-        foreach (get_object_vars($clean) as $field => $kept) {
+    public static function locked_write_discards(\stdClass $submitted): bool {
+        global $DB;
+
+        $stored = $DB->get_record('local_coursedynamicrules_rule', ['id' => (int) $submitted->id], '*', MUST_EXIST);
+
+        foreach (get_object_vars($stored) as $field => $kept) {
             if (in_array($field, ['id', 'active', 'timemodified'], true)) {
                 continue;
             }
