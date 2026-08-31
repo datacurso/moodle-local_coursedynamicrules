@@ -96,6 +96,35 @@ class behat_local_coursedynamicrules extends behat_base {
     }
 
     /**
+     * Create bare rules - a rule row with NO conditions and NO actions.
+     *
+     * The population the 2026083002 upgrade seals incomplete: pre-lock sites could save a rule
+     * active with zero components. Scenarios about what the listing offers such rules need to
+     * build one, and no UI path can any more.
+     *
+     * @Given /^the following local coursedynamicrules bare rules exist:$/
+     * @param TableNode $table Table data with columns: course, name, active, timeactivated.
+     */
+    public function the_following_local_coursedynamicrules_bare_rules_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $DB->insert_record('local_coursedynamicrules_rule', (object) [
+                'courseid' => $course->id,
+                'name' => trim($row['name']),
+                'description' => 'Behat generated bare rule',
+                'active' => isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 0,
+                'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                    ? (int)$row['timeactivated'] : null,
+                'lastexecutiontime' => null,
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+        }
+    }
+
+    /**
      * Visit the activation confirmation page for a rule, addressed by name.
      *
      * The page a replayed link or an old browser tab lands on: editrule.php?confirmactivate=1.

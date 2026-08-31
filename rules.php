@@ -78,10 +78,12 @@ foreach ($rules as $rule) {
 
 
     if (empty($conditions)) {
-        // Never offer what would be refused: the listing's add menu needs createcondition, so a
-        // role without it gets the fact (no conditions yet) without a link into a page section it
-        // cannot use.
+        // Never offer what would be refused: adding needs createcondition AND an unsealed rule -
+        // the upgrade seals every active rule, component-less ones included, and a live link into
+        // a page whose add menu is hidden is a dead end. The fact (no conditions yet) stays,
+        // muted, read off the fetched row so the listing pays no lock query per rule.
         $conditionstext = has_capability('local/coursedynamicrules:createcondition', $context)
+                && empty($rule->timeactivated)
             ? html_writer::link($conditionsurl, get_string('addconditions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addconditions', 'local_coursedynamicrules'), 'text-muted');
     } else {
@@ -98,7 +100,9 @@ foreach ($rules as $rule) {
         $conditionstext = html_writer::div($conditionstext . $editlink, 'd-flex', ['style' => 'gap: .8rem']);
     }
     if (empty($actions)) {
+        // Same gate as the conditions column: capability AND unsealed.
         $actionstext = has_capability('local/coursedynamicrules:createaction', $context)
+                && empty($rule->timeactivated)
             ? html_writer::link($actionsurl, get_string('addactions', 'local_coursedynamicrules'))
             : html_writer::span(get_string('addactions', 'local_coursedynamicrules'), 'text-muted');
     } else {

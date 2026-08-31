@@ -117,3 +117,19 @@ Feature: A rule can be edited only until its first activation
     When I visit the activation confirmation page for the rule "Already done"
     Then I should see "This rule has already been activated"
     And I should not see "You are about to activate this rule"
+
+  Scenario: A sealed rule with no components is not offered the add links
+    # The upgrade seals every active rule, including ones the pre-lock form allowed to be active
+    # with zero components. The listing offered those "Add conditions"/"Add actions" links gated
+    # only by capability - a live link into a page where adding is refused. The fact (no
+    # components) stays visible; the dead offer goes.
+    Given the following local coursedynamicrules bare rules exist:
+      | course | name         | active | timeactivated |
+      | C1     | Sealed empty | 1      | 1700000000    |
+    And I log in as "teacher1"
+    When I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    Then I should see "Add conditions"
+    And I should see "Add actions"
+    And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'conditions.php')]" "xpath_element" should not exist
+    And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'actions.php')]" "xpath_element" should not exist
