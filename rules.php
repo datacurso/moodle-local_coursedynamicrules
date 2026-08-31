@@ -135,6 +135,17 @@ foreach ($rules as $rule) {
             $OUTPUT->pix_icon('t/edit', get_string('editrule', 'local_coursedynamicrules'))
         );
     }
+    // The lock's escape hatch (traced from Workplace): the copy is born inactive and unsealed,
+    // so duplicating is a CREATE and takes that capability - sealed rules included, on purpose.
+    $duplicaterulelink = '';
+    if (has_capability('local/coursedynamicrules:createrule', $context)) {
+        $duplicaterulelink = html_writer::link(
+            new moodle_url('/local/coursedynamicrules/duplicaterule.php', [
+                'id' => $rule->id, 'courseid' => $courseid, 'sesskey' => sesskey(),
+            ]),
+            $OUTPUT->pix_icon('t/copy', get_string('duplicaterule', 'local_coursedynamicrules'))
+        );
+    }
     $deleterulelink = '';
     if (has_capability('local/coursedynamicrules:deleterule', $context)) {
         $deleterulelink = html_writer::link(
@@ -143,7 +154,11 @@ foreach ($rules as $rule) {
         );
     }
 
-    $ruletext = html_writer::div($editrulelink . $deleterulelink, 'd-flex', ['style' => 'gap: .4rem']);
+    $ruletext = html_writer::div(
+        $editrulelink . $duplicaterulelink . $deleterulelink,
+        'd-flex',
+        ['style' => 'gap: .4rem']
+    );
 
     if (!$rule->active) {
         $rule->name .= ' ' . html_writer::span(
