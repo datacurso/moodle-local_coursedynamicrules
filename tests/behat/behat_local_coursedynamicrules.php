@@ -65,7 +65,8 @@ class behat_local_coursedynamicrules extends behat_base {
                 'description' => 'Behat generated rule',
                 'active' => $active,
                 'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
-                    ? (int)$row['timeactivated'] : ($active ? time() : null),
+                    ? ((int)$row['timeactivated'] ?: ($active ? time() : null))
+                    : ($active ? time() : null),
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
                 'timemodified' => time(),
@@ -122,7 +123,7 @@ class behat_local_coursedynamicrules extends behat_base {
                 // Same axiom as every generator here: active without an explicit stamp is sealed
                 // now, because no production writer leaves an active rule unstamped.
                 'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
-                    ? (int)$row['timeactivated']
+                    ? ((int)$row['timeactivated'] ?: (!empty($row['active']) ? time() : null))
                     : (!empty($row['active']) && (int)$row['active'] === 1 ? time() : null),
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
