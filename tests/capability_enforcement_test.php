@@ -148,4 +148,34 @@ final class capability_enforcement_test extends \advanced_testcase {
             'With the restriction disabled every gated activity is exposed, so the warning IS due.'
         );
     }
+
+    /**
+     * An editing teacher can DELETE what they can create.
+     *
+     * The three delete capabilities were manager-only, so the everyday flow was: a teacher creates
+     * a component by mistake, cannot remove it, and escalates - multiplied by every teacher on the
+     * site, a queue of requests for a two-click operation. Product decision 2026-08-31: whoever may
+     * build rules may also unbuild them; RISK_DATALOSS stays declared so admins reviewing the role
+     * still see the risk.
+     *
+     * Archetype defaults only reach NEW capabilities (accesslib's update_capabilities iterates
+     * $newcaps), so this grant needs BOTH halves: db/access.php for fresh installs - which is what
+     * this test's install-time role sees - and an upgrade step for every existing site, which the
+     * companion upgrade test covers.
+     */
+    public function test_an_editing_teacher_can_delete_what_they_can_create(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $context = \context_course::instance($course->id);
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+
+        foreach (['deleterule', 'deletecondition', 'deleteaction'] as $capability) {
+            $this->assertTrue(
+                has_capability('local/coursedynamicrules:' . $capability, $context, $teacher),
+                "An editing teacher must hold {$capability}: they can create the thing, so making "
+                . 'them escalate to remove it turns every mistake into a support request.'
+            );
+        }
+    }
 }

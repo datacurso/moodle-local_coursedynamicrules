@@ -69,6 +69,12 @@ $capabilities = [
         'captype' => 'write',
         'contextlevel' => CONTEXT_COURSE,
         'archetypes' => [
+            // The editing teacher can DELETE what they can create (product decision 2026-08-31):
+            // manager-only deletion turned every mistakenly created component into an escalation
+            // request. RISK_DATALOSS stays, so a role review still shows what this permits.
+            // Archetype defaults only reach NEW capabilities, so existing sites get this through
+            // the matching step in db/upgrade.php - change one, change both.
+            'editingteacher' => CAP_ALLOW,
             'manager' => CAP_ALLOW,
         ],
     ],
@@ -114,6 +120,12 @@ $capabilities = [
         'captype' => 'write',
         'contextlevel' => CONTEXT_COURSE,
         'archetypes' => [
+            // The editing teacher can DELETE what they can create (product decision 2026-08-31):
+            // manager-only deletion turned every mistakenly created component into an escalation
+            // request. RISK_DATALOSS stays, so a role review still shows what this permits.
+            // Archetype defaults only reach NEW capabilities, so existing sites get this through
+            // the matching step in db/upgrade.php - change one, change both.
+            'editingteacher' => CAP_ALLOW,
             'manager' => CAP_ALLOW,
         ],
     ],
@@ -159,6 +171,12 @@ $capabilities = [
         'captype' => 'write',
         'contextlevel' => CONTEXT_COURSE,
         'archetypes' => [
+            // The editing teacher can DELETE what they can create (product decision 2026-08-31):
+            // manager-only deletion turned every mistakenly created component into an escalation
+            // request. RISK_DATALOSS stays, so a role review still shows what this permits.
+            // Archetype defaults only reach NEW capabilities, so existing sites get this through
+            // the matching step in db/upgrade.php - change one, change both.
+            'editingteacher' => CAP_ALLOW,
             'manager' => CAP_ALLOW,
         ],
     ],
