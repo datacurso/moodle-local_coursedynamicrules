@@ -43,7 +43,11 @@ class component_renderer {
             $header = $instance->get_header();
             $description = $instance->get_description();
             if (!empty($header) && !empty($description)) {
-                $html .= html_writer::tag('p', self::escaped_description($instance));
+                // The LISTING trims for uniform row height (product directive 2026-08-31); the
+                // magnifier's page shows the untrimmed description. Presentation-layer cut on
+                // purpose: shorten the raw text FIRST, escape after - the other order can slice
+                // an HTML entity in half and leak a broken escape into the cell.
+                $html .= html_writer::tag('p', s(shorten_text($description, 80)));
             }
         }
         return $html;
