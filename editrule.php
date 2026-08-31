@@ -32,10 +32,10 @@ $context = context_course::instance($courseid);
 
 require_login($course);
 
-// The operation decides the capability: an id in the URL means editing an existing rule, its
-// absence means creating a new one. Gating both on updaterule would refuse a role that is only
-// allowed to create, and gating the create flow on the button alone would let a handcrafted URL
-// straight to this page create rules regardless.
+// A first, fast refusal based on the URL id - which form gets RENDERED. It is not the
+// authoritative check: the id that gets WRITTEN is the form's hidden field, decided separately in
+// ownership::resolve_writable_ruleid() below, because the two ids are different fields and only
+// the second one matters for the write.
 if ($ruleid) {
     require_capability('local/coursedynamicrules:updaterule', $context);
 } else {
@@ -81,7 +81,7 @@ if ($ruleform->is_cancelled()) {
     $data->courseid = $courseid;
     // Never trust the submitted rule id either: a tampered hidden id must not update another
     // course's rule. Re-validate the write target against the course (throws if foreign).
-    $data->id = \local_coursedynamicrules\helper\ownership::resolve_writable_ruleid($data->id ?? 0, $courseid);
+    $data->id = \local_coursedynamicrules\helper\ownership::resolve_writable_ruleid($data->id ?? 0, $courseid, $context);
     if (empty($data->id)) {
         $data->timecreated = time();
         $newruleid = $DB->insert_record('local_coursedynamicrules_rule', $data);

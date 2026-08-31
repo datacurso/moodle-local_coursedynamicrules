@@ -66,13 +66,31 @@ class ownership {
      * @return int 0 for a create, or the validated rule id for an update.
      * @throws \dml_missing_record_exception If the submitted rule does not belong to the course.
      */
-    public static function resolve_writable_ruleid($submittedid, $courseid) {
+    public static function resolve_writable_ruleid($submittedid, $courseid, \context $context = null) {
         $submittedid = (int) $submittedid;
-        if (empty($submittedid)) {
-            return 0;
+
+        if (!empty($submittedid)) {
+            // Throws if the rule does not belong to this course (e.g. a tampered hidden id).
+            self::get_rule($submittedid, $courseid);
         }
-        // Throws if the rule does not belong to this course (e.g. a tampered hidden id).
-        self::get_rule($submittedid, $courseid);
+
+        // The capability is decided HERE, on the id that will actually be written - never at the
+        // page, which reads the URL. The two ids are different fields under different control: the
+        // URL id chooses which form is rendered, the hidden form id chooses which row is written,
+        // and a client can put anything in the second. Deciding the capability on the first let a
+        // create-only role update an existing rule by posting its id, and an update-only role
+        // create by posting zero. Both directions are pinned in ownership_test.php.
+        //
+        // The context is optional only so old call sites fail loudly in review rather than
+        // silently: production has exactly one caller and it passes it.
+        if ($context !== null) {
+            if ($submittedid) {
+                require_capability('local/coursedynamicrules:updaterule', $context);
+            } else {
+                require_capability('local/coursedynamicrules:createrule', $context);
+            }
+        }
+
         return $submittedid;
     }
 
