@@ -21,9 +21,13 @@ use local_coursedynamicrules\helper\availability_user_status;
 /**
  * Behavioural cover for the capability enforcement and the availability warning.
  *
- * by reading the page sources as text. That is a structural claim: it cannot tell whether an
- * ordinary editing teacher still gets through, nor whether a denial is actually obeyed. This class
- * asserts the effect instead of the wording.
+ * The cheap way to check an enforcement batch is to read the page sources as text and confirm the
+ * require_capability() calls are written down. That is a structural claim: it cannot tell whether
+ * an ordinary editing teacher still gets through, nor whether a denial is actually obeyed. This
+ * class asserts the effect instead of the wording - real roles, real contexts, has_capability()
+ * answering for a user. The one deliberate exception is the dormancy tripwire at the bottom, which
+ * IS an occurrence scan, because there the occurrence is itself the claim under test: that nothing
+ * consults the dormant capabilities.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -143,7 +147,9 @@ final class capability_enforcement_test extends \advanced_testcase {
     /**
      * The warning's own condition, exercised rather than read.
      *
-     * warning is wired, not that it fires at the right moment - this does.
+     * Grepping the listings for the notification call would only prove the warning is wired, not
+     * that it fires at the right moment - this does: it drives availability_user through enabled
+     * and disabled and asserts the helper's answer tracks the state.
      */
     public function test_availability_status_follows_the_plugin_being_enabled_or_disabled(): void {
         $this->resetAfterTest(true);
