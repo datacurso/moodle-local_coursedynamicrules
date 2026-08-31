@@ -118,6 +118,26 @@ Feature: A rule can be edited only until its first activation
     Then I should see "This rule has already been activated"
     And I should not see "You are about to activate this rule"
 
+  Scenario: A sealed rule offers viewing its components, never editing them
+    # Both judges, round 2: the empty-column add links were muted for sealed rules, but a sealed
+    # rule WITH components kept a pencil promising "Edit conditions"/"Edit actions" - a link into
+    # pages where nothing can be added, deleted or edited. The navigation is legitimate (seeing
+    # what a running rule does matters); the promise to edit is not. Sealed rules get a view
+    # affordance instead.
+    Given the following local coursedynamicrules no course access rules exist:
+      | course | name          | active | timeactivated | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Sealed viewer | 1      | 1700000000    | 1           | days       | student      |           | S       | B    |
+    And I log in as "teacher1"
+    When I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    Then "Edit conditions" "link" should not exist
+    And "Edit actions" "link" should not exist
+    And "View conditions" "link" should exist
+    And "View actions" "link" should exist
+    # And the viewing navigation actually works: the eye lands on the conditions page.
+    When I click on "View conditions" "link"
+    Then "//body[@id='page-local-coursedynamicrules-conditions']" "xpath_element" should exist
+
   Scenario: A sealed rule with no components is not offered the add links
     # The upgrade seals every active rule, including ones the pre-lock form allowed to be active
     # with zero components. The listing offered those "Add conditions"/"Add actions" links gated

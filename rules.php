@@ -92,9 +92,13 @@ foreach ($rules as $rule) {
             $conditions
         );
         $conditionstext = component_renderer::descriptions_html($conditioninstances);
+        // A sealed rule's components can be seen but never changed, and the affordance must not
+        // promise otherwise: the eye replaces the pencil, the navigation stays.
         $editlink = html_writer::link(
             $conditionsurl,
-            $OUTPUT->pix_icon('t/edit', get_string('editconditions', 'local_coursedynamicrules'))
+            empty($rule->timeactivated)
+                ? $OUTPUT->pix_icon('t/edit', get_string('editconditions', 'local_coursedynamicrules'))
+                : $OUTPUT->pix_icon('i/preview', get_string('viewconditions', 'local_coursedynamicrules'))
         );
         $conditionstext = html_writer::div($conditionstext);
         $conditionstext = html_writer::div($conditionstext . $editlink, 'd-flex', ['style' => 'gap: .8rem']);
@@ -111,9 +115,12 @@ foreach ($rules as $rule) {
             $actions
         );
         $actionstext = component_renderer::descriptions_html($actioninstances);
+        // Same gate as the conditions column: the eye replaces the pencil on sealed rules.
         $editlink = html_writer::link(
             $actionsurl,
-            $OUTPUT->pix_icon('t/edit', get_string('editactions', 'local_coursedynamicrules'))
+            empty($rule->timeactivated)
+                ? $OUTPUT->pix_icon('t/edit', get_string('editactions', 'local_coursedynamicrules'))
+                : $OUTPUT->pix_icon('i/preview', get_string('viewactions', 'local_coursedynamicrules'))
         );
         $actionstext = html_writer::div($actionstext);
         $actionstext = html_writer::div($actionstext . $editlink, 'd-flex', ['style' => 'gap: .8rem']);
