@@ -490,8 +490,9 @@ final class sendnotification_action_test extends \advanced_testcase {
 
         $this->assertNotFalse($result);
         $this->assertCount(1, $messages);
-        $this->assertEquals($teacher->id, $messages[0]->useridto);
-        $this->assertNotEquals($student->id, $messages[0]->useridto);
+        $message = reset($messages);
+        $this->assertEquals($teacher->id, $message->useridto);
+        $this->assertNotEquals($student->id, $message->useridto);
     }
 
     /**
