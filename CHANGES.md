@@ -1,3 +1,13 @@
+## 1.8.2
+
+**Released on:** 2026-09-01
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+### Fixed
+- **Send notification action can now target copy recipients only**
+  Saving a send notification action required at least one primary recipient role, and executing it never notified copy recipients unless a primary role also matched - so a rule meant to notify only an observer role (for example, a teacher) about another role's activity, without messaging that role directly, could not be configured at all. Primary recipients are now optional: at least one recipient role, primary or copy, must be selected, and a copy-only configuration notifies its copy roles without ever messaging the matched user.
+
 ## 1.8.1
 
 **Released on:** 2026-07-31
