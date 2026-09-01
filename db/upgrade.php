@@ -224,6 +224,44 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026083002, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026083005) {
+        $table = new xmldb_table('local_coursedynamicrules_aigrade');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('ruleid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('actionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('sourcecmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('grademode', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('graderule', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('sourcegrade', XMLDB_TYPE_NUMBER, '10, 5', null, null, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('ruleid', XMLDB_KEY_FOREIGN, ['ruleid'], 'local_coursedynamicrules_rule', ['id']);
+        $table->add_index('cmid', XMLDB_INDEX_NOTUNIQUE, ['cmid']);
+        $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+        $table->add_index('actionid-userid', XMLDB_INDEX_NOTUNIQUE, ['actionid', 'userid']);
+
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026083005, 'local', 'coursedynamicrules');
+    }
+
+    if ($oldversion < 2026083006) {
+        // Additive checkpoint rather than editing 2026083005: any database that already ran that
+        // step created the table without this column, and a passed savepoint is never revisited.
+        $table = new xmldb_table('local_coursedynamicrules_aigrade');
+        $field = new xmldb_field('sourcegrade', XMLDB_TYPE_NUMBER, '10, 5', null, null, null, null, 'graderule');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026083006, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 

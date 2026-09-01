@@ -50,5 +50,29 @@
         <KEY NAME="ruleid" TYPE="foreign" FIELDS="ruleid" REFTABLE="local_coursedynamicrules_rule" REFFIELDS="id"/>
       </KEYS>
     </TABLE>
+    <TABLE NAME="local_coursedynamicrules_aigrade" COMMENT="Links an AI-generated activity to the rule, student and source activity it was generated for, so its grade can later be combined with or replace the source grade.">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="ruleid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="actionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The single student the generated activity is restricted to"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Course module of the generated activity"/>
+        <FIELD NAME="sourcecmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="Course module whose grade is combined or replaced"/>
+        <FIELD NAME="grademode" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="graderule" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="Formula or policy chosen for the mode"/>
+        <FIELD NAME="sourcegrade" TYPE="number" LENGTH="10" DECIMALS="5" NOTNULL="false" SEQUENCE="false" COMMENT="The source grade as it stood when the activity was generated, frozen so a re-grade of the reinforcement never compares against an already-overwritten value"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="ruleid" TYPE="foreign" FIELDS="ruleid" REFTABLE="local_coursedynamicrules_rule" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="cmid" UNIQUE="false" FIELDS="cmid"/>
+        <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
+        <INDEX NAME="actionid-userid" UNIQUE="false" FIELDS="actionid, userid"/>
+      </INDEXES>
+    </TABLE>
   </TABLES>
 </XMLDB>

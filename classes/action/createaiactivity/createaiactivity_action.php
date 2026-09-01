@@ -22,6 +22,8 @@ use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\createaiactivity_form;
 use local_coursedynamicrules\local\payload_anonymizer;
+use local_coursedynamicrules\local\service\grade_combination_service;
+use local_coursedynamicrules\local\service\grade_isolation_service;
 use local_coursegen\ai_context;
 use local_coursegen\local\service\create_mod_service;
 use moodle_url;
@@ -203,6 +205,37 @@ class createaiactivity_action extends action {
 
             set_coursemodule_visible($newcm->coursemodule, 1);
             rebuild_course_cache($courseid, true);
+
+            // Its own guard, not the outer one: by this point the activity exists and is already
+            // restricted, so a gradebook failure must not be reported as "generation failed". It is
+            // a distinct fault - the activity is live and IS moving other students' totals - and
+            // the operator has to be told that specifically.
+            try {
+                $mode = grade_isolation_service::clean_mode($this->params->grademode ?? null);
+                grade_isolation_service::apply($courseid, $newcm->modulename, (int) $newcm->instance, $mode);
+
+                if (in_array($mode, grade_isolation_service::modes_needing_source(), true)) {
+                    $sourcecmid = grade_combination_service::resolve_source_cmid((int) $this->ruleid);
+                    if ($sourcecmid) {
+                        grade_combination_service::record_link(
+                            $courseid,
+                            (int) $this->ruleid,
+                            (int) $this->get_id(),
+                            $userid,
+                            (int) $newcm->coursemodule,
+                            $sourcecmid,
+                            $mode,
+                            grade_isolation_service::clean_rule($mode, $this->params->graderule ?? null)
+                        );
+                    }
+                }
+            } catch (\Throwable $ge) {
+                mtrace('local_coursedynamicrules grade isolation failed: ' . $ge->getMessage());
+                debugging(
+                    get_string('error_grade_isolation_failed', 'local_coursedynamicrules', $ge->getMessage()),
+                    DEBUG_DEVELOPER
+                );
+            }
         } catch (\Throwable $e) {
             // The task log keeps a durable record even with debugging off: a failed PAID
             // generation must never be invisible (final-review finding - the same silence this
@@ -258,6 +291,11 @@ class createaiactivity_action extends action {
             'generateimages' => !empty($formdata->generateimages),
             'sectionnum' => (int) $formdata->sectionnum,
             'beforemod' => empty($formdata->beforemod) ? null : (int) $formdata->beforemod,
+            'grademode' => grade_isolation_service::mode_from_choice(
+                $formdata->hasgrade ?? 0,
+                $formdata->grademode ?? null
+            ),
+            'graderule' => self::rule_from_formdata($formdata),
         ];
 
         return $this->upsert($params, $formdata);
@@ -306,8 +344,15 @@ class createaiactivity_action extends action {
             }
         }
 
+        $description .= ' ' . get_string(
+            'createaiactivity_description_grademode',
+            'local_coursedynamicrules',
+            $this->describe_grademode()
+        );
+
         return $description;
     }
+
 
     /**
      * Build the HTTP client for the Datacurso AI course service.
@@ -415,6 +460,42 @@ class createaiactivity_action extends action {
         }
 
         return 'en';
+    }
+
+    /**
+     * Pick the rule belonging to the submitted mode.
+     *
+     * The form carries one sub-select per mode that takes a rule, so only the one matching the
+     * chosen mode is meaningful; the others hold whatever default they were rendered with.
+     *
+     * @param object $formdata
+     * @return string
+     */
+    private static function rule_from_formdata($formdata): string {
+        $mode = grade_isolation_service::mode_from_choice($formdata->hasgrade ?? 0, $formdata->grademode ?? null);
+        $field = [
+            grade_isolation_service::MODE_COMBINE => 'combinerule',
+            grade_isolation_service::MODE_REPLACE => 'replacerule',
+        ][$mode] ?? null;
+
+        return grade_isolation_service::clean_rule($mode, $field ? ($formdata->$field ?? null) : null);
+    }
+
+    /**
+     * A human sentence for the chosen grade mode, including its formula when it has one.
+     *
+     * @return string
+     */
+    private function describe_grademode(): string {
+        $mode = grade_isolation_service::clean_mode($this->params->grademode ?? null);
+        $text = get_string('createaiactivity_grademode_' . $mode, 'local_coursedynamicrules');
+
+        $rule = grade_isolation_service::clean_rule($mode, $this->params->graderule ?? null);
+        if ($rule !== '') {
+            $text .= ' (' . get_string('createaiactivity_graderule_' . $rule, 'local_coursedynamicrules') . ')';
+        }
+
+        return $text;
     }
 
     /**

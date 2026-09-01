@@ -35,6 +35,13 @@ $observers = [
         'callback' => '\local_coursedynamicrules\observer\user_graded::observe',
     ],
     [
+        // Separate observer, not a branch inside the one above: that one queues rule evaluation,
+        // this one carries a reinforcement grade back onto the activity it recovers. Sharing a
+        // callback would tie two unrelated failure paths together.
+        'eventname' => '\core\event\user_graded',
+        'callback' => '\local_coursedynamicrules\observer\ai_activity_graded::observe',
+    ],
+    [
         'eventname' => '\core\event\course_deleted',
         'callback' => '\local_coursedynamicrules\observer\course_deleted::observe',
     ],
