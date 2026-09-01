@@ -438,8 +438,7 @@ final class sendnotification_action_test extends \advanced_testcase {
 
     /**
      * A copy-only configuration (no primary role configured) must notify the copy roles about the
-     * matched user's condition without ever messaging that user directly. This is the client need:
-     * for example, notify a teacher about a student's inactivity without messaging the student.
+     * matched user's condition without ever messaging that user directly.
      *
      * @covers ::execute
      */

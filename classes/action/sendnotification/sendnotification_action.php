@@ -71,10 +71,9 @@ class sendnotification_action extends action {
 
         $coursecontext = context_course::instance($course->id);
 
-        // Primary is optional (client need: copy-only notifications, e.g. notify the teacher about
-        // a student's inactivity without messaging the student). When no primary role is configured,
-        // no per-user role gate applies: the action fires for every user the rule condition matched,
-        // it just never messages that user directly.
+        // Primary is optional. When no primary role is configured, no per-user role gate applies:
+        // the action fires for every user the rule condition matched, it just never messages that
+        // user directly.
         $sendtoprimary = false;
         if (!empty($primaryroleids)) {
             $userroles = get_user_roles($coursecontext, $userid, false);

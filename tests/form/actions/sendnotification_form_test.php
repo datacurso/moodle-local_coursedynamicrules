@@ -167,9 +167,8 @@ final class sendnotification_form_test extends \advanced_testcase {
     }
 
     /**
-     * A copy-only configuration (no primary recipient role) must be a valid, saveable setup: the
-     * client need is to notify observer roles about another role's activity without ever messaging
-     * that role directly.
+     * A copy-only configuration (no primary recipient role) must be a valid, saveable setup: notify
+     * observer roles about another role's activity without ever messaging that role directly.
      *
      * @covers ::validation
      */
