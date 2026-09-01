@@ -115,7 +115,7 @@ final class grade_combination_service_test extends \advanced_testcase {
             'timecreated' => time(), 'timemodified' => time(),
         ]);
 
-        grade_combination_service::record_link(
+        grade_combination_service::record_generation(
             (int) $course->id, (int) $ruleid, 1, (int) $student->id,
             (int) $reinforcement->cmid, (int) $source->cmid,
             grade_isolation_service::MODE_COMBINE, grade_isolation_service::RULE_BEST
@@ -156,7 +156,7 @@ final class grade_combination_service_test extends \advanced_testcase {
             'courseid' => $course->id, 'name' => 'R', 'active' => 1,
             'timecreated' => time(), 'timemodified' => time(),
         ]);
-        grade_combination_service::record_link(
+        grade_combination_service::record_generation(
             (int) $course->id, (int) $ruleid, 1, (int) $student->id,
             (int) $reinforcement->cmid, (int) $source->cmid,
             grade_isolation_service::MODE_REPLACE, grade_isolation_service::RULE_ALWAYS
@@ -227,15 +227,77 @@ final class grade_combination_service_test extends \advanced_testcase {
     }
 
     /**
-     * Modes that do not touch the source store no link at all.
+     * Every mode records a row, because the row is what stops the activity being generated again
+     * on the next scheduled pass. Modes that carry nothing store no source.
+     *
+     * Catches: reverting to "only combine and replace are recorded", which would leave the
+     * runaway open for the default mode - the one almost everybody will use.
      */
-    public function test_modes_without_a_source_record_nothing(): void {
+    public function test_every_mode_records_a_row_and_only_some_carry_a_source(): void {
         global $DB;
         $this->resetAfterTest(true);
 
-        foreach ([grade_isolation_service::MODE_NOGRADE, grade_isolation_service::MODE_OWN] as $mode) {
-            $this->assertSame(0, grade_combination_service::record_link(1, 1, 1, 1, 1, 1, $mode, ''));
+        $expected = [
+            grade_isolation_service::MODE_NOGRADE => 0,
+            grade_isolation_service::MODE_OWN => 0,
+            grade_isolation_service::MODE_COMBINE => 77,
+            grade_isolation_service::MODE_REPLACE => 77,
+        ];
+
+        $userid = 0;
+        foreach ($expected as $mode => $wantsource) {
+            $userid++;
+            $id = grade_combination_service::record_generation(1, 1, 1, $userid, 500 + $userid, 77, $mode, '');
+            $this->assertGreaterThan(0, $id, "el modo {$mode} debe dejar marca");
+            $row = $DB->get_record(grade_combination_service::TABLE, ['id' => $id]);
+            $this->assertSame($wantsource, (int) $row->sourcecmid);
         }
-        $this->assertSame(0, $DB->count_records(grade_combination_service::TABLE));
+
+        $this->assertSame(4, $DB->count_records(grade_combination_service::TABLE));
+    }
+
+    /**
+     * The guard that closes the runaway: once an action has generated for a student, it must
+     * never generate again.
+     *
+     * Catches: the scheduled tasks re-running forever. no_complete_activity_task fires every
+     * minute and its gate is a fixed date, so without this a single rule produces up to 1440
+     * activities - and 1440 paid AI calls - per student per day.
+     */
+    public function test_already_generated_is_scoped_to_the_action_and_the_student(): void {
+        $this->resetAfterTest(true);
+
+        $this->assertFalse(grade_combination_service::already_generated(10, 99));
+
+        grade_combination_service::record_generation(
+            1, 1, 10, 99, 500, 0, grade_isolation_service::MODE_NOGRADE, ''
+        );
+
+        $this->assertTrue(grade_combination_service::already_generated(10, 99));
+        $this->assertFalse(grade_combination_service::already_generated(10, 100),
+            'otro estudiante de la misma accion todavia no la recibio');
+        $this->assertFalse(grade_combination_service::already_generated(11, 99),
+            'otra accion sobre el mismo estudiante es una decision distinta del docente');
+    }
+
+    /**
+     * A marker row carries nothing, so a grade on it writes nowhere.
+     */
+    public function test_a_marker_row_without_a_source_carries_nothing(): void {
+        $this->resetAfterTest(true);
+
+        $gen = $this->getDataGenerator();
+        $course = $gen->create_course();
+        $student = $gen->create_and_enrol($course, 'student');
+        $activity = $gen->create_module('assign', ['course' => $course->id, 'grade' => 100]);
+
+        grade_combination_service::record_generation(
+            (int) $course->id, 1, 1, (int) $student->id, (int) $activity->cmid, 0,
+            grade_isolation_service::MODE_NOGRADE, ''
+        );
+
+        $this->assertFalse(
+            grade_combination_service::handle_graded((int) $activity->cmid, (int) $student->id)
+        );
     }
 }

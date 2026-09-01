@@ -40,19 +40,42 @@ class grade_combination_service {
     public const TABLE = 'local_coursedynamicrules_aigrade';
 
     /**
-     * Remember that a generated activity feeds back into a source activity.
+     * Whether this action has already generated an activity for this student.
+     *
+     * The scheduled tasks re-evaluate their rules forever: no_complete_activity_task runs every
+     * minute and its only gate is a fixed date, so once that date passes it is true on every run;
+     * course_inactivity_task runs every six hours and only checks the course dates. Without this
+     * question, a rule combining one of them with this action generates a fresh activity - and a
+     * fresh paid AI call - on every single pass.
+     *
+     * @param int $actionid
+     * @param int $userid
+     * @return bool
+     */
+    public static function already_generated(int $actionid, int $userid): bool {
+        global $DB;
+
+        return $DB->record_exists(self::TABLE, ['actionid' => $actionid, 'userid' => $userid]);
+    }
+
+    /**
+     * Record that an activity was generated for a student.
+     *
+     * Written for every mode, not only the ones that feed a source activity, because the row is
+     * what {@see self::already_generated()} reads to stop the same activity being generated again
+     * on the next scheduled pass.
      *
      * @param int $courseid
      * @param int $ruleid
      * @param int $actionid
      * @param int $userid Student the activity was generated for.
      * @param int $cmid Course module of the generated activity.
-     * @param int $sourcecmid Course module whose grade will be combined or replaced.
-     * @param string $mode grade_isolation_service::MODE_COMBINE or MODE_REPLACE.
-     * @param string $rule The formula or policy chosen.
-     * @return int Row id, or 0 when the mode needs no link.
+     * @param int $sourcecmid Course module whose grade is combined or replaced, 0 when none.
+     * @param string $mode grade_isolation_service::MODE_*.
+     * @param string $rule The formula or policy chosen, empty when the mode takes none.
+     * @return int Row id.
      */
-    public static function record_link(
+    public static function record_generation(
         int $courseid,
         int $ruleid,
         int $actionid,
@@ -65,7 +88,8 @@ class grade_combination_service {
         global $DB;
 
         if (!in_array($mode, grade_isolation_service::modes_needing_source(), true)) {
-            return 0;
+            // Nothing to carry anywhere: the row exists purely as the "already generated" marker.
+            $sourcecmid = 0;
         }
 
         return (int) $DB->insert_record(self::TABLE, (object) [
@@ -184,6 +208,11 @@ class grade_combination_service {
         if (!$link) {
             // Not a generated activity this plugin is tracking. This is also what stops the write
             // below from looping: the source activity is never itself a tracked cmid.
+            return false;
+        }
+
+        if ((int) $link->sourcecmid === 0) {
+            // A marker row for a mode that carries nothing. Nothing to write.
             return false;
         }
 

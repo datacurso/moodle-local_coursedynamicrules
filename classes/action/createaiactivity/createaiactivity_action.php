@@ -73,6 +73,13 @@ class createaiactivity_action extends action {
         $courseid = $context->courseid;
         $userid = $context->userid;
 
+        // Before anything else, and before the paid AI call: the scheduled tasks re-run their
+        // rules indefinitely, so without this the same student receives a new activity on every
+        // pass - up to 1440 a day with no_complete_activity_task.
+        if (grade_combination_service::already_generated((int) $this->get_id(), (int) $userid)) {
+            return;
+        }
+
         $message = $this->params->message ?? '';
         if (trim($message) === '') {
             debugging(get_string('error_empty_aiactivity_prompt', 'local_coursedynamicrules'), DEBUG_DEVELOPER);
@@ -214,21 +221,20 @@ class createaiactivity_action extends action {
                 $mode = grade_isolation_service::clean_mode($this->params->grademode ?? null);
                 grade_isolation_service::apply($courseid, $newcm->modulename, (int) $newcm->instance, $mode);
 
-                if (in_array($mode, grade_isolation_service::modes_needing_source(), true)) {
-                    $sourcecmid = grade_combination_service::resolve_source_cmid((int) $this->ruleid);
-                    if ($sourcecmid) {
-                        grade_combination_service::record_link(
-                            $courseid,
-                            (int) $this->ruleid,
-                            (int) $this->get_id(),
-                            $userid,
-                            (int) $newcm->coursemodule,
-                            $sourcecmid,
-                            $mode,
-                            grade_isolation_service::clean_rule($mode, $this->params->graderule ?? null)
-                        );
-                    }
-                }
+                $sourcecmid = in_array($mode, grade_isolation_service::modes_needing_source(), true)
+                    ? (grade_combination_service::resolve_source_cmid((int) $this->ruleid) ?? 0)
+                    : 0;
+
+                grade_combination_service::record_generation(
+                    $courseid,
+                    (int) $this->ruleid,
+                    (int) $this->get_id(),
+                    $userid,
+                    (int) $newcm->coursemodule,
+                    $sourcecmid,
+                    $mode,
+                    grade_isolation_service::clean_rule($mode, $this->params->graderule ?? null)
+                );
             } catch (\Throwable $ge) {
                 mtrace('local_coursedynamicrules grade isolation failed: ' . $ge->getMessage());
                 debugging(

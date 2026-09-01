@@ -146,7 +146,7 @@ final class gradetype_matrix_probe_test extends \advanced_testcase {
                 'courseid' => $course->id, 'name' => 'R', 'active' => 1,
                 'timecreated' => time(), 'timemodified' => time(),
             ]);
-            grade_combination_service::record_link(
+            grade_combination_service::record_generation(
                 (int) $course->id, (int) $ruleid, 1, (int) $student->id,
                 (int) $reinf->cmid, (int) $source->cmid,
                 grade_isolation_service::MODE_COMBINE, grade_isolation_service::RULE_BEST
