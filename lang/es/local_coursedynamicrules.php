@@ -250,6 +250,7 @@ $string['ruleactive_help'] = 'Habilitar o deshabilitar la regla';
 $string['ruleadd'] = 'Añadir regla';
 $string['ruleaddedsuccessfully'] = 'Regla añadida correctamente';
 $string['rulealreadyactivated'] = 'Esta regla ya fue activada. La activación ocurre solo una vez: desde la lista de reglas puede pausarla o reactivarla, o eliminarla por completo.';
+$string['ruleexecuted'] = 'Ejecutada';
 $string['ruleinactive'] = 'Inactiva';
 $string['rulelocked'] = 'Esta regla ya fue activada y no se puede modificar. Puede pausarla o reactivarla, o eliminarla por completo.';
 $string['rulelockededitsdiscarded'] = 'Esta regla está bloqueada, así que solo se guardó su estado de activación: los demás cambios fueron descartados.';

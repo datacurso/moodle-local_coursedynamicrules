@@ -56,6 +56,19 @@ class behat_local_coursedynamicrules extends behat_base {
             // hold post-2026083002 - and a suite exercising impossible states proves nothing.
             // Round-2 judge CRITICAL. An explicit timeactivated column still overrides.
             $active = isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1;
+            // Same axiom family: a rule only executes after its first activation, so an executed
+            // rule with no activation stamp is another state no real site can hold. When the
+            // scenario sets lastexecutiontime on an unstamped rule, the execution moment doubles
+            // as the activation moment.
+            $lastexecution = isset($row['lastexecutiontime']) && trim($row['lastexecutiontime']) !== ''
+                ? (int)$row['lastexecutiontime']
+                : null;
+            $timeactivated = isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                ? ((int)$row['timeactivated'] ?: ($active ? time() : null))
+                : ($active ? time() : null);
+            if ($lastexecution !== null && $timeactivated === null) {
+                $timeactivated = $lastexecution;
+            }
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
                 // Optional columns, defaulted for backwards compatibility with every existing
@@ -64,10 +77,8 @@ class behat_local_coursedynamicrules extends behat_base {
                 'name' => trim($row['name'] ?? '') !== '' ? trim($row['name']) : 'Behat no course access rule',
                 'description' => 'Behat generated rule',
                 'active' => $active,
-                'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
-                    ? ((int)$row['timeactivated'] ?: ($active ? time() : null))
-                    : ($active ? time() : null),
-                'lastexecutiontime' => null,
+                'timeactivated' => $timeactivated,
+                'lastexecutiontime' => $lastexecution,
                 'timecreated' => time(),
                 'timemodified' => time(),
             ]);

@@ -158,14 +158,22 @@ foreach ($rules as $rule) {
 
     $ruletext = html_writer::div($editrulelink . $deleterulelink, 'd-flex', ['style' => 'gap: .4rem']);
 
-    // One badge, three states (product directive 2026-08-31): the state pair encodes the seal on
-    // its own, read off the row already fetched. Active = running (and sealed by definition);
-    // Paused = was activated once and is stopped (sealed, resumable forever); Inactive = never
-    // activated (the only editable state).
+    // One badge, four states (product directives 2026-08-31/09-01), read off the row already
+    // fetched. Active = running, whether or not it has fired: event-driven rules stay active and
+    // fire repeatedly, so "executed" on a live rule would be noise. Executed = stopped AND the
+    // engine fired it at least once - which is exactly where one-shot cron rules land, because
+    // no_complete_activity_task deactivates the rule right after executing it; no trigger-type
+    // sniffing needed, the state pair encodes it. Paused = activated once, stopped, never fired.
+    // Inactive = never activated (the only editable state).
     if ($rule->active) {
         $rule->name .= ' ' . html_writer::span(
             get_string('ruleactive', 'local_coursedynamicrules'),
             'badge badge-success'
+        );
+    } else if (rule_lock::is_locked_row($rule) && !empty($rule->lastexecutiontime)) {
+        $rule->name .= ' ' . html_writer::span(
+            get_string('ruleexecuted', 'local_coursedynamicrules'),
+            'badge local_coursedynamicrules_badge_executed'
         );
     } else if (rule_lock::is_locked_row($rule)) {
         $rule->name .= ' ' . html_writer::span(

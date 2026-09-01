@@ -251,6 +251,7 @@ $string['ruleactive_help'] = 'Enable or disable the rule';
 $string['ruleadd'] = 'Add rule';
 $string['ruleaddedsuccessfully'] = 'Rule added successfully';
 $string['rulealreadyactivated'] = 'This rule has already been activated. Activation happens only once - from the rules list you can pause or reactivate it, or delete it entirely.';
+$string['ruleexecuted'] = 'Executed';
 $string['ruleinactive'] = 'Inactive';
 $string['rulelocked'] = 'This rule was activated and can no longer be modified. You can pause or reactivate it, or delete it entirely.';
 $string['rulelockededitsdiscarded'] = 'This rule is locked, so only its active state was saved - the other changes were discarded.';
