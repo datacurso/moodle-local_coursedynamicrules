@@ -62,26 +62,32 @@ class sendnotification_action extends action {
         $primaryroleids = $roleids['primary'];
         $copyroleids = $roleids['copy'];
 
+        if (empty($primaryroleids) && empty($copyroleids)) {
+            return false;
+        }
+
         $user = $DB->get_record('user', ['id' => $userid], '*', MUST_EXIST);
         $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 
         $coursecontext = context_course::instance($course->id);
 
-        if (empty($primaryroleids)) {
-            return false;
-        }
-
-        $userroles = get_user_roles($coursecontext, $userid, false);
-        $isobserveduser = false;
-        foreach ($userroles as $userrole) {
-            if (in_array($userrole->roleid, $primaryroleids)) {
-                $isobserveduser = true;
-                break;
+        // Primary is optional (client need: copy-only notifications, e.g. notify the teacher about
+        // a student's inactivity without messaging the student). When no primary role is configured,
+        // no per-user role gate applies: the action fires for every user the rule condition matched,
+        // it just never messages that user directly.
+        $sendtoprimary = false;
+        if (!empty($primaryroleids)) {
+            $userroles = get_user_roles($coursecontext, $userid, false);
+            foreach ($userroles as $userrole) {
+                if (in_array($userrole->roleid, $primaryroleids)) {
+                    $sendtoprimary = true;
+                    break;
+                }
             }
-        }
 
-        if (!$isobserveduser) {
-            return false;
+            if (!$sendtoprimary) {
+                return false;
+            }
         }
 
         $messagebody = $this->replace_placeholders($messagebody, $course, $user);
@@ -89,8 +95,10 @@ class sendnotification_action extends action {
         $smallmessagetext = $this->sanitize_html_message_twilio($smallmessagehtml);
         $messageids = [];
 
-        $message = $this->create_message($userid, $messagesubject, $messagebody, $smallmessagetext);
-        $messageids[] = message_send($message);
+        if ($sendtoprimary) {
+            $message = $this->create_message($userid, $messagesubject, $messagebody, $smallmessagetext);
+            $messageids[] = message_send($message);
+        }
 
         $recipients = $this->get_recipients_by_roles($copyroleids, $coursecontext);
         unset($recipients[$userid]);
