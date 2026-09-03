@@ -41,5 +41,13 @@ class course_deleted {
             $DB->delete_records_select('local_coursedynamicrules_action', "ruleid $insql", $params);
         }
         $DB->delete_records('local_coursedynamicrules_rule', ['courseid' => $courseid]);
+
+        // Rows here name a student. Leaving them behind after the course is gone is both dead data
+        // and a privacy liability, and it keeps the enrolment sweep's course lookup answering yes
+        // for a course that no longer exists.
+        $DB->delete_records(
+            \local_coursedynamicrules\local\service\grade_register_service::TABLE,
+            ['courseid' => $courseid]
+        );
     }
 }

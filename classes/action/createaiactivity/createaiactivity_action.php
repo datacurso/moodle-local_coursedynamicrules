@@ -17,12 +17,14 @@
 namespace local_coursedynamicrules\action\createaiactivity;
 
 use aiprovider_datacurso\httpclient\ai_course_api;
+use core\lock\lock;
+use core\lock\lock_config;
 use core_availability\tree;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\createaiactivity_form;
 use local_coursedynamicrules\local\payload_anonymizer;
-use local_coursedynamicrules\local\service\grade_combination_service;
+use local_coursedynamicrules\local\service\grade_register_service;
 use local_coursedynamicrules\local\service\grade_isolation_service;
 use local_coursegen\ai_context;
 use local_coursegen\local\service\create_mod_service;
@@ -42,15 +44,78 @@ class createaiactivity_action extends action {
     /** @var int Maximum seconds to keep the activity generation stream open. */
     public const STREAM_TIMEOUT = 600;
 
+    /** @var string Lock type guarding one (action, user) generation against a concurrent twin. */
+    public const GENERATION_LOCK_TYPE = 'local_coursedynamicrules_aiactivity';
+
     /** @var string type of the action */
     protected $type = 'createaiactivity';
 
     /**
-     * Execute the action
+     * Execute the action, once, even when two processes ask at the same instant.
+     *
+     * already_generated() below is a read, and the write that answers it happens AFTER the paid AI
+     * call returns - so the window between them is as wide as the generation itself, up to
+     * STREAM_TIMEOUT seconds. Two processes reaching it together both see "not generated yet", both
+     * pay, and the student gets two activities.
+     *
+     * That is reachable, not theoretical. The three scheduled tasks are separate task CLASSES, so
+     * core's per-task lock does not serialise them against each other, and each selects rules by
+     * joining on condition type (no_complete_activity_task.php:57-61) - a rule carrying two cron
+     * condition types is picked up by both, every minute. On top of that the event observers queue
+     * ad-hoc rule_task runs, which can overlap a scheduled pass. And nothing else stands in the
+     * way: set_last_execution_time() is written after every action has already run
+     * (core/rule.php:174), and is_time_to_execute_rule() never reads it.
+     *
+     * A unique key on (actionid, userid) was considered and rejected twice over: it would collide
+     * only at the insert, AFTER the money is spent, and it is not even expressible - forget_action()
+     * and forget_users() deliberately write actionid = 0 and userid = 0 on many rows to sever a
+     * register entry rather than delete it, which is precisely what a unique index forbids.
      *
      * @param object $context Context of the rule
      */
     public function execute($context) {
+        $lock = $this->get_generation_lock((int) ($context->userid ?? 0));
+        if ($lock === null) {
+            // Somebody else is generating this exact activity for this exact student right now.
+            // Doing nothing is correct: when they finish, the register row makes every later pass
+            // a no-op anyway.
+            return;
+        }
+
+        try {
+            $this->execute_generation($context);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Take the generation lock for one (action, user) pair, without waiting.
+     *
+     * A method of its own so a test can refuse the lock: with mysqli the factory is
+     * mysql_lock_factory, whose GET_LOCK is re-entrant within one database session, so a second
+     * acquisition inside a single PHPUnit process SUCCEEDS. The guard only manifests across
+     * processes, which is where cron lives and where no unit test can follow.
+     *
+     * Timeout 0 on purpose: a queue here would serialise a paid, minutes-long call behind another
+     * one whose completion makes this pass pointless.
+     *
+     * @param int $userid
+     * @return lock|null Null when another process holds it.
+     */
+    protected function get_generation_lock(int $userid): ?lock {
+        $factory = lock_config::get_lock_factory(self::GENERATION_LOCK_TYPE);
+        $lock = $factory->get_lock($this->get_id() . '_' . $userid, 0);
+
+        return $lock instanceof lock ? $lock : null;
+    }
+
+    /**
+     * The generation itself, run under the lock taken by execute().
+     *
+     * @param object $context Context of the rule
+     */
+    private function execute_generation($context) {
         global $CFG, $COURSE, $DB, $OUTPUT, $PAGE;
 
         $coursegenversion = $this->get_coursegen_versiondb();
@@ -76,7 +141,7 @@ class createaiactivity_action extends action {
         // Before anything else, and before the paid AI call: the scheduled tasks re-run their
         // rules indefinitely, so without this the same student receives a new activity on every
         // pass - up to 1440 a day with no_complete_activity_task.
-        if (grade_combination_service::already_generated((int) $this->get_id(), (int) $userid)) {
+        if (grade_register_service::already_generated((int) $this->get_id(), (int) $userid)) {
             return;
         }
 
@@ -174,8 +239,16 @@ class createaiactivity_action extends action {
 
             // The service may omit mod_settings for simple module types, but
             // create_mod_service reads the key unconditionally.
+            $mode = grade_isolation_service::clean_mode($this->params->grademode ?? null);
+
             if (isset($resultinfo['parameters']) && is_array($resultinfo['parameters'])) {
                 $resultinfo['parameters']['mod_settings'] = $resultinfo['parameters']['mod_settings'] ?? null;
+                // Asked BEFORE creation: a module rewrites its own grade item from its own
+                // settings on every grade push, so switching grading off afterwards does not hold.
+                $resultinfo['parameters'] = grade_isolation_service::prepare_payload(
+                    $resultinfo['parameters'],
+                    $mode
+                );
             }
 
             // The module form built by create_mod_service reads the current course from the
@@ -196,6 +269,20 @@ class createaiactivity_action extends action {
                 $OUTPUT = $previousoutput;
             }
 
+            // The marker goes here, the moment the activity exists, and NOT after the work below.
+            // It means "an activity is live and the AI call is paid for", not "everything
+            // succeeded": anything that throws from here on would otherwise leave no record, and
+            // the scheduled tasks - no_complete_activity_task runs every minute - would generate a
+            // duplicate live activity and a second paid call on the next pass.
+            grade_register_service::record_generation(
+                $courseid,
+                (int) $this->ruleid,
+                (int) $this->get_id(),
+                $userid,
+                (int) $newcm->coursemodule,
+                $mode
+            );
+
             // Restrict the new activity to the current user only.
             $availabilityoptions = (object) [
                 'type' => 'user',
@@ -213,35 +300,7 @@ class createaiactivity_action extends action {
             set_coursemodule_visible($newcm->coursemodule, 1);
             rebuild_course_cache($courseid, true);
 
-            // Its own guard, not the outer one: by this point the activity exists and is already
-            // restricted, so a gradebook failure must not be reported as "generation failed". It is
-            // a distinct fault - the activity is live and IS moving other students' totals - and
-            // the operator has to be told that specifically.
-            try {
-                $mode = grade_isolation_service::clean_mode($this->params->grademode ?? null);
-                grade_isolation_service::apply($courseid, $newcm->modulename, (int) $newcm->instance, $mode);
-
-                $sourcecmid = in_array($mode, grade_isolation_service::modes_needing_source(), true)
-                    ? (grade_combination_service::resolve_source_cmid((int) $this->ruleid) ?? 0)
-                    : 0;
-
-                grade_combination_service::record_generation(
-                    $courseid,
-                    (int) $this->ruleid,
-                    (int) $this->get_id(),
-                    $userid,
-                    (int) $newcm->coursemodule,
-                    $sourcecmid,
-                    $mode,
-                    grade_isolation_service::clean_rule($mode, $this->params->graderule ?? null)
-                );
-            } catch (\Throwable $ge) {
-                mtrace('local_coursedynamicrules grade isolation failed: ' . $ge->getMessage());
-                debugging(
-                    get_string('error_grade_isolation_failed', 'local_coursedynamicrules', $ge->getMessage()),
-                    DEBUG_DEVELOPER
-                );
-            }
+            $this->isolate_grades($courseid, $newcm, $mode, (int) $userid);
         } catch (\Throwable $e) {
             // The task log keeps a durable record even with debugging off: a failed PAID
             // generation must never be invisible (final-review finding - the same silence this
@@ -297,11 +356,7 @@ class createaiactivity_action extends action {
             'generateimages' => !empty($formdata->generateimages),
             'sectionnum' => (int) $formdata->sectionnum,
             'beforemod' => empty($formdata->beforemod) ? null : (int) $formdata->beforemod,
-            'grademode' => grade_isolation_service::mode_from_choice(
-                $formdata->hasgrade ?? 0,
-                $formdata->grademode ?? null
-            ),
-            'graderule' => self::rule_from_formdata($formdata),
+            'grademode' => grade_isolation_service::mode_from_choice($formdata->hasgrade ?? 0),
         ];
 
         return $this->upsert($params, $formdata);
@@ -358,7 +413,6 @@ class createaiactivity_action extends action {
 
         return $description;
     }
-
 
     /**
      * Build the HTTP client for the Datacurso AI course service.
@@ -469,39 +523,60 @@ class createaiactivity_action extends action {
     }
 
     /**
-     * Pick the rule belonging to the submitted mode.
+     * Keep the generated activity from disturbing the rest of the course's grades.
      *
-     * The form carries one sub-select per mode that takes a rule, so only the one matching the
-     * chosen mode is meaningful; the others hold whatever default they were rendered with.
+     * Its own guard, not the outer one: by this point the activity exists, is restricted, and is
+     * already recorded, so a gradebook failure must not be reported as "generation failed". It is a
+     * distinct fault - the activity is live and IS moving other students' totals - and the operator
+     * has to be told that specifically.
      *
-     * @param object $formdata
-     * @return string
+     * Protected so a test can make it fail and check that everything before it survives.
+     *
+     * @param int $courseid
+     * @param object $newcm The course module returned by the creation service.
+     * @param string $mode One of the grade_isolation_service::MODE_* constants.
+     * @param int $recipientuserid The student the activity was generated for. Everybody else in the
+     *            course is shielded from its column; only "own grade" spares this one student.
      */
-    private static function rule_from_formdata($formdata): string {
-        $mode = grade_isolation_service::mode_from_choice($formdata->hasgrade ?? 0, $formdata->grademode ?? null);
-        $field = [
-            grade_isolation_service::MODE_COMBINE => 'combinerule',
-            grade_isolation_service::MODE_REPLACE => 'replacerule',
-        ][$mode] ?? null;
-
-        return grade_isolation_service::clean_rule($mode, $field ? ($formdata->$field ?? null) : null);
+    protected function isolate_grades(int $courseid, $newcm, string $mode, int $recipientuserid = 0): void {
+        try {
+            $applied = grade_isolation_service::apply(
+                $courseid,
+                $newcm->modulename,
+                (int) $newcm->instance,
+                $mode,
+                $recipientuserid
+            );
+            if ($applied < 0) {
+                // Gradable items exist and not one gradebook user could be resolved, so no shield
+                // was built and the activity IS counting against the whole course. Zero rows
+                // written must never read as zero rows needed, and silence here would leave the
+                // operator believing the opposite of what the gradebook is doing.
+                mtrace('local_coursedynamicrules: generated activity could not be shielded');
+                debugging(
+                    get_string('error_grade_isolation_failed', 'local_coursedynamicrules', $newcm->modulename),
+                    DEBUG_DEVELOPER
+                );
+            }
+        } catch (\Throwable $ge) {
+            mtrace('local_coursedynamicrules grade isolation failed: ' . $ge->getMessage());
+            debugging(
+                get_string('error_grade_isolation_failed', 'local_coursedynamicrules', $ge->getMessage()),
+                DEBUG_DEVELOPER
+            );
+        }
     }
 
     /**
-     * A human sentence for the chosen grade mode, including its formula when it has one.
+     * A human sentence for the chosen grade mode, for the rule listing.
      *
      * @return string
      */
     private function describe_grademode(): string {
-        $mode = grade_isolation_service::clean_mode($this->params->grademode ?? null);
-        $text = get_string('createaiactivity_grademode_' . $mode, 'local_coursedynamicrules');
-
-        $rule = grade_isolation_service::clean_rule($mode, $this->params->graderule ?? null);
-        if ($rule !== '') {
-            $text .= ' (' . get_string('createaiactivity_graderule_' . $rule, 'local_coursedynamicrules') . ')';
-        }
-
-        return $text;
+        return get_string(
+            'createaiactivity_grademode_' . grade_isolation_service::clean_mode($this->params->grademode ?? null),
+            'local_coursedynamicrules'
+        );
     }
 
     /**

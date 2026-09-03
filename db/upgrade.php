@@ -262,6 +262,48 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026083006, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026083007) {
+        // The enrolment observer asks "does this course have any generated activities?" on every
+        // enrolment on the site. Without this index that question is a full table scan.
+        $table = new xmldb_table('local_coursedynamicrules_aigrade');
+        $index = new xmldb_index('courseid', XMLDB_INDEX_NOTUNIQUE, ['courseid']);
+        if ($dbman->table_exists($table) && !$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        upgrade_plugin_savepoint(true, 2026083007, 'local', 'coursedynamicrules');
+    }
+
+    if ($oldversion < 2026083008) {
+        // Records the value this plugin last wrote onto a source activity. Without it, a grade the
+        // teacher raises AFTER a reinforcement was generated cannot be told apart from the
+        // plugin's own earlier write, and the carry-over overwrites it downwards.
+        $table = new xmldb_table('local_coursedynamicrules_aigrade');
+        $field = new xmldb_field('carriedgrade', XMLDB_TYPE_NUMBER, '10, 5', null, null, null, null, 'sourcegrade');
+        if ($dbman->table_exists($table) && !$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026083008, 'local', 'coursedynamicrules');
+    }
+
+    if ($oldversion < 2026083009) {
+        // The reinforcement's grade is no longer carried onto the activity it recovers - writing
+        // onto another activity leaves it overridden, which permanently disconnects the module
+        // from that student's grade. Everything those four columns existed for is gone with it.
+        $table = new xmldb_table('local_coursedynamicrules_aigrade');
+        if ($dbman->table_exists($table)) {
+            foreach (['sourcecmid', 'graderule', 'sourcegrade', 'carriedgrade'] as $name) {
+                $field = new xmldb_field($name);
+                if ($dbman->field_exists($table, $field)) {
+                    $dbman->drop_field($table, $field);
+                }
+            }
+        }
+
+        upgrade_plugin_savepoint(true, 2026083009, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 

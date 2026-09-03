@@ -50,12 +50,15 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
                 $this->get_pathfor('/rules/rule/actions/action')
             ),
             new restore_path_element(
+                'local_coursedynamicrules_aigrade',
+                $this->get_pathfor('/aigrades/aigrade')
+            ),
+            new restore_path_element(
                 'local_coursedynamicrules_notificationrole',
                 $this->get_pathfor('/notificationroles/notificationrole')
             ),
         ];
     }
-
 
     /**
      * Record a notification role reference exported by the backup.
@@ -160,6 +163,59 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
 
         $newactionid = $DB->insert_record('local_coursedynamicrules_action', $record);
         $this->set_mapping('local_coursedynamicrules_action', $data->id, $newactionid, false);
+    }
+
+    /**
+     * Restore one row of the generated-reinforcement register.
+     *
+     * The register exists to stop a student being given the same reinforcement twice. Without this,
+     * a restored course loses every marker and generates - and pays for - a second reinforcement for
+     * every student who already had one.
+     *
+     * Module ids are deliberately stored unmapped here: activities are restored after this step, so
+     * course_module mappings do not exist yet. They are resolved in after_restore_course().
+     *
+     * @param array $data
+     *
+     * @return void
+     */
+    public function process_local_coursedynamicrules_aigrade($data) {
+        global $DB;
+
+        $data = (object)$data;
+
+        // Every id is mapped where a mapping exists and stored as 0 where it does not, and the row
+        // is kept either way. That is deliberate: the row's job is to record that a generated grade
+        // column exists in this course, and that is true whether or not the student, the rule or
+        // the action came across with it.
+        //
+        // A restore without user data has no user mapping at all, so `userid` becomes 0 - the same
+        // severed state a privacy erasure produces. Dropping the row instead, which is what this
+        // used to do, left every user-free copy of a course with a live grade column and nobody
+        // excluded from it: measured at 0% under Lowest grade for every student who ever enrolled
+        // in the copy, permanently, because the enrolment sweep's course gate then answers no.
+        //
+        // A row with userid 0 spares nobody, which is correct: without a recipient the plugin
+        // cannot know who the column was meant to count for.
+        $record = new \stdClass();
+        $record->courseid = $this->task->get_courseid();
+        $record->ruleid = (int)($this->get_mappingid(
+            'local_coursedynamicrules_rule', $data->ruleid ?? 0) ?: 0);
+        $record->actionid = (int)($this->get_mappingid(
+            'local_coursedynamicrules_action', $data->actionid ?? 0) ?: 0);
+        $record->userid = (int)($this->get_mappingid('user', $data->userid ?? 0) ?: 0);
+        $record->cmid = (int)($data->cmid ?? 0);
+        // Through clean_mode() like every other write path: a hand-edited or truncated backup can
+        // otherwise seed an arbitrary value into the column the sweep reads.
+        $record->grademode = \local_coursedynamicrules\local\service\grade_isolation_service::clean_mode(
+            $data->grademode ?? null);
+        $record->timecreated = (int)($data->timecreated ?? time());
+
+        $newid = $DB->insert_record(
+            \local_coursedynamicrules\local\service\grade_register_service::TABLE,
+            $record
+        );
+        $this->set_mapping('local_coursedynamicrules_aigrade', $data->id, $newid, false);
     }
 
     /**
@@ -283,6 +339,7 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
      * @return void
      */
     public function after_restore_course() {
+        $this->remap_generated_reinforcements();
         $this->remap_persisted_params();
         $this->remap_notification_roles();
         $this->remap_ownership_markers();
@@ -667,5 +724,94 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
                 $DB->set_field('local_coursedynamicrules_action', 'params', $remappedjson, ['id' => $action->id]);
             }
         }
+    }
+
+    /**
+     * Point the restored reinforcement register at this site's modules.
+     *
+     * Runs after activities exist, which is the earliest moment course_module mappings are
+     * available. Two outcomes are deliberate:
+     *
+     * - The generated activity did not come across: the marker points at nothing, and keeping it
+     *   would deny the student a reinforcement they no longer have. The row is deleted.
+     * - Only the watched activity is missing: the marker still holds, so it is kept with the link
+     *   cleared - exactly how the non-carrying grade modes already store it.
+     *
+     * Scoped strictly to the rows THIS restore created. A restore into an existing course finds
+     * that course's own rows here too, and they already carry live module ids that would not
+     * resolve through a mapping table - remapping them would delete perfectly good markers.
+     *
+     * @return void
+     */
+    protected function remap_generated_reinforcements() {
+        global $DB;
+
+        $table = \local_coursedynamicrules\local\service\grade_register_service::TABLE;
+        $ids = $this->get_restored_aigrade_ids();
+        if (!$ids) {
+            return;
+        }
+
+        foreach ($DB->get_records_list($table, 'id', $ids) as $row) {
+            $cmid = $this->get_mapped_cmid($row->cmid);
+            if (empty($cmid)) {
+                $DB->delete_records($table, ['id' => $row->id]);
+                continue;
+            }
+
+            if ((int)$row->cmid !== $cmid) {
+                $DB->update_record($table, (object)['id' => $row->id, 'cmid' => $cmid]);
+            }
+
+            // Re-exclude, from scratch, for the students who are in THIS course. The exclusions
+            // themselves live in grade_grades, which core only carries inside user data, so a copy
+            // made without it arrives with a live grade column and not one student excluded from
+            // it - measured at 0% under Lowest grade for everybody in the copy. Even a restore WITH
+            // user data only brings the exclusions of the users who were in the backup, so a
+            // restore into an existing course leaves that course's own students uncovered.
+            //
+            // Cheap and idempotent: exclude_all_but() only writes a row that is missing or a flag
+            // that is not set, and never touches a grade that already exists.
+            $cm = get_coursemodule_from_id(null, $cmid, 0, false, IGNORE_MISSING);
+            if (!$cm) {
+                continue;
+            }
+
+            \local_coursedynamicrules\local\service\grade_isolation_service::apply(
+                (int)$row->courseid,
+                $cm->modname,
+                (int)$cm->instance,
+                $row->grademode,
+                (int)$row->userid
+            );
+        }
+    }
+
+    /**
+     * Ids of the register rows this restore created, from core's own mapping table.
+     *
+     * @return int[]
+     */
+    protected function get_restored_aigrade_ids(): array {
+        global $DB;
+
+        $records = $DB->get_records(
+            'backup_ids_temp',
+            [
+                'backupid' => $this->get_restoreid(),
+                'itemname' => 'local_coursedynamicrules_aigrade',
+            ],
+            '',
+            'id, newitemid'
+        );
+
+        $ids = [];
+        foreach ($records as $record) {
+            if (!empty($record->newitemid)) {
+                $ids[] = (int)$record->newitemid;
+            }
+        }
+
+        return $ids;
     }
 }

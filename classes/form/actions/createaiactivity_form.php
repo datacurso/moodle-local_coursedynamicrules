@@ -17,7 +17,6 @@
 namespace local_coursedynamicrules\form\actions;
 
 use local_coursedynamicrules\helper\form_plugin_validator;
-use local_coursedynamicrules\local\service\grade_combination_service;
 use local_coursedynamicrules\local\service\grade_isolation_service;
 use moodle_url;
 
@@ -125,8 +124,9 @@ class createaiactivity_form extends action_form {
         $mform->setDefault('beforemod', 0);
         $mform->addHelpButton('beforemod', 'createaiactivity_beforemod', 'local_coursedynamicrules');
 
-        // Two questions, because they are two decisions. Flattening them into one list puts
-        // "counts here" and "counts somewhere else" side by side as if they were siblings.
+        // One question, because there is one decision: does this activity's grade count for the
+        // student it was generated for, or for nobody. Either way it reaches nobody else - for as
+        // long as its column stays directly under the course, which is stated in the help.
         $mform->addElement('select', 'hasgrade', get_string('createaiactivity_hasgrade', 'local_coursedynamicrules'), [
             0 => get_string('createaiactivity_hasgrade_no', 'local_coursedynamicrules'),
             1 => get_string('createaiactivity_hasgrade_yes', 'local_coursedynamicrules'),
@@ -135,56 +135,6 @@ class createaiactivity_form extends action_form {
         // An activity that carries no grade cannot disturb anybody's total, under any aggregation.
         $mform->setDefault('hasgrade', 0);
         $mform->addHelpButton('hasgrade', 'createaiactivity_hasgrade', 'local_coursedynamicrules');
-
-        // Only worth asking when the rule actually watches a graded activity. Offering the choice
-        // and then refusing it in validation wastes the teacher's time on a decision that was never
-        // available; naming the activity removes any doubt about which one is meant.
-        $sourcecmid = grade_combination_service::resolve_source_cmid((int) $ruleid);
-        if ($sourcecmid !== null) {
-            $sourcename = grade_combination_service::activity_name($sourcecmid);
-
-            // Deliberately NOT the strings the rule listing uses: here the options answer a yes/no
-            // question, so MODE_OWN reads as "no, it stays independent"; in a description that same
-            // mode has to name itself.
-            $affectsource = [];
-            foreach (grade_isolation_service::graded_modes() as $mode) {
-                $affectsource[$mode] = get_string('createaiactivity_gradeoption_' . $mode, 'local_coursedynamicrules');
-            }
-            $mform->addElement(
-                'select',
-                'grademode',
-                get_string('createaiactivity_affectsource', 'local_coursedynamicrules', $sourcename),
-                $affectsource
-            );
-            $mform->setType('grademode', PARAM_ALPHA);
-            $mform->setDefault('grademode', grade_isolation_service::MODE_OWN);
-            $mform->addHelpButton('grademode', 'createaiactivity_affectsource', 'local_coursedynamicrules');
-            $mform->hideIf('grademode', 'hasgrade', 'eq', 0);
-
-            // One sub-select per option that takes a rule, rather than a single field whose options
-            // change: mform cannot repopulate a select from another field without JavaScript. Two
-            // hideIf conditions on the same element are OR-ed (lib/form/form.js:178), so each rule
-            // hides both when the activity is ungraded and when the other option is chosen.
-            foreach ([
-                grade_isolation_service::MODE_COMBINE => 'combinerule',
-                grade_isolation_service::MODE_REPLACE => 'replacerule',
-            ] as $mode => $field) {
-                $options = [];
-                foreach (grade_isolation_service::rules_for($mode) as $rule) {
-                    $options[$rule] = get_string('createaiactivity_graderule_' . $rule, 'local_coursedynamicrules');
-                }
-                $mform->addElement(
-                    'select',
-                    $field,
-                    get_string('createaiactivity_' . $field, 'local_coursedynamicrules'),
-                    $options
-                );
-                $mform->setType($field, PARAM_ALPHA);
-                $mform->setDefault($field, array_key_first($options));
-                $mform->hideIf($field, 'hasgrade', 'eq', 0);
-                $mform->hideIf($field, 'grademode', 'neq', $mode);
-            }
-        }
 
         parent::definition();
     }
@@ -196,25 +146,13 @@ class createaiactivity_form extends action_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        $storedmode = grade_isolation_service::clean_mode($params->grademode ?? null);
-
         return [
             'message' => $params->message ?? '',
             'generateimages' => !empty($params->generateimages) ? 1 : 0,
             'sectionnum' => (int) ($params->sectionnum ?? 0),
             'beforemod' => (int) ($params->beforemod ?? 0),
-            'hasgrade' => $storedmode === grade_isolation_service::MODE_NOGRADE ? 0 : 1,
-            'grademode' => $storedmode === grade_isolation_service::MODE_NOGRADE
-                ? grade_isolation_service::MODE_OWN
-                : $storedmode,
-            'combinerule' => grade_isolation_service::clean_rule(
-                grade_isolation_service::MODE_COMBINE,
-                $params->graderule ?? null
-            ),
-            'replacerule' => grade_isolation_service::clean_rule(
-                grade_isolation_service::MODE_REPLACE,
-                $params->graderule ?? null
-            ),
+            'hasgrade' => grade_isolation_service::clean_mode($params->grademode ?? null)
+                === grade_isolation_service::MODE_OWN ? 1 : 0,
         ];
     }
 

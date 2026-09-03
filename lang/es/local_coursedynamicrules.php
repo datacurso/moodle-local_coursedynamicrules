@@ -79,44 +79,38 @@ $string['coursename'] = 'Nombre del curso';
 $string['coursestartdate'] = 'Fecha de inicio del curso';
 $string['createaiactivity'] = 'Crear actividad de refuerzo con IA';
 $string['createaiactivity_action_info'] = 'Esta acción solicitará al servicio Datacurso AI que genere una actividad de refuerzo personalizada para los usuarios que cumplan las condiciones de la regla.';
-$string['createaiactivity_affectsource'] = '¿Esa nota modifica la de "{$a}"?';
-$string['createaiactivity_affectsource_help'] = '<b>No</b>: el refuerzo conserva su propia nota y nada más se mueve. El estudiante que lo recibió sube; el resto del grupo queda exactamente igual.\n\n<b>Sí</b>: el refuerzo no cuenta por sí mismo -ni siquiera para quien lo completó, o se premiaría dos veces el mismo trabajo- y su resultado se traslada a la actividad vigilada. Combinar mantiene ambas notas en juego; reemplazar sustituye una por la otra.\n\nLas tres opciones colocan la actividad en una categoría de calificación propia, que funciona con las agregaciones Natural y Media ponderada simple. Con Media, Mediana, Moda o Calificación más baja la categoría cuenta como un valor más y los estudiantes que no recibieron la actividad dejan de estar protegidos; ahí sólo \'sin nota\' es seguro.';
 $string['createaiactivity_beforemod'] = 'Colocar antes de la actividad';
 $string['createaiactivity_beforemod_help'] = 'Seleccione la actividad que el nuevo recurso debe preceder, o mantenga la opción predeterminada para añadirlo al final de la sección.';
 $string['createaiactivity_beforemod_none'] = 'No posicionar antes de otra actividad';
-$string['createaiactivity_combinerule'] = 'Fórmula de combinación';
 $string['createaiactivity_description'] = 'Generar una actividad de refuerzo con IA en la sección "{$a->section}" usando el prompt "{$a->prompt}"';
 $string['createaiactivity_description_beforemod'] = 'Se insertará antes de "{$a}".';
 $string['createaiactivity_description_generateimages'] = 'Generación de imágenes: {$a}.';
 $string['createaiactivity_description_grademode'] = 'Efecto en las calificaciones: {$a}';
 $string['createaiactivity_generateimages'] = 'Generar imágenes con IA';
 $string['createaiactivity_generateimages_label'] = 'Permitir que la IA incluya imágenes generadas cuando sea compatible.';
-$string['createaiactivity_gradecategory_name'] = 'Actividades de refuerzo con IA';
-$string['createaiactivity_grademode_combine'] = 'Combinar su nota con la de la actividad que vigila la regla';
-$string['createaiactivity_grademode_nograde'] = 'Sin nota (recomendado)';
-$string['createaiactivity_grademode_own'] = 'Nota propia, que cuenta sólo para el estudiante que la recibe';
-$string['createaiactivity_grademode_replace'] = 'Reemplazar la nota de la actividad que vigila la regla';
-$string['createaiactivity_gradeoption_combine'] = 'Sí, combinando ambas notas';
-$string['createaiactivity_gradeoption_own'] = 'No - queda como nota independiente';
-$string['createaiactivity_gradeoption_replace'] = 'Sí, reemplazándola';
-$string['createaiactivity_graderule_always'] = 'Siempre, sea mejor o peor';
-$string['createaiactivity_graderule_best'] = 'Conservar la nota más alta';
-$string['createaiactivity_graderule_cap'] = 'Con tope en la nota de aprobación';
-$string['createaiactivity_graderule_improve'] = 'Sólo cuando el refuerzo es mejor';
-$string['createaiactivity_graderule_mean'] = 'Promediar ambas notas';
-$string['createaiactivity_hasgrade'] = '¿La actividad de refuerzo lleva calificación?';
-$string['createaiactivity_hasgrade_help'] = 'Una actividad generada la ve un solo estudiante, pero su columna aparece en el libro de calificaciones de todo el curso y queda vacía para los demás. Que esa columna vacía les cueste puntos depende de la casilla \'Excluir calificaciones vacías\' de la categoría, que cualquier docente puede cambiar.\n\n<b>No</b> elimina la columna por completo: el total de ningún estudiante puede moverse, con cualquier método de agregación. Es la única opción sin salvedades, y por eso es la predeterminada.\n\n<b>Sí</b> significa que la actividad se califica, y una segunda pregunta decide dónde cuenta esa nota.';
-$string['createaiactivity_hasgrade_no'] = 'No - no afecta la calificación de nadie (recomendado)';
-$string['createaiactivity_hasgrade_yes'] = 'Sí - la actividad se califica';
+$string['createaiactivity_grademode_nograde'] = 'Sin nota para nadie';
+$string['createaiactivity_grademode_own'] = 'Cuenta sólo para el estudiante que la recibe';
+$string['createaiactivity_hasgrade'] = '¿Su nota cuenta para el estudiante que la recibe?';
+$string['createaiactivity_hasgrade_help'] = 'Una actividad generada la ve un solo estudiante, pero su columna aparece en el libro de calificaciones de todo el curso y queda vacía para los demás. Que esa columna vacía les cueste puntos depende de \'Excluir calificaciones vacías\', que cualquier docente puede cambiar.
+
+En los dos casos, <b>cada uno de los demás estudiantes queda excluido de esa columna uno por uno</b>, así que el resto del grupo conserva su total con cualquier método de agregación, no sólo con los que leen un peso. A quien se matricula después, a quien se le reactiva una matrícula suspendida, o a quien recibe un rol del libro después de estar matriculado, se lo excluye al llegar.
+
+<b>No</b>: la columna no cuenta para nadie. La actividad puede calificarse igual y el docente puede usar esa nota como retroalimentación, pero no mueve ningún total.
+
+<b>Sí</b>: la columna cuenta para el estudiante que la recibió, y sólo para él. Hasta que se califique es trabajo pendiente para ese estudiante, igual que cualquier otra actividad que todavía no hizo.
+
+La columna tiene que quedarse directamente bajo el curso. Dentro de una categoría de calificación las exclusiones dejan de proteger a los estudiantes para los que se escribieron -la categoría queda vacía para ellos y una categoría vacía cuenta como cero un nivel más arriba-, así que el grupo vuelve a perder puntos (medido: el 80% cae a 40% con Media y a 0% con Nota más baja). Es el comportamiento propio de Moodle para cualquier nota excluida archivada en una categoría, con este plugin o sin él, y nada de acá puede deshacerlo. Dejá la columna donde se crea.';
+$string['createaiactivity_hasgrade_no'] = 'No - no cuenta para nadie';
+$string['createaiactivity_hasgrade_yes'] = 'Sí - sólo para ese estudiante';
 $string['createaiactivity_placeholders_info'] = 'Marcadores disponibles: <code>{$a->coursename}</code>, <code>{$a->courseurl}</code>, <code>{$a->fullname}</code>, <code>{$a->firstname}</code>, <code>{$a->lastname}</code>.';
 $string['createaiactivity_prompt'] = 'Prompt de IA';
 $string['createaiactivity_prompt_help'] = 'Escriba la instrucción que se enviará al servicio de IA. Puede incluir marcadores que se reemplazarán antes de enviar el prompt.';
-$string['createaiactivity_replacerule'] = 'Política de reemplazo';
 $string['createaiactivity_section'] = 'Sección del curso';
 $string['createrule'] = 'Crear regla';
 $string['customintervals'] = 'Intervalos personalizados';
 $string['customintervals_help'] = 'Ingrese números enteros mayores que 0 en orden ascendente, separados por comas (p. ej., "7,14,30"). Cada número es un punto de control de inactividad medido desde la fecha base.';
 $string['datacurso'] = 'Datacurso';
+$string['datacurso_brand_alt'] = 'Logotipo de Datacurso';
 $string['date_from_course_start'] = 'Desde la fecha de inicio del curso';
 $string['date_from_enrollment'] = 'Desde la fecha de matrícula';
 $string['date_from_now'] = 'Desde ahora';
@@ -147,8 +141,11 @@ $string['enablegradelessthan'] = 'Habilitar calificación menor que';
 $string['enrollmentdate'] = 'Fecha de matrícula';
 $string['error_aiactivity_generation_failed'] = 'El servicio de IA reportó una generación de actividad fallida: {$a}';
 $string['error_empty_aiactivity_prompt'] = 'La acción de Crear actividad con IA se ejecutó sin un mensaje de prompt válido.';
-$string['error_grade_combination_failed'] = 'No se pudo trasladar la nota de un refuerzo a la actividad que recupera: {$a}';
+$string['error_grade_column_appeared'] = 'Una actividad de refuerzo obtuvo una columna de calificación y no se pudo excluir de ella al resto de los estudiantes: {$a}';
+$string['error_grade_enrolment_sweep_failed'] = 'No se pudo proteger de la columna de notas a un estudiante que se matriculó después de generarse una actividad de refuerzo: {$a}';
 $string['error_grade_isolation_failed'] = 'La actividad de refuerzo se creó, pero no se pudo aislar en el libro de calificaciones y está afectando los totales de todo el curso: {$a}';
+$string['error_grade_item_moved_back'] = 'La actividad de refuerzo \'{$a}\' se creó dentro de una categoría de calificación y se colocó directamente bajo el curso. Dentro de una categoría su columna no puede protegerse de los estudiantes a los que estaba oculta.';
+$string['error_grade_item_not_at_root'] = 'La actividad de refuerzo \'{$a}\' está dentro de una categoría de calificación, así que no se puede proteger a los estudiantes de su columna. Devolvéla al nivel superior del libro de calificaciones.';
 $string['error_required_local_coursegen'] = 'Se requiere el complemento local_coursegen para ejecutar la acción de Crear actividad con IA.';
 $string['error_required_local_coursegen_version'] = 'La acción de Crear actividad con IA requiere local_coursegen versión {$a} o superior. Actualice el complemento Course Creator AI.';
 $string['error_unexpected_airesponse'] = 'El servicio de IA devolvió una respuesta inesperada sin el resultado esperado.';
@@ -252,11 +249,20 @@ $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Este complemento no está disponible porque la licencia del producto ha caducado o no es válida. Vaya a <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> para renovarla o comprar una nueva.';
 $string['primaryrecipients'] = 'Destinatarios principales';
 $string['primaryrecipients_help'] = 'Selecciona los roles que recibirán la notificación principal cuando la condición se cumpla para un usuario de esos roles.';
+$string['privacy:metadata:aigrade'] = 'Un registro de las actividades de refuerzo generadas para cada estudiante, que se conserva para no ofrecerle dos veces el mismo refuerzo.';
+$string['privacy:metadata:aigrade:actionid'] = 'El id de la acción de la regla que la generó, que se conserva para no darle una segunda al mismo estudiante.';
+$string['privacy:metadata:aigrade:cmid'] = 'El id del módulo de curso generado como refuerzo.';
+$string['privacy:metadata:aigrade:courseid'] = 'El id del curso en el que se generó el refuerzo.';
+$string['privacy:metadata:aigrade:grademode'] = 'Cómo se configuró la actividad generada para afectar el libro de calificaciones.';
+$string['privacy:metadata:aigrade:ruleid'] = 'El id de la regla que generó la actividad de refuerzo.';
+$string['privacy:metadata:aigrade:timecreated'] = 'El momento en que se generó la actividad de refuerzo.';
+$string['privacy:metadata:aigrade:userid'] = 'El id del estudiante para el que se generó la actividad de refuerzo.';
 $string['privacy:metadata:datacurso_ai'] = 'Se envía contexto del curso al servicio de IA de Datacurso para generar actividades de refuerzo.';
 $string['privacy:metadata:datacurso_ai:courseid'] = 'El id del curso para el que se genera la actividad de refuerzo.';
 $string['privacy:metadata:datacurso_ai:courseurl'] = 'La URL del curso, enviada como contexto para la actividad generada.';
 $string['privacy:metadata:datacurso_ai:prompt'] = 'El prompt configurado que describe la actividad de refuerzo a generar.';
 $string['privacy:metadata:datacurso_ai:userid'] = 'El id del usuario para el que se genera la actividad de refuerzo.';
+$string['privacy:path:aigrade'] = 'Actividades de refuerzo generadas';
 $string['provider_not_enabled_warning'] = 'Habilite las notificaciones con <strong>Datacurso Message Hub</strong> para que esta acción envíe notificaciones por WhatsApp y SMS utilizando proveedores como Twilio.
 Puede habilitarlo desde <a href="{$a}" target="_blank">Configuración de notificaciones</a> buscando <strong>Smart Rules AI notification</strong>.
 <br>

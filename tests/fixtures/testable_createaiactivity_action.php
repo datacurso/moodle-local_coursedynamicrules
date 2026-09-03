@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\action\createaiactivity;
 
 use aiprovider_datacurso\httpclient\ai_course_api;
+use core\lock\lock;
 
 /**
  * Testable subclass exposing injection seams for the AI HTTP client and the coursegen version lookup.
@@ -41,6 +42,18 @@ final class testable_createaiactivity_action extends createaiactivity_action {
     /** @var string|null Stream URL captured on the last read_activity_stream() call. */
     public static $laststreamurl = null;
 
+    /** @var bool When true, isolate_grades() throws, standing in for any gradebook failure. */
+    public static $isolationthrows = false;
+
+    /** @var bool When true, get_generation_lock() reports the lock held by another process. */
+    public static $lockrefused = false;
+
+    /** @var int How many times the lock was asked for, and the key of the last request. */
+    public static $lockrequests = 0;
+
+    /** @var string|null Resource key of the last lock request. */
+    public static $lastlockkey = null;
+
     /**
      * Reset all static seams between tests.
      *
@@ -52,6 +65,52 @@ final class testable_createaiactivity_action extends createaiactivity_action {
         self::$coursegenversiondb = false;
         self::$streamevent = [];
         self::$laststreamurl = null;
+        self::$isolationthrows = false;
+        self::$lockrefused = false;
+        self::$lockrequests = 0;
+        self::$lastlockkey = null;
+    }
+
+    /**
+     * Report the lock as held on demand, and record what production asked for.
+     *
+     * A seam rather than a real second acquisition, because there cannot be one: with mysqli the
+     * factory is mysql_lock_factory and GET_LOCK is re-entrant inside a single database session, so
+     * a test asking for the same resource key would be granted it and would prove the opposite of
+     * what it set out to prove.
+     *
+     * The release in execute()'s finally is deliberately NOT wrapped here. Whether the lock was
+     * given back is not observable from inside the process that holds it - GET_LOCK's state is
+     * readable only through MySQL-specific SQL, which would make the assertion a claim about the
+     * database engine rather than about this plugin.
+     *
+     * @param int $userid
+     * @return lock|null
+     */
+    protected function get_generation_lock(int $userid): ?lock {
+        self::$lockrequests++;
+        self::$lastlockkey = $this->get_id() . '_' . $userid;
+
+        if (self::$lockrefused) {
+            return null;
+        }
+
+        return parent::get_generation_lock($userid);
+    }
+
+    /**
+     * Fail the gradebook step on demand, so a test can check what survives it.
+     *
+     * @param int $courseid
+     * @param object $newcm
+     * @param string $mode
+     * @param int $recipientuserid
+     */
+    protected function isolate_grades(int $courseid, $newcm, string $mode, int $recipientuserid = 0): void {
+        if (self::$isolationthrows) {
+            throw new \moodle_exception('error', 'debug', '', null, 'gradebook step failed');
+        }
+        parent::isolate_grades($courseid, $newcm, $mode, $recipientuserid);
     }
 
     /**
