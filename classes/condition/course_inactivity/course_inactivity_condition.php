@@ -430,12 +430,14 @@ class course_inactivity_condition extends condition {
      * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
-        $timeintervals = $formdata->intervaltype == self::INTERVAL_CUSTOM ?
-            $formdata->customintervals : $formdata->recurringinterval;
+        if ($formdata->intervaltype == self::INTERVAL_CUSTOM) {
+            $timeintervals = $formdata->customintervals;
+            $valid = self::is_valid_custom_intervals($timeintervals);
+        } else {
+            $timeintervals = $formdata->recurringinterval;
+            $valid = self::is_valid_recurring_interval($timeintervals);
+        }
 
-        $valid = $formdata->intervaltype == self::INTERVAL_CUSTOM
-            ? self::is_valid_custom_intervals($timeintervals)
-            : self::is_valid_recurring_interval($timeintervals);
         if (!$valid) {
             throw new \invalid_parameter_exception('Invalid interval configuration: expected positive integers');
         }
