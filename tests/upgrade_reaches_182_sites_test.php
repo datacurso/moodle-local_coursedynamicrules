@@ -41,7 +41,6 @@ namespace local_coursedynamicrules;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class upgrade_reaches_182_sites_test extends \advanced_testcase {
-
     /** @var int The version a site running the released 1.8.2 has in config_plugins. */
     private const INSTALLED_ON_182 = 2026090102;
 
@@ -86,7 +85,7 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
      */
     private function upgrade_from_182(): void {
         global $CFG, $DB;
-        // upgradelib is not part of the PHPUnit bootstrap; the savepoint calls live there.
+        // Upgradelib is not part of the PHPUnit bootstrap; the savepoint calls live there.
         require_once($CFG->libdir . '/upgradelib.php');
         require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
 
@@ -107,13 +106,17 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
         if ($dbman->field_exists($table, $field)) {
             $dbman->drop_field($table, $field);
         }
-        $this->assertFalse($dbman->field_exists($table, $field),
-            'the fixture only means anything if the column is genuinely absent');
+        $this->assertFalse(
+            $dbman->field_exists($table, $field),
+            'the fixture only means anything if the column is genuinely absent'
+        );
 
         xmldb_local_coursedynamicrules_upgrade(self::INSTALLED_ON_182);
 
-        $this->assertTrue($dbman->field_exists($table, $field),
-            'the upgrade has to CREATE the column on a 1.8.2 site, not merely find it there');
+        $this->assertTrue(
+            $dbman->field_exists($table, $field),
+            'the upgrade has to CREATE the column on a 1.8.2 site, not merely find it there'
+        );
     }
 
     /**
@@ -145,12 +148,23 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
 
         $this->upgrade_from_182();
 
-        $this->assertEquals(5000, $DB->get_field('local_coursedynamicrules_rule', 'timeactivated',
-            ['id' => $active]),
-            'an active rule on a 1.8.2 site must be sealed, or the lock is void for the whole base');
-        $this->assertNull($DB->get_field('local_coursedynamicrules_rule', 'timeactivated',
-            ['id' => $inactive]),
-            'and an inactive rule stays grandfathered unlocked');
+        $this->assertEquals(
+            5000,
+            $DB->get_field(
+                'local_coursedynamicrules_rule',
+                'timeactivated',
+                ['id' => $active]
+            ),
+            'an active rule on a 1.8.2 site must be sealed, or the lock is void for the whole base'
+        );
+        $this->assertNull(
+            $DB->get_field(
+                'local_coursedynamicrules_rule',
+                'timeactivated',
+                ['id' => $inactive]
+            ),
+            'and an inactive rule stays grandfathered unlocked'
+        );
     }
 
     /**
@@ -175,8 +189,11 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
         accesslib_clear_all_caches_for_unit_testing();
 
         foreach (['deleterule', 'deletecondition', 'deleteaction'] as $capability) {
-            $this->assertSame(CAP_ALLOW, $this->permission_of($capability, $role->id),
-                "the editing teacher must hold $capability after upgrading from 1.8.2");
+            $this->assertSame(
+                CAP_ALLOW,
+                $this->permission_of($capability, $role->id),
+                "the editing teacher must hold $capability after upgrading from 1.8.2"
+            );
         }
     }
 

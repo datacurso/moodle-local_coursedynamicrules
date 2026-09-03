@@ -74,7 +74,7 @@ class component_renderer {
         $html = '';
         foreach ($instances as $instance) {
             $header = $instance->get_header();
-            // get_listing_description(), not get_description(): the component decides what of
+            // The LISTING form, not get_description(): the component decides what of
             // itself is free text and cuts that (product directive 2026-08-31 asked the listing to
             // keep a uniform row height; the magnifier's page still shows everything). Escaping
             // runs last, on the already-short string, so no entity is ever sliced in half.

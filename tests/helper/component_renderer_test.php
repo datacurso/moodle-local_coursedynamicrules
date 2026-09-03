@@ -73,10 +73,14 @@ final class component_renderer_test extends \advanced_testcase {
     public function test_free_text_over_the_budget_is_cut(): void {
         $budget = component_renderer::LISTING_FREETEXT_LENGTH;
 
-        $this->assertSame(str_repeat('a', $budget) . '…',
-            component_renderer::cut_freetext(str_repeat('a', $budget + 20)));
-        $this->assertSame(str_repeat('b', $budget),
-            component_renderer::cut_freetext(str_repeat('b', $budget)));
+        $this->assertSame(
+            str_repeat('a', $budget) . '…',
+            component_renderer::cut_freetext(str_repeat('a', $budget + 20))
+        );
+        $this->assertSame(
+            str_repeat('b', $budget),
+            component_renderer::cut_freetext(str_repeat('b', $budget))
+        );
     }
 
     /**
@@ -128,11 +132,17 @@ final class component_renderer_test extends \advanced_testcase {
         $html = component_renderer::descriptions_html([$action]);
 
         // The first words of the body, escaped exactly as the listing renders them.
-        $this->assertStringContainsString(s('Hola, notamos que no ingresaste al curso'), $html,
-            'the rules list has to show part of the message, not just the preamble');
+        $this->assertStringContainsString(
+            s('Hola, notamos que no ingresaste al curso'),
+            $html,
+            'the rules list has to show part of the message, not just the preamble'
+        );
         // And the body is still cut, or the row grows without bound.
-        $this->assertStringNotContainsString(s('entrega final'), $html,
-            'the whole body belongs on the component page, not on the list');
+        $this->assertStringNotContainsString(
+            s('entrega final'),
+            $html,
+            'the whole body belongs on the component page, not on the list'
+        );
     }
 
     /**
@@ -276,11 +286,15 @@ final class component_renderer_test extends \advanced_testcase {
         $context = \context_course::instance($this->getDataGenerator()->create_course()->id);
 
         $escaped = component_renderer::escaped_name(
-            '<script>alert(document.cookie)</script>Refuerzo', $context);
+            '<script>alert(document.cookie)</script>Refuerzo',
+            $context
+        );
 
         $this->assertStringNotContainsString('<script', $escaped);
         $this->assertStringNotContainsString('<img', component_renderer::escaped_name(
-            '<img src=x onerror=alert(1)>Refuerzo', $context));
+            '<img src=x onerror=alert(1)>Refuerzo',
+            $context
+        ));
     }
 
     /**
@@ -314,8 +328,10 @@ final class component_renderer_test extends \advanced_testcase {
         $this->resetAfterTest(true);
         $context = \context_course::instance($this->getDataGenerator()->create_course()->id);
 
-        $this->assertSame('Refuerzo de fracciones',
-            component_renderer::escaped_name('Refuerzo de fracciones', $context));
+        $this->assertSame(
+            'Refuerzo de fracciones',
+            component_renderer::escaped_name('Refuerzo de fracciones', $context)
+        );
         $this->assertSame('', component_renderer::escaped_name(null, $context));
     }
 }

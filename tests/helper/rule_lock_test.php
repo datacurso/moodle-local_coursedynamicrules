@@ -298,7 +298,9 @@ final class rule_lock_test extends \advanced_testcase {
         $conditionrecord = (object) ['id' => null, 'ruleid' => $unlocked,
             'conditiontype' => 'no_course_access', 'params' => json_encode([])];
         $condition = new \local_coursedynamicrules\condition\no_course_access\no_course_access_condition(
-            $conditionrecord, $this->courseid);
+            $conditionrecord,
+            $this->courseid
+        );
         try {
             $condition->save_condition((object) [
                 'ruleid' => $sealed, 'periodvalue' => 1, 'periodunit' => 'days',
@@ -313,7 +315,9 @@ final class rule_lock_test extends \advanced_testcase {
         $actionrecord = (object) ['id' => null, 'ruleid' => $unlocked,
             'actiontype' => 'sendnotification', 'params' => json_encode([])];
         $action = new \local_coursedynamicrules\action\sendnotification\sendnotification_action(
-            $actionrecord, $this->courseid);
+            $actionrecord,
+            $this->courseid
+        );
         try {
             $action->save_action((object) [
                 'ruleid' => $sealed,
