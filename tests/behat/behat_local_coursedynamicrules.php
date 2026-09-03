@@ -50,12 +50,35 @@ class behat_local_coursedynamicrules extends behat_base {
 
         foreach ($table->getHash() as $row) {
             $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            // The generator obeys the production axiom "active means it WAS activated": every
+            // production writer that sets active=1 also stamps timeactivated (editrule, the
+            // upgrade, restore), so an active-but-unstamped rule is a state no real site can
+            // hold post-2026083002 - and a suite exercising impossible states proves nothing.
+            // Round-2 judge CRITICAL. An explicit timeactivated column still overrides.
+            $active = isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1;
+            // Same axiom family: a rule only executes after its first activation, so an executed
+            // rule with no activation stamp is another state no real site can hold. When the
+            // scenario sets lastexecutiontime on an unstamped rule, the execution moment doubles
+            // as the activation moment.
+            $lastexecution = isset($row['lastexecutiontime']) && trim($row['lastexecutiontime']) !== ''
+                ? (int)$row['lastexecutiontime']
+                : null;
+            $timeactivated = isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                ? ((int)$row['timeactivated'] ?: ($active ? time() : null))
+                : ($active ? time() : null);
+            if ($lastexecution !== null && $timeactivated === null) {
+                $timeactivated = $lastexecution;
+            }
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
-                'name' => 'Behat no course access rule',
+                // Optional columns, defaulted for backwards compatibility with every existing
+                // feature: a name so scenarios can tell rules apart, and active so the activation
+                // flow can start from a genuinely inactive rule.
+                'name' => trim($row['name'] ?? '') !== '' ? trim($row['name']) : 'Behat no course access rule',
                 'description' => 'Behat generated rule',
-                'active' => 1,
-                'lastexecutiontime' => null,
+                'active' => $active,
+                'timeactivated' => $timeactivated,
+                'lastexecutiontime' => $lastexecution,
                 'timecreated' => time(),
                 'timemodified' => time(),
             ]);
@@ -89,6 +112,63 @@ class behat_local_coursedynamicrules extends behat_base {
     }
 
     /**
+     * Create bare rules - a rule row with NO conditions and NO actions.
+     *
+     * The population the 2026083002 upgrade seals incomplete: pre-lock sites could save a rule
+     * active with zero components. Scenarios about what the listing offers such rules need to
+     * build one, and no UI path can any more.
+     *
+     * @Given /^the following local coursedynamicrules bare rules exist:$/
+     * @param TableNode $table Table data with columns: course, name, active, timeactivated,
+     *      description. The name is inserted VERBATIM, with no cleaning, because that is what
+     *      course restore does (restore_local_coursedynamicrules_plugin.class.php:95) and it is
+     *      the only writer a hostile name can come through - the form types the field PARAM_TEXT.
+     */
+    public function the_following_local_coursedynamicrules_bare_rules_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $DB->insert_record('local_coursedynamicrules_rule', (object) [
+                'courseid' => $course->id,
+                'name' => trim($row['name']),
+                'description' => isset($row['description']) ? trim($row['description'])
+                    : 'Behat generated bare rule',
+                'active' => isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 0,
+                // Same axiom as every generator here: active without an explicit stamp is sealed
+                // now, because no production writer leaves an active rule unstamped.
+                'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                    ? ((int)$row['timeactivated'] ?: (!empty($row['active']) ? time() : null))
+                    : (!empty($row['active']) && (int)$row['active'] === 1 ? time() : null),
+                'lastexecutiontime' => null,
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+        }
+    }
+
+    /**
+     * Visit the activation confirmation page for a rule, addressed by name.
+     *
+     * The page a replayed link or an old browser tab lands on: editrule.php?confirmactivate=1.
+     * Reaching it directly is the point - the scenario exercises what the page says when the
+     * confirmation is no longer applicable, and no UI path can produce that URL twice.
+     *
+     * @When /^I visit the activation confirmation page for the rule "(?P<name>[^"]*)"$/
+     * @param string $name The rule name.
+     */
+    public function i_visit_the_activation_confirmation_page_for_the_rule(string $name): void {
+        global $DB;
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['name' => $name], '*', MUST_EXIST);
+        $this->execute('behat_general::i_visit', [new moodle_url('/local/coursedynamicrules/editrule.php', [
+            'courseid' => $rule->courseid,
+            'id' => $rule->id,
+            'confirmactivate' => 1,
+        ])]);
+    }
+
+    /**
      * Create rules with a create AI activity action carrying the given prompt.
      *
      * @Given /^the following local coursedynamicrules AI activity actions exist:$/
@@ -99,11 +179,16 @@ class behat_local_coursedynamicrules extends behat_base {
 
         foreach ($table->getHash() as $row) {
             $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            // Optional active column; the default obeys the axiom below (active arrives sealed).
+            $active = isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1;
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
                 'name' => 'Behat AI activity rule',
                 'description' => 'Behat generated rule',
-                'active' => 1,
+                'active' => $active,
+                // Active means it WAS activated: production never holds an active-unstamped rule,
+                // so neither does any rule this context fabricates.
+                'timeactivated' => $active ? time() : null,
                 'lastexecutiontime' => null,
                 'timecreated' => time(),
                 'timemodified' => time(),
@@ -147,6 +232,33 @@ class behat_local_coursedynamicrules extends behat_base {
             'id' => $action->id,
             'courseid' => $course->id,
             'ruleid' => $action->ruleid,
+        ]);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
+    }
+
+    /**
+     * Visit the delete confirmation page for the most recent rule in a course.
+     *
+     * Addressed by recency rather than by name on purpose: the scenario that needs this page most
+     * is the one whose rule is NAMED with a script payload, and a name like that cannot be typed
+     * into a step argument or matched in a link.
+     *
+     * @When /^I visit the coursedynamicrules delete page for the latest rule in course "(?P<shortname>[^"]*)"$/
+     * @param string $shortname Course shortname.
+     */
+    public function i_visit_the_coursedynamicrules_delete_page_for_the_latest_rule_in_course(string $shortname): void {
+        global $DB;
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $rule = $DB->get_record_sql(
+            "SELECT id FROM {local_coursedynamicrules_rule} WHERE courseid = :courseid ORDER BY id DESC",
+            ['courseid' => $course->id],
+            IGNORE_MULTIPLE
+        );
+
+        $url = new moodle_url('/local/coursedynamicrules/deleterule.php', [
+            'id' => $rule->id,
+            'courseid' => $course->id,
         ]);
         $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
     }
@@ -324,117 +436,7 @@ class behat_local_coursedynamicrules extends behat_base {
         }
     }
 
-    /**
-     * Create rules with a grade_in_activity condition and a sendnotification action.
-     *
-     * Used by the grade_in_activity edit Behat scenario: builds a real rule/condition/action row
-     * set against an existing graded activity so the dynamic sub-form has genuine grade item data
-     * to preload.
-     *
-     * @Given /^the following local coursedynamicrules grade in activity rules exist:$/
-     * @param TableNode $table Table data: course | activity (cm idnumber) | condition (gradegte|gradelt) | value | subject.
-     */
-    public function the_following_local_coursedynamicrules_grade_in_activity_rules_exist(TableNode $table): void {
-        global $CFG, $DB;
-        require_once($CFG->libdir . '/gradelib.php');
 
-        foreach ($table->getHash() as $row) {
-            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
-            $cm = $DB->get_record('course_modules', ['idnumber' => $row['activity']], '*', MUST_EXIST);
-            $modname = $DB->get_field('modules', 'name', ['id' => $cm->module], MUST_EXIST);
-
-            $gradeitem = \grade_item::fetch([
-                'iteminstance' => $cm->instance,
-                'itemmodule' => $modname,
-                'itemtype' => 'mod',
-                'itemnumber' => 0,
-            ]);
-            if (!$gradeitem) {
-                throw new Exception('No grade item found for activity "' . $row['activity'] . '".');
-            }
-
-            $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
-                'courseid' => $course->id,
-                'name' => 'Behat grade in activity rule',
-                'description' => 'Behat generated rule',
-                'active' => 1,
-                'lastexecutiontime' => null,
-                'timecreated' => time(),
-                'timemodified' => time(),
-            ]);
-
-            $condition = trim($row['condition']);
-            $key = $condition . '_' . $gradeitem->id;
-            $gradeitemsconditions = (object) [
-                $key => (object) [
-                    'gradeitem' => $gradeitem->id,
-                    'condition' => $condition,
-                    'value' => (float)$row['value'],
-                ],
-            ];
-
-            $DB->insert_record('local_coursedynamicrules_condition', (object) [
-                'ruleid' => $ruleid,
-                'conditiontype' => 'grade_in_activity',
-                'params' => json_encode([
-                    'cmid' => $cm->id,
-                    'gradeitemsconditions' => $gradeitemsconditions,
-                ]),
-                'lastexecutiontime' => null,
-            ]);
-
-            $DB->insert_record('local_coursedynamicrules_action', (object) [
-                'ruleid' => $ruleid,
-                'actiontype' => 'sendnotification',
-                'params' => json_encode([
-                    'messagesubject' => trim($row['subject']),
-                    'messagebody' => 'Behat generated body',
-                    'primaryroleids' => [],
-                    'copyroleids' => [],
-                    // This fixture inserts the row directly (bypassing sendnotification_action::
-                    // save_action()), so without this key the row is legacy-shaped: FIX3-5 sends it
-                    // down the verbatim (unmarked) path instead of the raw/marked one, which would
-                    // silently double-format the body when the grade_in_activity edit scenario runs.
-                    'bodyisraw' => true,
-                ]),
-                'lastexecutiontime' => null,
-            ]);
-        }
-    }
-
-    /**
-     * Toggle a grade-in-activity threshold checkbox and set its value on the dynamic sub-form.
-     *
-     * Used by the grade_in_activity edit Behat scenario: the dynamic form's threshold elements are
-     * keyed by the real grade item id (`enable{condition}_{gradeitemid}` / `{condition}_
-     * {gradeitemid}`), which is only known once the fixture activity has been created, hence
-     * resolving it here instead of hardcoding an id in the feature file.
-     *
-     * @When /^I toggle the "(?P<cond_string>gradegte|gradelt)" threshold for "(?P<act_string>[^"]*)" to "(?P<value_string>[^"]*)"$/
-     * @param string $condition Threshold condition (gradegte|gradelt).
-     * @param string $activityidnumber Course module idnumber of the graded activity.
-     * @param string $value Threshold value to set.
-     */
-    public function i_toggle_the_grade_threshold_for(string $condition, string $activityidnumber, string $value): void {
-        global $CFG, $DB;
-        require_once($CFG->libdir . '/gradelib.php');
-
-        $cm = $DB->get_record('course_modules', ['idnumber' => $activityidnumber], '*', MUST_EXIST);
-        $modname = $DB->get_field('modules', 'name', ['id' => $cm->module], MUST_EXIST);
-        $gradeitem = \grade_item::fetch([
-            'iteminstance' => $cm->instance,
-            'itemmodule' => $modname,
-            'itemtype' => 'mod',
-            'itemnumber' => 0,
-        ]);
-        if (!$gradeitem) {
-            throw new Exception('No grade item found for activity "' . $activityidnumber . '".');
-        }
-
-        $key = $condition . '_' . $gradeitem->id;
-        $this->execute('behat_forms::i_set_the_field_to', ['enable' . $key, '1']);
-        $this->execute('behat_forms::i_set_the_field_to', [$key, $value]);
-    }
 
     /**
      * Resolve comma-separated role shortnames to role ids.

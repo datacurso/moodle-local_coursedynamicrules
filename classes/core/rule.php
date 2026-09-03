@@ -188,11 +188,21 @@ class rule {
     /**
      * Set the active status of the rule
      * @param bool $active 1 indicates that the rule is active, 0 indicates that the rule is inactive
+     *
+     * NOTE (round-3 review): activating here does NOT re-check completeness - that gate lives in
+     * the endpoints (rule_form::validation() and editrule's doactivate/confirm), the only paths a
+     * user can take. Production calls this with false only (the one-shot task's self-pause); a
+     * future caller passing true for an incomplete rule would seal a rule that can never fire -
+     * route new activations through the editrule flow instead.
      */
     public function set_active($active) {
         global $DB;
         $this->active = $active ? 1 : 0;
         $DB->set_field('local_coursedynamicrules_rule', 'active', $this->active, ['id' => $this->id]);
+
+        // After the write, never before: the stamp is conditional on what the ROW says, and it is
+        // idempotent, so every path that touches 'active' calls it unconditionally.
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $this->id);
     }
 
     /**

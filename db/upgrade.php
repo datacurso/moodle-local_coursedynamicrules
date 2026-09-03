@@ -182,7 +182,101 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026042300, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026083001) {
+        // The editing teacher can delete what they can create - see the function's docblock for
+        // why db/access.php alone cannot deliver this to an existing site.
+        local_coursedynamicrules_upgrade_grant_component_deletion();
+
+        upgrade_plugin_savepoint(true, 2026083001, 'local', 'coursedynamicrules');
+    }
+
+    if ($oldversion < 2026083002) {
+        local_coursedynamicrules_upgrade_add_activation_stamp($dbman);
+
+        upgrade_plugin_savepoint(true, 2026083002, 'local', 'coursedynamicrules');
+    }
+
+    if ($oldversion < 2026090200) {
+        // The two steps above are unreachable from the line this release actually ships to, and
+        // repeating them here is the only thing that closes that gap.
+        //
+        // 1.9.0 and 1.8.2 were developed as parallel lines off the same commit and numbered
+        // independently: the 1.9.0 line reached 2026083002 (30 August) while main went its own way
+        // and shipped 1.8.2 as 2026090102 (1 September) with no schema step of its own - its last
+        // savepoint is still 2026042300. Merging main into this line is what produced 1.8.3.
+        //
+        // Core hands the upgrade function the version RECORDED IN config_plugins
+        // (lib/upgradelib.php:758), so on every site running the released 1.8.2 $oldversion is
+        // 2026090102 - GREATER than both savepoints above. Both guards evaluate false, the delete
+        // capabilities are never granted, and `timeactivated` is never created.
+        //
+        // What follows is worse than a clean failure, because it is not uniform. Code that names
+        // the column in its SQL throws: opening the conditions or actions listing
+        // (conditions.php:62, actions.php:62 -> rule_lock::is_locked(), which selects
+        // 'id, timeactivated' with MUST_EXIST), activating a rule, and backing up a course.
+        // Code that reads it off a row fetched with '*' does NOT throw: rule_lock::is_locked_row()
+        // gets an undefined-property warning that evaluates to null, so the rules list renders
+        // happily with every sealed rule shown as editable and deletable. A fresh install is
+        // unaffected, because install.xml declares the column - which is exactly why this hole is
+        // invisible until somebody upgrades.
+        //
+        // Repeating is safe: assign_capability() defaults to $overwrite = false and returns without
+        // touching an existing decision (lib/accesslib.php:1437) - and refuses outright when the
+        // capability is not registered yet (:1421), which is what makes the get_capability_info()
+        // guard in the granting function load-bearing rather than defensive, the column add is guarded by
+        // field_exists(), and the stamp only writes rows where timeactivated IS NULL.
+        local_coursedynamicrules_upgrade_grant_component_deletion();
+        local_coursedynamicrules_upgrade_add_activation_stamp($dbman);
+
+        upgrade_plugin_savepoint(true, 2026090200, 'local', 'coursedynamicrules');
+    }
+
     return true;
+}
+
+/**
+ * Add the first-activation column and stamp the rules that are already active.
+ *
+ * Extracted so the step can run from more than one savepoint without the body being duplicated:
+ * see the 2026090200 block for why a site can arrive here having skipped 2026083002 entirely.
+ * Both halves are idempotent, so a site that already ran one of them loses nothing by running it
+ * again.
+ *
+ * @param database_manager $dbman
+ * @return void
+ */
+function local_coursedynamicrules_upgrade_add_activation_stamp(database_manager $dbman): void {
+    global $DB;
+
+    // A rule may be edited only until its FIRST activation, never again. The column records
+    // that moment: stamped once, never cleared - pausing and reactivating leave it alone.
+    $table = new xmldb_table('local_coursedynamicrules_rule');
+    $field = new xmldb_field(
+        'timeactivated',
+        XMLDB_TYPE_INTEGER,
+        '10',
+        null,
+        null,
+        null,
+        null,
+        'lastexecutiontime'
+    );
+    if (!$dbman->field_exists($table, $field)) {
+        $dbman->add_field($table, $field);
+    }
+
+    // Product decision 2026-08-31: rules that are ACTIVE at upgrade time were activated at some
+    // point, so they are stamped - locked from day one, still pausable forever - or the
+    // requirement would be void for the whole installed base. Inactive rules are grandfathered
+    // unlocked: their activation history is unknowable, and stamping them would lock rules
+    // that may never have run. The stamp borrows the best timestamp the row can offer.
+    $DB->execute(
+        "
+        UPDATE {local_coursedynamicrules_rule}
+           SET timeactivated = COALESCE(NULLIF(timemodified, 0), NULLIF(timecreated, 0), :now)
+         WHERE active = 1 AND timeactivated IS NULL",
+        ['now' => time()]
+    );
 }
 
 /**
@@ -243,4 +337,44 @@ function local_coursedynamicrules_upgrade_migrate_sendnotification_roles(): void
 
         $DB->set_field('local_coursedynamicrules_action', 'params', json_encode($params), ['id' => $action->id]);
     }
+}
+
+/**
+ * Grant the three component-deletion capabilities to every editing-teacher-archetype role.
+ *
+ * Extracted from the savepoint so the upgrade path itself is testable: core's
+ * update_capabilities() applies archetype defaults ONLY to capabilities it is seeing for the
+ * first time (it iterates $newcaps - lib/accesslib.php), and these three shipped releases ago as
+ * manager-only. Editing db/access.php therefore changes nothing on any site that already has the
+ * plugin: this function is what carries the product decision - whoever may build rules may also
+ * unbuild them - to every existing site.
+ *
+ * assign_capability() is called WITHOUT overwrite: a site that explicitly prohibited or allowed
+ * any of these on some role made a decision, and an upgrade must not undo it. Only roles with no
+ * explicit entry receive the new default.
+ *
+ * @return void
+ */
+function local_coursedynamicrules_upgrade_grant_component_deletion(): void {
+    $systemcontext = context_system::instance();
+
+    foreach (get_archetype_roles('editingteacher') as $role) {
+        foreach (['deleterule', 'deletecondition', 'deleteaction'] as $capability) {
+            // Guarded: assign_capability() throws when the capability is not registered yet, and
+            // update_capabilities() only runs AFTER db/upgrade.php - every released version
+            // declares these three, so this only shields never-released early installs from a
+            // hard-aborted upgrade (final-review hardening).
+            if (!get_capability_info('local/coursedynamicrules:' . $capability)) {
+                continue;
+            }
+            assign_capability(
+                'local/coursedynamicrules:' . $capability,
+                CAP_ALLOW,
+                $role->id,
+                $systemcontext->id
+            );
+        }
+    }
+
+    $systemcontext->mark_dirty();
 }

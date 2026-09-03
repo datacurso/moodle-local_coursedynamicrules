@@ -80,6 +80,33 @@ abstract class action {
     }
 
     /**
+     * The description as the RULES LIST should show it: free text cut, everything else whole.
+     *
+     * Two screens read a component's description and they need different things. The conditions
+     * and actions pages, reached through a rule's magnifier, show what the component will really
+     * do - the whole notification body, the whole AI prompt - and get get_description(). The rules
+     * list summarises one row per rule and needs bounded height, so it gets this.
+     *
+     * The default is get_description(), unchanged, because most components have nothing unbounded
+     * to cut: a condition's description is 83-126 characters of fixed text plus an activity name.
+     * Only the components carrying free text a teacher types without limit override this, and each
+     * cuts ITS OWN part.
+     *
+     * That is the whole point, and the reason the previous attempt failed. Cutting the COMPOSED
+     * sentence at a fixed length cannot work: a notification's description opens with "Enviar
+     * notificacion '<asunto>' a los usuarios Destinatarios: <roles>. Con copia a: <roles>.
+     * Mensaje: " - measured at 120 characters with one role and 196 with five, in Spanish with
+     * default role names - so the budget was spent before the message began and the list showed no
+     * body at all. Neither the subject (CHAR 255) nor the role list has an upper bound, so no
+     * single number over the composed string can both bound the row and guarantee visible text.
+     *
+     * @return string
+     */
+    public function get_listing_description() {
+        return $this->get_description();
+    }
+
+    /**
      * Displays the form for editing an action
      *
      * this function only can used after the call of build_editform()
@@ -194,6 +221,17 @@ abstract class action {
         $existingid = $this->get_id();
         $record = new stdClass();
 
+        // The lock is enforced AT THE WRITE, not only at the endpoint: actions.php checked the
+        // URL's ruleid, but the insert below targets the form's hidden ruleid - the same
+        // decided-here-written-there seam as the editrule capability bug. Resolve the rule this
+        // write actually lands on (the stored action's rule on update, the ownership-validated
+        // form ruleid on insert) and refuse if it is sealed. Rule deletion is NOT gated here:
+        // deleting a whole rule deletes its components and stays allowed by contract.
+        $targetruleid = !empty($existingid)
+            ? (int) $this->ruleid
+            : (int) ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+        \local_coursedynamicrules\helper\rule_lock::require_unlocked($targetruleid);
+
         if (!empty($existingid)) {
             foreach ($this->runtime_param_keys() as $key) {
                 // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
@@ -215,7 +253,8 @@ abstract class action {
             $record->actiontype = $this->type;
             $record->lastexecutiontime = $this->lastexecutiontime;
         } else {
-            $record->ruleid = ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+            // The very id the lock was decided on - one resolution, one write target.
+            $record->ruleid = $targetruleid;
             $record->actiontype = $this->type;
             $record->params = json_encode($params);
             $record->id = $DB->insert_record(static::TABLE, $record);

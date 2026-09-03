@@ -10,9 +10,11 @@ Feature: Configurable action descriptions are escaped on the delete confirmation
       | Course 1 | C1        | 0        |
 
   Scenario: A malicious prompt is shown escaped on the delete action page
+    # A draft rule: the delete page only exists for unsealed rules, so the escape check must
+    # run against the one state where anyone can actually reach this page.
     Given the following local coursedynamicrules AI activity actions exist:
-      | course | prompt                                            |
-      | C1     | &lt;script&gt;alert(document.cookie)&lt;/script&gt; |
+      | course | active | prompt                                            |
+      | C1     | 0      | &lt;script&gt;alert(document.cookie)&lt;/script&gt; |
     And I log in as "admin"
     When I visit the coursedynamicrules delete page for the latest action in course "C1"
     # When the description is escaped the payload renders as visible text; when it is injected

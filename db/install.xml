@@ -12,6 +12,7 @@
         <FIELD NAME="description" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="active" TYPE="int" LENGTH="1" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
         <FIELD NAME="lastexecutiontime" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Indicate time of last finished execution"/>
+        <FIELD NAME="timeactivated" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="When the rule was FIRST activated - stamped once, never cleared. NULL means never activated: the only state in which the rule may still be edited. Pausing and reactivating do not touch it."/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
         <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false"/>
       </FIELDS>

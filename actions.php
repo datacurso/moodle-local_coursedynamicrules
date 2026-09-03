@@ -23,6 +23,9 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\availability_user_status;
+use local_coursedynamicrules\helper\page_gate;
+use local_coursedynamicrules\helper\rule_lock;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
@@ -35,7 +38,10 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
-require_capability('local/coursedynamicrules:manageaction', $context);
+// The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
+// unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and
+// the wiring test there pins that this page still makes the call.
+page_gate::require_listing('action', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/actions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
 $rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
@@ -51,35 +57,62 @@ if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid,
     throw new moodle_exception('invalidruleid', 'local_coursedynamicrules');
 }
 
+// One lock query per request, not per row: the fact is rule-level and constant here
+// (round-3 confirmed suggestion - rules.php pays zero per-row queries for the same fact).
+$rulelocked = rule_lock::is_locked($ruleid);
+
 // Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
 // form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
 $editid = optional_param('edit', 0, PARAM_INT);
-if ($editid > 0) {
-    // Editing an existing action in place is not available in this release. Bounce a bookmarked
-    // link, or a form left open before the upgrade, back to the listing. This must happen before
-    // the create branch below, because an edit submission also carries a 'type' and would
-    // otherwise be read as a request to create a brand new action.
-    redirect($url, get_string('editingunavailable', 'local_coursedynamicrules'));
-}
 $actioninstance = null;
-if (!empty($type)) {
+$editingexisting = false;
+$formurl = $url;
+if ($editid > 0) {
+    // Bounded in-place editing (product directive 2026-08-31): a component can be edited only
+    // while its rule was never activated - the seal is exactly the advisory boundary the 1.8.1
+    // withholding was waiting for. This branch must run before the create branch below, because
+    // an edit submission also carries a 'type' and would otherwise create a brand new action.
+    require_capability('local/coursedynamicrules:updateaction', $context);
+    rule_lock::require_unlocked($ruleid);
+    $actionrecord = \local_coursedynamicrules\helper\ownership::get_action($editid, $courseid, $ruleid);
+    $actioninstance = rule_component_loader::create_action_instance($actionrecord, $courseid);
+    $editingexisting = true;
+    // The form must post back into THIS branch, or the hidden 'type' would create a duplicate.
+    $formurl = new moodle_url($url, ['edit' => $editid]);
+} else if (!empty($type)) {
+    // The add menu is only rendered for a role that holds this, but the type is a URL
+    // parameter: refuse it here as well.
+    page_gate::require_creation('action', $context);
+    // A locked rule accepts no new components - the menu below is hidden too, but a URL is
+    // not a menu.
+    rule_lock::require_unlocked($ruleid);
     $actionrecord = (object) [
         'ruleid' => $ruleid,
         'actiontype' => $type,
         'params' => json_encode([]),
     ];
     $actioninstance = rule_component_loader::create_action_instance($actionrecord, $courseid);
+}
+
+if ($actioninstance !== null) {
     $customdata = [
         'courseid' => $courseid,
         'ruleid' => $ruleid,
     ];
-    $actioninstance->build_editform($url, $customdata, 'post', '', ['class' => 'card p-4']);
+    if ($editingexisting) {
+        // The stored params preload the form (action_form reads customdata['record']).
+        $customdata['record'] = json_decode((string) $actionrecord->params);
+    }
+    $actioninstance->build_editform($formurl, $customdata, 'post', '', ['class' => 'card p-4']);
 
     if ($actioninstance->is_cancelled()) {
         redirect($url);
     } else if ($data = $actioninstance->get_data()) {
         $actionid = $actioninstance->save_action($data);
-        \local_coursedynamicrules\event\action_created::create([
+        $eventclass = $editingexisting
+            ? \local_coursedynamicrules\event\action_updated::class
+            : \local_coursedynamicrules\event\action_created::class;
+        $eventclass::create([
             'context' => $context,
             'objectid' => $actionid,
         ])->trigger();
@@ -99,20 +132,39 @@ foreach ($actions as $action) {
     $header = $listedactioninstance->get_header();
     $description = $listedactioninstance->get_description();
 
-    $deleteurl = new moodle_url(
-        '/local/coursedynamicrules/deleteaction.php',
-        ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
-    );
     if (!empty($header) && !empty($description)) {
-        // No 'editurl' is supplied: the shared template renders the edit control only when that
-        // key is present, so leaving it out is what removes the control from every row.
-        $actionsfortemplate[] = [
+        $row = [
             'id' => $action->id,
             'header' => $header,
             'description' => $description,
-            'deleteurl' => $deleteurl->out(false),
-            'deletetitle' => get_string('deleteaction', 'local_coursedynamicrules'),
         ];
+
+        // Bounded editing: the pencil appears only while the rule was never activated and the
+        // role holds updateaction - the same pair of gates the edit endpoint enforces.
+        if (has_capability('local/coursedynamicrules:updateaction', $context) && !$rulelocked) {
+            $editurl = new moodle_url(
+                '/local/coursedynamicrules/actions.php',
+                ['edit' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['editurl'] = $editurl->out(false);
+            $row['edittitle'] = get_string('editaction', 'local_coursedynamicrules');
+        }
+
+        // The trash can needs deleteaction - held by managers AND, since 1.8.3, the editing
+        // teacher archetype (RISK_DATALOSS, explicit PROHIBITs respected) - and offering it to a
+        // role without the capability puts a control in front of them that the endpoint then
+        // refuses with an error page: never offer what would be refused. The endpoint keeps
+        // its own check either way; this only aligns the offer with it.
+        if (has_capability('local/coursedynamicrules:deleteaction', $context) && !$rulelocked) {
+            $deleteurl = new moodle_url(
+                '/local/coursedynamicrules/deleteaction.php',
+                ['id' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['deleteurl'] = $deleteurl->out(false);
+            $row['deletetitle'] = get_string('deleteaction', 'local_coursedynamicrules');
+        }
+
+        $actionsfortemplate[] = $row;
     }
 }
 
@@ -123,8 +175,21 @@ $actionoptions = local_coursedynamicrules_load_action_options();
 $headerrow = new \local_coursedynamicrules\output\header_with_brand('actions');
 echo $OUTPUT->render($headerrow);
 echo html_writer::link($rulesurl, get_string('backtolistrules', 'local_coursedynamicrules'), ['class' => 'mb-3 d-block']);
+// Losing the per-user availability restriction silently un-hides every activity the rules
+// gate, so the operator has to be told here rather than discovering it through exposed
+// content.
+if (!availability_user_status::is_enabled()) {
+    echo $OUTPUT->notification(
+        get_string('availabilityuserdisabledwarning', 'local_coursedynamicrules'),
+        \core\output\notification::NOTIFY_WARNING
+    );
+}
+
 echo html_writer::start_div('d-flex');
-echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
+
+if (has_capability('local/coursedynamicrules:createaction', $context) && !$rulelocked) {
+    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
+}
 echo html_writer::start_div('col-8');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $actionsfortemplate]);
 

@@ -45,6 +45,41 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * The description carries the WHOLE message body - the operator must read what will be sent.
+     *
+     * The old shape cut the body at 80 characters with shorten_text(), so the card showed a
+     * teaser of the notification learners would actually receive. Product ask 2026-08-31:
+     * everything visible, nothing cut.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_shows_the_whole_body(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+        $ruleid = $this->create_rule($course->id);
+
+        $body = 'Hello {$a->firstname}, we noticed you have not accessed the course for a while.'
+            . ' Please come back and review the pending activities of unit three before the deadline,'
+            . ' and contact your tutor if you need an extension or any kind of help with the material.';
+        $this->assertGreaterThan(80, \core_text::strlen($body), 'Sanity: the fixture must exceed the old cut.');
+
+        $record = (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Come back',
+                'messagebody' => $body,
+                'primaryroleids' => [$studentroleid],
+                'copyroleids' => [],
+            ])];
+        $action = new sendnotification_action($record, $course->id);
+
+        $this->assertStringContainsString($body, $action->get_description());
+    }
+
+    /**
      * A round-trip create -> edit must persist exactly one row, update the mutated field, and leave
      * lastexecutiontime untouched. This exercises save_action() with EXPLICITLY submitted role data
      * (as an mform would after successful validation) — it does not exercise the mform's own
@@ -800,7 +835,8 @@ final class sendnotification_action_test extends \advanced_testcase {
         $this->assertStringContainsString('your grade is low', $description);
         $this->assertStringNotContainsString('<p>', $description);
         $this->assertStringNotContainsString('<strong>', $description);
-        $this->assertStringNotContainsString($bodytail, $description);
+        // Contract change (product ask 2026-08-31): the WHOLE body shows, nothing is cut at 80.
+        $this->assertStringContainsString($bodytail, $description);
     }
 
     /**

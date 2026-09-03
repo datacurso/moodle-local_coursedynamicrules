@@ -1,3 +1,49 @@
+## 1.8.3
+
+**Released on:** 2026-09-02
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+## Added
+- **An editing teacher can delete rule components and rules**
+  The three delete capabilities were manager-only, so a component created by mistake meant an escalation request to an administrator - multiplied by every teacher on the site. Whoever may build rules may also unbuild them: the editing teacher archetype now holds `deleterule`, `deletecondition` and `deleteaction`, on fresh installs and through the upgrade step on existing sites alike. A role where an administrator explicitly prohibited any of these keeps that decision - the upgrade does not overrule it.
+- **A rule becomes permanently unmodifiable at its first activation**
+  Activating a rule is now an explicit, one-way step. Saving with the Active box ticked stores every edit first and then asks for confirmation on its own page, spelling out that the rule can never be modified again and that pausing carries its own risks; replaying that confirmation later simply reports the rule is already activated. Once confirmed, the rule's name, description, conditions and actions are sealed: the form freezes, the add and delete controls disappear, direct URLs are refused, and the server re-decides at write time so a tab opened before the seal cannot smuggle an edit through. Pausing, reactivating and deleting remain available forever - the list shows one badge with four states: **Active** (running, whether or not it has fired - event-driven rules stay active and fire repeatedly), **Executed** (stopped and already fired at least once, in the Datacurso brand orange - one-shot scheduled rules land here on their own, because the task deactivates them right after executing), **Paused** (activated once, stopped, never fired - resumable forever) and **Inactive** (never activated, the only editable state) - and a rule with no conditions or actions cannot be activated at all - sealed incomplete could never fire nor be finished. The seal survives course backup, restore, import and duplication, and an archive made before this version restores its active rules sealed. **Site administrators, note:** the upgrade seals every rule that is active at upgrade time - active means it was activated once - while inactive rules stay editable until their first activation.
+- **Conditions and actions can be edited in place while the rule was never activated**
+  The 1.8.1 withholding of in-place editing existed because editing could change what an already-running rule did to learners; the activation lock dissolved that risk, so the editor returns exactly inside the bound: a pencil on each condition/action card, shown only while the rule was never activated and only to roles holding the matching `update*` capability (both re-checked server-side with ownership before anything renders). The form opens preloaded with the stored configuration, saves preserve runtime state, and edits fire the `condition_updated`/`action_updated` audit events.
+- **A rule's description is revealed by hovering its name on the list**
+  The description was written on the rule form and then visible nowhere else, so telling two similarly named rules apart meant opening each one. The name on the rules list now carries the description as a tooltip, shown only for rules that have one, without spending a column on it. Note the limit: a native tooltip answers to the mouse only, so it is not reachable by keyboard or on a touch screen - the edit form remains the way to read a description without a pointer.
+
+## Changed
+- **Declared capabilities are now enforced where their pages and controls live**
+  Entering the rules, conditions and actions pages now requires the matching `view*` capability alongside the `manage*` one; adding a component requires `create*` both on the menu and on the URL it posts to; controls that would be refused are no longer offered - including the per-row delete controls, which are shown only to roles holding the matching `delete*` capability. **Site administrators with custom roles, note:** a custom role built without an archetype that was granted only `manage*` capabilities - previously the only ones checked - must now also be granted the matching `view*` (and `create*`, if it adds components) or it will lose access to these pages on upgrade. Roles based on the editing teacher or manager archetypes are unaffected. The `updateaction` and `updatecondition` capabilities are now enforced too: they gate the in-place component editor described under Added.
+- **Both component listings warn when the availability_user plugin is disabled**
+  Losing the per-user restriction silently un-hides every activity the rules gate, so the operator is told where they work instead of discovering it through exposed content.
+- **Declared dependencies match the APIs actually used**
+  `local_coursegen` moves to 2026082400 and `aiprovider_datacurso` to 2026081000. Without this the plugin would install against a Course Creator AI that does not have `create_mod_service`, and break in exactly the way this release fixes.
+- **Component descriptions are trimmed on the rules list and shown whole on the component pages**
+  A long condition or action description (a notification body, an AI prompt) used to stretch its row and make the rules list ragged. The list now trims the free text each component carries - a notification body, an AI prompt, the list of activities an enable action names - to 80 characters with an ellipsis, so rows keep a similar height, while the conditions and actions pages reached through each rule's magnifier show the full text. Trimming each part at its source rather than the finished sentence is what keeps the message visible: a notification's description opens with a preamble naming its subject and every recipient role, which on its own runs past 190 characters with five roles, so a cut applied to the whole sentence was swallowed before the message began. The cut is made on the plain text before HTML escaping, so no escaped entity is ever sliced in half.
+
+## Security
+- **Rule names are escaped on the rules list and the delete confirmation page**
+  A rule name was written into both pages without escaping. It could not be exploited through the rule form, which types the field as plain text and strips tags, but course restore writes the name with no cleaning at all - so a rule arriving in a prepared backup rendered as live markup on two pages that only privileged users reach. Both now escape the name through one shared boundary, which also resolves multilang names instead of printing their markup. **Site administrators, note:** this closes a vector present in 1.8.2 and earlier; a course restored from an untrusted backup is the way in, so sites that accept backups from outside should upgrade rather than defer.
+
+## Fixed
+- **The create AI activity action works again with Course Creator AI 2.x**
+  Course Creator AI 2.0.3 removed `local_coursegen\mod_manager` without leaving an alias, so the action called a class that no longer existed. The failure was swallowed by the action's own error handling and surfaced only as developer debugging output, which meant that on a site with debugging off the action simply produced nothing, silently, on every run. The action now goes through `local_coursegen\local\service\create_mod_service` and unwraps the flat result the service returns, instead of the nested shape the removed class expected.
+- **The required-plugin checks on the AI action form name the right plugins**
+  The form pointed at the wrong download page for Course Creator AI and did not check for `aiprovider_datacurso` at all, even though that plugin supplies the HTTP client the action depends on.
+- **Saving a rule enforces the capability on the rule actually written**
+  The page decided between `createrule` and `updaterule` from the id in the URL, but wrote to the id in the form - a hidden, client-controlled field. A role allowed only to create could update an existing rule by posting its id, and a role allowed only to update could create by posting zero. The capability is now decided where the write target is resolved, on the id that is actually written, and omitting the context there is a fatal error rather than a silent skip.
+- **The create-a-rule form no longer emits PHP warnings**
+  Building the form for a rule that does not exist yet read three properties off an empty object. Invisible in production; fatal under acceptance testing, where it took the whole rule form screen down.
+- **Learner names are anonymised as whole words only**
+  A name that is the prefix of another word (such as "Eva" inside "Evaluación") is no longer mangled in the prompt sent to the AI service, and the full name is replaced before its parts.
+- **Restoring a course reconciles notification roles and ownership markers**
+  Role ids stored inside notification actions are remapped to the restored course's roles, and ownership markers survive the round trip.
+
+---
+
 ## 1.8.2
 
 **Released on:** 2026-09-01
@@ -7,6 +53,8 @@
 ### Fixed
 - **Send notification action can now target copy recipients only**
   Saving a send notification action required at least one primary recipient role, and executing it never notified copy recipients unless a primary role also matched - so a rule meant to notify only an observer role (for example, a teacher) about another role's activity, without messaging that role directly, could not be configured at all. Primary recipients are now optional: at least one recipient role, primary or copy, must be selected, and a copy-only configuration notifies its copy roles without ever messaging the matched user.
+
+---
 
 ## 1.8.1
 
