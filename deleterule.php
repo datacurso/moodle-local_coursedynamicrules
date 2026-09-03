@@ -57,7 +57,7 @@ $rule = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
 
 // Escaped once, here, because both outputs below put this name into HTML and neither escapes it
 // for us: core_renderer::confirm() emits its message through html_writer::tag('p', ...) untouched
-// (lib/classes/output/core_renderer.php:1769). The name is user text and the form is not its only
+// (lib/classes/output/core_renderer.php:1768). The name is user text and the form is not its only
 // writer - course restore inserts it with no cleaning at all
 // (restore_local_coursedynamicrules_plugin.class.php:95) - so a rule restored from a crafted
 // backup carries whatever its author put in the name. This page was the one member of the delete

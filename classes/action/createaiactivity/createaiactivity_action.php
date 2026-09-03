@@ -16,15 +16,16 @@
 
 namespace local_coursedynamicrules\action\createaiactivity;
 
+use moodle_url;
 use aiprovider_datacurso\httpclient\ai_course_api;
 use core_availability\tree;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\createaiactivity_form;
+use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\local\payload_anonymizer;
 use local_coursegen\ai_context;
 use local_coursegen\local\service\create_mod_service;
-use moodle_url;
 
 /**
  * Class createaiactivity_action
@@ -269,15 +270,33 @@ class createaiactivity_action extends action {
      * @return string
      */
     public function get_description() {
+        return $this->build_description(false);
+    }
+
+    #[\Override]
+    public function get_listing_description() {
+        return $this->build_description(true);
+    }
+
+    /**
+     * Compose the description, with the AI prompt either whole or cut for the listing.
+     *
+     * @param bool $forlisting Whether to cut the prompt to the listing budget.
+     * @return string
+     */
+    private function build_description(bool $forlisting) {
         global $CFG;
         require_once($CFG->dirroot . '/course/lib.php');
 
         $course = get_course($this->courseid);
         $sectionnum = (int) ($this->params->sectionnum ?? 0);
         $sectionname = get_section_name($course, $sectionnum);
-        // The WHOLE prompt, never an 80-char teaser: the operator reading this card is reading
-        // what the AI service will actually receive (product ask 2026-08-31).
+        // On the component page the WHOLE prompt, never a teaser: the operator reading that card
+        // is reading what the AI service will actually receive (product ask 2026-08-31).
         $prompt = $this->params->message ?? '';
+        if ($forlisting) {
+            $prompt = component_renderer::cut_freetext($prompt);
+        }
 
         $data = (object) [
             'section' => $sectionname,

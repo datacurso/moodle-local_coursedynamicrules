@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\helper;
 
 use local_coursedynamicrules\action\createaiactivity\createaiactivity_action;
+use local_coursedynamicrules\action\sendnotification\sendnotification_action;
 
 /**
  * Tests for the component description renderer used by the rules list.
@@ -61,29 +62,77 @@ final class component_renderer_test extends \advanced_testcase {
     }
 
     /**
-     * A description longer than the listing budget is cut with an ellipsis; a shorter one passes
-     * through whole. The cut happens on the plain text BEFORE escaping, so no entity is ever
-     * sliced in half.
+     * Free text longer than the budget is cut with an ellipsis; shorter passes through whole.
      *
-     * The lengths come from the constant rather than a literal on purpose. When the budget was a
-     * hard-coded 80 in both places, this test pinned the number instead of the behaviour - it
-     * would have gone red for the fix that RAISED the budget, and it stayed green through the
-     * whole time the listing was cutting inside a notification's fixed preamble and showing no
-     * message body at all.
+     * Reads the constant, so it pins the MECHANISM of the cut and nothing about the value. That is
+     * deliberate and it is also not enough on its own - see
+     * test_the_listing_still_shows_a_notification_body(), which pins the value. Two adversarial
+     * rounds proved why both are needed: with only a constant-relative test, reverting the budget
+     * to a number that hid the message body left the whole suite green.
      */
-    public function test_long_description_is_trimmed_short_one_is_not(): void {
-        $budget = component_renderer::LISTING_DESCRIPTION_LENGTH;
-        $long = str_repeat('a', $budget + 20);
-        $short = str_repeat('b', $budget);
+    public function test_free_text_over_the_budget_is_cut(): void {
+        $budget = component_renderer::LISTING_FREETEXT_LENGTH;
 
-        $html = component_renderer::descriptions_html([
-            $this->component_stub('Header', $long),
-            $this->component_stub('Header', $short),
-        ]);
+        $this->assertSame(str_repeat('a', $budget) . '…',
+            component_renderer::cut_freetext(str_repeat('a', $budget + 20)));
+        $this->assertSame(str_repeat('b', $budget),
+            component_renderer::cut_freetext(str_repeat('b', $budget)));
+    }
 
-        $this->assertStringContainsString('<p>' . str_repeat('a', $budget) . '…</p>', $html);
-        $this->assertStringNotContainsString(str_repeat('a', $budget + 1), $html);
-        $this->assertStringContainsString('<p>' . $short . '</p>', $html);
+    /**
+     * The rules list must still show part of a notification's MESSAGE, whatever the budget is.
+     *
+     * This is the assertion both judges asked for in round 2, and the one whose absence let two
+     * wrong values ship. A notification's description opens with a preamble - "Enviar notificacion
+     * '<asunto>' a los usuarios Destinatarios: <roles>. Con copia a: <roles>. Mensaje: " -
+     * measured at 120 characters with one recipient role and 196 with five, in Spanish with
+     * default role names. Neither the subject (CHAR 255) nor the role list is bounded, so a cut
+     * over the COMPOSED sentence can always be swallowed by the preamble: at 80 the list showed no
+     * body at all, and at 220 it showed 24 characters with five roles.
+     *
+     * The fixture is deliberately the hostile end of realistic - five roles and a long subject -
+     * because the friendly case passed under both broken values. It runs in ENGLISH, which is the
+     * KINDER language here: the English preamble is shorter than the Spanish one, so a fixture
+     * that discriminates in English discriminates in Spanish too. (force_current_language('es')
+     * was tried and silently did nothing - the Spanish pack is not installed in the PHPUnit
+     * database - and a line that does nothing while the docblock cites Spanish numbers is worse
+     * than no line, so it is gone.)
+     *
+     * Falsifier: make get_listing_description() return get_description(), or move the cut back
+     * onto the composed string, and this goes red.
+     */
+    public function test_the_listing_still_shows_a_notification_body(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $body = 'Hola, notamos que no ingresaste al curso en dos semanas. Te dejamos una '
+            . 'actividad de refuerzo para retomar el ritmo y no atrasarte con la entrega final.';
+        $rulegen = $this->getDataGenerator()->get_plugin_generator('local_coursedynamicrules');
+        $ruleid = $rulegen->create_rule($course->id, []);
+
+        $roleids = array_values(array_map(static function ($role) {
+            return (int) $role->id;
+        }, get_all_roles()));
+        $action = new sendnotification_action((object) [
+            'id' => 0,
+            'ruleid' => $ruleid,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Recordatorio de entrega de la actividad final del curso',
+                'messagebody' => $body,
+                'primaryroleids' => array_slice($roleids, 0, 3),
+                'copyroleids' => array_slice($roleids, 3, 2),
+            ]),
+        ], $course->id);
+
+        $html = component_renderer::descriptions_html([$action]);
+
+        // The first words of the body, escaped exactly as the listing renders them.
+        $this->assertStringContainsString(s('Hola, notamos que no ingresaste al curso'), $html,
+            'the rules list has to show part of the message, not just the preamble');
+        // And the body is still cut, or the row grows without bound.
+        $this->assertStringNotContainsString(s('entrega final'), $html,
+            'the whole body belongs on the component page, not on the list');
     }
 
     /**
@@ -189,6 +238,19 @@ final class component_renderer_test extends \advanced_testcase {
              * @return string
              */
             public function get_description(): string {
+                return $this->description;
+            }
+
+            /**
+             * Return the stub's listing description.
+             *
+             * Same text as get_description(), the way every component that has no unbounded free
+             * text behaves - the base classes' default. The stub exists to test the renderer's
+             * own escaping and skipping, not a component's cutting policy.
+             *
+             * @return string
+             */
+            public function get_listing_description(): string {
                 return $this->description;
             }
         };

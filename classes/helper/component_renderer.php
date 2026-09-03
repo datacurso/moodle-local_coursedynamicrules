@@ -32,21 +32,37 @@ use html_writer;
  */
 class component_renderer {
     /**
-     * @var int Characters of a component description the rules list shows before cutting.
+     * @var int Characters of a component's FREE TEXT the rules list shows before cutting.
      *
-     * 80 was the first value and it was measured wrong: it is the budget for the WHOLE composed
-     * description, and a notification's description opens with a fixed preamble - "Send
-     * notification '<subject>' to users Recipients: <roles>. Copy to: <roles>. Message: " - that
-     * runs to 119 characters with one recipient role and 146 with two. The cut landed inside the
-     * preamble, so the listing showed no message body at all and two rules with the same subject
-     * were indistinguishable. Against 1.8.2, which trims the BODY to 80 and shows the preamble
-     * whole, that was a loss of information rather than a tidier row.
+     * Free text means the part a teacher types with no limit: a notification body, an AI prompt,
+     * the list of activities an enable action names. Each component cuts its own, in
+     * get_listing_description(); this is the shared budget they use, and 80 is what 1.8.2 showed.
      *
-     * 220 clears the longest measured preamble and still leaves roughly what 1.8.2 showed of the
-     * body. It is a row-height decision, so it lives here as one number to change rather than
-     * scattered through the components.
+     * It is NOT a budget for the composed description, and that distinction is the whole fix. Two
+     * earlier attempts cut the finished sentence - first at 80, then at 220 - and both failed the
+     * same way: a notification's description opens with "Enviar notificacion '<asunto>' a los
+     * usuarios Destinatarios: <roles>. Con copia a: <roles>. Mensaje: ", measured at 120
+     * characters with one role and 196 with five in Spanish with default role names, so the budget
+     * was spent before the message began. Neither the subject (CHAR 255) nor the role list has an
+     * upper bound, so no number over the composed string can both bound the row and guarantee
+     * visible text. Bounding each free-text part at its source can.
      */
-    public const LISTING_DESCRIPTION_LENGTH = 220;
+    public const LISTING_FREETEXT_LENGTH = 80;
+
+    /**
+     * Cut a component's free text to the listing budget, on plain text, with an ellipsis.
+     *
+     * A character cut rather than shorten_text(), which is HTML-aware and mangles plain text
+     * containing '<' or '>' - it tokenises them as tags and appends fabricated closers.
+     *
+     * @param string $text
+     * @return string
+     */
+    public static function cut_freetext(string $text): string {
+        return \core_text::strlen($text) > self::LISTING_FREETEXT_LENGTH
+            ? \core_text::substr($text, 0, self::LISTING_FREETEXT_LENGTH) . '…'
+            : $text;
+    }
 
     /**
      * Build the paragraph list of component descriptions.
@@ -58,17 +74,13 @@ class component_renderer {
         $html = '';
         foreach ($instances as $instance) {
             $header = $instance->get_header();
-            $description = $instance->get_description();
+            // get_listing_description(), not get_description(): the component decides what of
+            // itself is free text and cuts that (product directive 2026-08-31 asked the listing to
+            // keep a uniform row height; the magnifier's page still shows everything). Escaping
+            // runs last, on the already-short string, so no entity is ever sliced in half.
+            $description = $instance->get_listing_description();
             if (!empty($header) && !empty($description)) {
-                // The LISTING trims for uniform row height (product directive 2026-08-31); the
-                // magnifier's page shows the untrimmed description. Plain-text cut on purpose:
-                // shorten_text() is HTML-aware and mangles plain text containing '<' or '>'
-                // (tokenises them as tags and appends fabricated closers - final-review finding),
-                // so a character cut runs first and escaping runs last, on the short string.
-                $short = \core_text::strlen($description) > self::LISTING_DESCRIPTION_LENGTH
-                    ? \core_text::substr($description, 0, self::LISTING_DESCRIPTION_LENGTH) . '…'
-                    : $description;
-                $html .= html_writer::tag('p', s($short));
+                $html .= html_writer::tag('p', s($description));
             }
         }
         return $html;

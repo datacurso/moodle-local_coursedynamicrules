@@ -18,11 +18,12 @@ namespace local_coursedynamicrules\action\sendnotification;
 
 use context_course;
 use html_writer;
+use moodle_url;
+use stdClass;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\sendnotification_form;
-use moodle_url;
-use stdClass;
+use local_coursedynamicrules\helper\component_renderer;
 
 /**
  * Class sendnotification_action
@@ -322,6 +323,26 @@ class sendnotification_action extends action {
      * @return string
      */
     public function get_description() {
+        return $this->build_description(false);
+    }
+
+    #[\Override]
+    public function get_listing_description() {
+        return $this->build_description(true);
+    }
+
+    /**
+     * Compose the description, with the message body either whole or cut for the listing.
+     *
+     * The body is the only part a teacher writes with no limit, so it is the only part the listing
+     * cuts. Subject and role names stay whole: cutting the composed sentence instead is what made
+     * the rules list show no body at all, because this preamble alone runs to 120 characters with
+     * one recipient role and 196 with five.
+     *
+     * @param bool $forlisting Whether to cut the body to the listing budget.
+     * @return string
+     */
+    private function build_description(bool $forlisting) {
         $messagesubject = $this->params->messagesubject ?? '';
         $subjectpart = get_string('sendnotification_description', 'local_coursedynamicrules', $messagesubject);
 
@@ -333,10 +354,13 @@ class sendnotification_action extends action {
         $rolenames = role_get_names($coursecontext, ROLENAME_ALIAS, true);
 
         $messagebody = $this->params->messagebody ?? '';
-        // The WHOLE body, never an 80-char teaser: the operator reading this card is reading
-        // what learners will actually receive (product ask 2026-08-31). html_to_text with
+        // On the component page the WHOLE body, never a teaser: the operator reading that card is
+        // reading what learners will actually receive (product ask 2026-08-31). html_to_text with
         // width 0 keeps lines unwrapped; trim only strips the conversion's edge whitespace.
         $bodytext = trim(html_to_text($messagebody, 0, false));
+        if ($forlisting) {
+            $bodytext = component_renderer::cut_freetext($bodytext);
+        }
 
         $details = get_string('sendnotification_description_details', 'local_coursedynamicrules', (object) [
             'primaryroles' => $this->get_role_names_string($primaryroleids, $rolenames),

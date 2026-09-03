@@ -221,7 +221,9 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         // invisible until somebody upgrades.
         //
         // Repeating is safe: assign_capability() defaults to $overwrite = false and returns without
-        // touching an existing decision (lib/accesslib.php:1433), the column add is guarded by
+        // touching an existing decision (lib/accesslib.php:1437) - and refuses outright when the
+        // capability is not registered yet (:1421), which is what makes the get_capability_info()
+        // guard in the granting function load-bearing rather than defensive, the column add is guarded by
         // field_exists(), and the stamp only writes rows where timeactivated IS NULL.
         local_coursedynamicrules_upgrade_grant_component_deletion();
         local_coursedynamicrules_upgrade_add_activation_stamp($dbman);

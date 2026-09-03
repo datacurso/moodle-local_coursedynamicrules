@@ -303,6 +303,33 @@ abstract class condition {
     abstract public function get_description();
 
     /**
+     * The description as the RULES LIST should show it: free text cut, everything else whole.
+     *
+     * Two screens read a component's description and they need different things. The conditions
+     * and actions pages, reached through a rule's magnifier, show what the component will really
+     * do - the whole notification body, the whole AI prompt - and get get_description(). The rules
+     * list summarises one row per rule and needs bounded height, so it gets this.
+     *
+     * The default is get_description(), unchanged, because most components have nothing unbounded
+     * to cut: a condition's description is 83-126 characters of fixed text plus an activity name.
+     * Only the components carrying free text a teacher types without limit override this, and each
+     * cuts ITS OWN part.
+     *
+     * That is the whole point, and the reason the previous attempt failed. Cutting the COMPOSED
+     * sentence at a fixed length cannot work: a notification's description opens with "Enviar
+     * notificacion '<asunto>' a los usuarios Destinatarios: <roles>. Con copia a: <roles>.
+     * Mensaje: " - measured at 120 characters with one role and 196 with five, in Spanish with
+     * default role names - so the budget was spent before the message began and the list showed no
+     * body at all. Neither the subject (CHAR 255) nor the role list has an upper bound, so no
+     * single number over the composed string can both bound the row and guarantee visible text.
+     *
+     * @return string
+     */
+    public function get_listing_description() {
+        return $this->get_description();
+    }
+
+    /**
      * Creates and returns an instance of the form for editing the item
      *
      * @param mixed $action the action attribute for the form. If empty defaults to auto detect the

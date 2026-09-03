@@ -170,9 +170,9 @@ foreach ($rules as $rule) {
     // What it does with what survives depends on a site setting, so only the guarantee that holds
     // in both branches is claimed here: the output can never carry executable HTML. With
     // $CFG->formatstringstriptags on - the default - tags are stripped and the remaining '<', '>'
-    // and orphaned '&' are escaped (lib/classes/formatting.php:119-127). With it off, the string
-    // goes through clean_text() instead, which keeps safe HTML and removes the rest
-    // (formatting.php:128-130), so a name written as '<b>x</b>' renders bold on such a site rather
+    // and orphaned '&' are escaped (lib/classes/formatting.php:121). With it off, the string goes
+    // through clean_text() instead, which keeps safe HTML and removes the rest
+    // (formatting.php:131), so a name written as '<b>x</b>' renders bold on such a site rather
     // than showing its markup. Neither branch lets a script through.
     //
     // Unconditionally, for every rule. The first version of this block escaped only inside the if

@@ -24,7 +24,7 @@ namespace local_coursedynamicrules;
  * 1 September with no schema step of its own. Merging main into that line produced 1.8.3.
  *
  * Core passes the upgrade function the version RECORDED IN config_plugins
- * (lib/upgradelib.php:757), so on a released 1.8.2 site $oldversion is 2026090102 - GREATER than
+ * (lib/upgradelib.php:758), so on a released 1.8.2 site $oldversion is 2026090102 - GREATER than
  * both of the 1.9.0 line's savepoints. Both guards evaluate false and the activation lock ships
  * reading a column that was never created.
  *
@@ -46,12 +46,46 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
     private const INSTALLED_ON_182 = 2026090102;
 
     /**
+     * Put `timeactivated` back, whatever happened, before anything else runs.
+     *
+     * This is the only test in the plugin that changes the SCHEMA, and resetAfterTest() does not
+     * undo that - it rolls back DATA. Without this the class is a landmine: drop the column, fail
+     * or throw before the upgrade re-adds it, and every later test in that database breaks until
+     * somebody re-runs phpunit init. It is not hypothetical, it happened while building this file -
+     * a sabotage run that no-op'd add_field() left the column gone and the next full suite
+     * reported 63 errors that had nothing to do with the code under test.
+     *
+     * @return void
+     */
+    protected function tearDown(): void {
+        global $DB;
+
+        $dbman = $DB->get_manager();
+        $table = new \xmldb_table('local_coursedynamicrules_rule');
+        $field = new \xmldb_field(
+            'timeactivated',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            null,
+            null,
+            null,
+            'lastexecutiontime'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        parent::tearDown();
+    }
+
+    /**
      * Run the plugin's real upgrade function as core would for a 1.8.2 site.
      *
      * @return void
      */
     private function upgrade_from_182(): void {
-        global $CFG;
+        global $CFG, $DB;
         // upgradelib is not part of the PHPUnit bootstrap; the savepoint calls live there.
         require_once($CFG->libdir . '/upgradelib.php');
         require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
@@ -61,11 +95,34 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
         // install.xml already sits at the current one. This is what a released 1.8.2 site holds.
         set_config('version', self::INSTALLED_ON_182, 'local_coursedynamicrules');
 
+        // And the SCHEMA has to say 1.8.2 too. Without this the test measured only half of what
+        // it claimed: the PHPUnit database is installed from install.xml, where `timeactivated`
+        // already exists, so field_exists() short-circuits and add_field() is never executed.
+        // Round 2 proved it - every add_field() in db/upgrade.php was replaced by a no-op and the
+        // full suite stayed green, which is the exact regression this release exists to prevent.
+        // A 1.8.2 site does not have the column, so neither does the fixture.
+        $dbman = $DB->get_manager();
+        $table = new \xmldb_table('local_coursedynamicrules_rule');
+        $field = new \xmldb_field('timeactivated');
+        if ($dbman->field_exists($table, $field)) {
+            $dbman->drop_field($table, $field);
+        }
+        $this->assertFalse($dbman->field_exists($table, $field),
+            'the fixture only means anything if the column is genuinely absent');
+
         xmldb_local_coursedynamicrules_upgrade(self::INSTALLED_ON_182);
+
+        $this->assertTrue($dbman->field_exists($table, $field),
+            'the upgrade has to CREATE the column on a 1.8.2 site, not merely find it there');
     }
 
     /**
      * A rule that is active on a 1.8.2 site must come out of the upgrade sealed.
+     *
+     * The rows go in with timeactivated still present, then upgrade_from_182() drops the column
+     * and runs the upgrade - which is the real sequence: a 1.8.2 site has rules and no column.
+     * Dropping the column discards the nulls those inserts wrote, and add_field() puts it back
+     * empty, so the stamp measured afterwards is one the upgrade itself made.
      */
     public function test_an_active_rule_on_a_182_site_is_stamped(): void {
         global $DB;

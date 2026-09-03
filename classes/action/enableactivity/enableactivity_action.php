@@ -20,6 +20,7 @@ use core_availability\tree;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\enableactivity_form;
+use local_coursedynamicrules\helper\component_renderer;
 
 /**
  * Class enableactivity_action
@@ -766,6 +767,24 @@ class enableactivity_action extends action {
      * @return string
      */
     public function get_description() {
+        return $this->build_description(false);
+    }
+
+    #[\Override]
+    public function get_listing_description() {
+        return $this->build_description(true);
+    }
+
+    /**
+     * Compose the description, with the activity list either whole or cut for the listing.
+     *
+     * The list grows one entry per selected activity, so it is free text in the sense that
+     * matters here: nothing bounds its length.
+     *
+     * @param bool $forlisting Whether to cut the activity list to the listing budget.
+     * @return string
+     */
+    private function build_description(bool $forlisting) {
         $coursemodules = $this->params->coursemodules ?? [];
         $descriptionarray = [];
 
@@ -777,10 +796,15 @@ class enableactivity_action extends action {
             }
             $descriptionarray[] = ucfirst($cminfo->modname) . " - " . $cminfo->name;
         }
+        $list = implode(', ', $descriptionarray);
+        if ($forlisting) {
+            $list = component_renderer::cut_freetext($list);
+        }
+
         return get_string(
             'enableactivity_description',
             'local_coursedynamicrules',
-            implode(', ', $descriptionarray)
+            $list
         );
     }
 
