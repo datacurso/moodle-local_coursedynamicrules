@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\form\actions;
 
 use local_coursedynamicrules\helper\form_plugin_validator;
+use local_coursedynamicrules\local\service\grade_isolation_service;
 use moodle_url;
 
 /**
@@ -123,6 +124,18 @@ class createaiactivity_form extends action_form {
         $mform->setDefault('beforemod', 0);
         $mform->addHelpButton('beforemod', 'createaiactivity_beforemod', 'local_coursedynamicrules');
 
+        // One question, because there is one decision: does this activity's grade count for the
+        // student it was generated for, or for nobody. Either way it reaches nobody else - for as
+        // long as its column stays directly under the course, which is stated in the help.
+        $mform->addElement('select', 'hasgrade', get_string('createaiactivity_hasgrade', 'local_coursedynamicrules'), [
+            0 => get_string('createaiactivity_hasgrade_no', 'local_coursedynamicrules'),
+            1 => get_string('createaiactivity_hasgrade_yes', 'local_coursedynamicrules'),
+        ]);
+        $mform->setType('hasgrade', PARAM_INT);
+        // An activity that carries no grade cannot disturb anybody's total, under any aggregation.
+        $mform->setDefault('hasgrade', 0);
+        $mform->addHelpButton('hasgrade', 'createaiactivity_hasgrade', 'local_coursedynamicrules');
+
         parent::definition();
     }
 
@@ -138,6 +151,8 @@ class createaiactivity_form extends action_form {
             'generateimages' => !empty($params->generateimages) ? 1 : 0,
             'sectionnum' => (int) ($params->sectionnum ?? 0),
             'beforemod' => (int) ($params->beforemod ?? 0),
+            'hasgrade' => grade_isolation_service::clean_mode($params->grademode ?? null)
+                === grade_isolation_service::MODE_OWN ? 1 : 0,
         ];
     }
 

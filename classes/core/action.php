@@ -248,6 +248,11 @@ abstract class action {
 
         $record = $DB->get_record('local_coursedynamicrules_action', ['id' => $this->get_id()]);
 
+        // Before the row goes: the generation markers are keyed on this action id, and nothing else
+        // would ever reach them again. Harmless for the action types that never generate anything -
+        // they simply have no rows.
+        \local_coursedynamicrules\local\service\grade_register_service::forget_action((int) $this->get_id());
+
         $result = $DB->delete_records('local_coursedynamicrules_action', ['id' => $this->get_id()]);
 
         $event = \local_coursedynamicrules\event\action_deleted::create([

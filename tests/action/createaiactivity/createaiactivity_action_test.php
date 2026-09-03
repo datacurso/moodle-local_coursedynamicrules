@@ -329,6 +329,61 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * A gradebook failure must not cost the runaway guard.
+     *
+     * The marker is what stops the scheduled tasks regenerating the same activity - and
+     * no_complete_activity_task runs every minute. Writing it after the gradebook work meant any
+     * failure there left no record, so the next pass created a duplicate live activity and paid for
+     * a second AI call, indefinitely. This drives execute() with the gradebook step forced to
+     * throw and checks that the activity, its restriction and the marker all survive it.
+     *
+     * @covers ::execute
+     */
+    public function test_a_gradebook_failure_still_leaves_the_regeneration_guard(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+        $this->arm_happy_path();
+        testable_createaiactivity_action::$isolationthrows = true;
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        // The action writes a durable mtrace() as well as a debugging() so a failed generation is
+        // never invisible with debugging off. Capturing it keeps the run clean AND asserts it.
+        ob_start();
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $trace = ob_get_clean();
+
+        $this->assertStringContainsString('createaiactivity failed', $trace,
+            'a durable trace must survive even with debugging off');
+        $this->assertDebuggingCalled();
+
+        $marker = $DB->get_record('local_coursedynamicrules_aigrade', ['userid' => $user->id]);
+        $this->assertNotFalse($marker, 'the guard must survive a gradebook failure');
+        $this->assertSame((int) $course->id, (int) $marker->courseid);
+
+        $cm = $DB->get_record('course_modules', ['id' => $marker->cmid], '*', MUST_EXIST);
+        $this->assertStringContainsString('"type":"user"', (string) $cm->availability,
+            'the activity is still restricted to its student');
+
+        // And the next scheduled pass must not create a second one.
+        $modulesbefore = $DB->count_records('course_modules', ['course' => $course->id]);
+        ob_start();
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertSame('', ob_get_clean(), 'the guarded second pass does no work at all');
+        $this->assertSame($modulesbefore, $DB->count_records('course_modules', ['course' => $course->id]),
+            'no duplicate activity, and no second paid call');
+    }
+
+    /**
      * The action must create the module from the AI result envelope, restrict it to the
      * target user and leave it visible.
      *
@@ -616,5 +671,91 @@ final class createaiactivity_action_test extends \advanced_testcase {
 
         $this->assertDebuggingCalledCount(1);
         $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * A concurrent twin must be turned away before the paid call, not after it.
+     *
+     * already_generated() is a read whose answering write only lands once the AI call returns, so
+     * the window between them is the generation itself - up to STREAM_TIMEOUT seconds. Two
+     * processes arriving together both read "not generated", both pay, and the student gets two
+     * activities. The paths that can overlap are ordinary ones: the three scheduled tasks are
+     * separate task classes, so core's per-task lock does not serialise them, and each selects
+     * rules by joining on condition type - a rule with two cron condition types is claimed by
+     * both, every minute - while the event observers queue ad-hoc runs on top.
+     *
+     * What is asserted is the expensive half: the client's request() is mocked with never(), so if
+     * the guard ever moves to after the call this goes red on the call itself and not merely on a
+     * duplicate row.
+     *
+     * @covers ::execute
+     */
+    public function test_a_concurrent_twin_never_reaches_the_paid_call(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+
+        // never(): the point of the lock is the money, not the row.
+        testable_createaiactivity_action::$client =
+            $this->mock_api_client($this->init_response(), $captured, false);
+        testable_createaiactivity_action::$streamevent = [
+            'type' => 'completed',
+            'result' => $this->page_ai_result(),
+        ];
+        testable_createaiactivity_action::$lockrefused = true;
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $modulesbefore = $DB->count_records('course_modules', ['course' => $course->id]);
+
+        ob_start();
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertSame('', ob_get_clean(), 'losing the lock is not a failure and must be silent');
+
+        $this->assertSame(1, testable_createaiactivity_action::$lockrequests,
+            'the lock has to have been asked for at all');
+        $this->assertSame($modulesbefore, $DB->count_records('course_modules', ['course' => $course->id]),
+            'no second activity');
+        $this->assertSame(0, $DB->count_records('local_coursedynamicrules_aigrade',
+            ['userid' => $user->id]), 'and no register row either');
+    }
+
+    /**
+     * The lock is per (action, student), and that is a requirement rather than a detail.
+     *
+     * One key for the whole plugin would serialise every student in every course behind a single
+     * paid, minutes-long generation, and with timeout 0 the ones turned away would simply be
+     * skipped for that pass - the guard against a duplicate would become a guard against the
+     * feature working. Catches: a key built from the action alone, or a constant.
+     *
+     * @covers ::execute
+     */
+    public function test_the_lock_is_keyed_on_the_action_and_the_student(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+        $this->arm_happy_path();
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertSame($action->get_id() . '_' . $user->id,
+            testable_createaiactivity_action::$lastlockkey,
+            'two students of the same rule must not queue behind each other');
     }
 }

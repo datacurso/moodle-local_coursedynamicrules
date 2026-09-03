@@ -34,6 +34,7 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
      */
     protected function define_course_plugin_structure() {
         $plugin = $this->get_plugin_element(null);
+        $userinfo = $this->get_setting_value('users');
 
         $pluginwrapper = new backup_nested_element($this->get_recommended_name());
 
@@ -76,6 +77,24 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         ]);
         $actions->add_child($action);
 
+        // Hung off the COURSE, not off the action - and that placement is the point. These rows
+        // outlive the rule that created them: deleting a rule does not delete the activities it
+        // generated, so the row that says "a generated grade column exists here" has to survive
+        // the rule's removal (its `actionid` is cleared to 0 instead). Nested under the action it
+        // would only travel while its action still existed, which is exactly the case that needs
+        // it most.
+        $aigrades = new backup_nested_element('aigrades');
+        $pluginwrapper->add_child($aigrades);
+        $aigrade = new backup_nested_element('aigrade', ['id'], [
+            'ruleid',
+            'actionid',
+            'userid',
+            'cmid',
+            'grademode',
+            'timecreated',
+        ]);
+        $aigrades->add_child($aigrade);
+
         // Notification recipients are role ids buried inside the action's `params` JSON, where
         // annotate_ids() cannot reach them. Emitting them as their own element does two things a
         // verbatim copy of the JSON cannot: it annotates the roles so core builds a role mapping for
@@ -97,8 +116,28 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         $action->set_source_table('local_coursedynamicrules_action', ['ruleid' => backup::VAR_PARENTID]);
         $notificationrole->set_source_array($this->collect_notification_roles());
 
+        // Emitted ALWAYS, not only with user data - and that is the fix for a measured defect, not
+        // a preference. The generated activity is ordinary course content, so it travels in every
+        // copy, import and duplication, and its grade column travels with it. These rows are the
+        // only thing that lets a later arrival be excluded from that column. Withholding them left
+        // every user-free copy with a live column and nobody excluded, permanently: measured at 0%
+        // under Lowest grade for every student who enrolled in the copy.
+        //
+        // The only personal field here is `userid`, and the restore stores 0 for it when there is
+        // no user mapping - the same severed state a privacy erasure produces. So a user-free copy
+        // arrives knowing THAT a column exists without knowing who it was for, which is exactly
+        // what it should know.
+        $aigrade->set_source_table(
+            \local_coursedynamicrules\local\service\grade_register_service::TABLE,
+            ['courseid' => backup::VAR_COURSEID]
+        );
+
         // Annotations.
         $notificationrole->annotate_ids('role', 'roleid');
+
+        if ($userinfo) {
+            $aigrade->annotate_ids('user', 'userid');
+        }
 
         return $plugin;
     }

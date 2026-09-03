@@ -85,8 +85,23 @@ $string['createaiactivity_beforemod_none'] = 'Do not position before another act
 $string['createaiactivity_description'] = 'Generate an AI reinforcement activity in section "{$a->section}" using prompt "{$a->prompt}"';
 $string['createaiactivity_description_beforemod'] = 'It will be inserted before "{$a}".';
 $string['createaiactivity_description_generateimages'] = 'Image generation: {$a}.';
+$string['createaiactivity_description_grademode'] = 'Effect on grades: {$a}';
 $string['createaiactivity_generateimages'] = 'Generate images with AI';
 $string['createaiactivity_generateimages_label'] = 'Allow the AI to include generated images when supported.';
+$string['createaiactivity_grademode_nograde'] = 'No grade for anybody';
+$string['createaiactivity_grademode_own'] = 'Counts only for the student who receives it';
+$string['createaiactivity_hasgrade'] = 'Does its grade count for the student who receives it?';
+$string['createaiactivity_hasgrade_help'] = 'A generated activity is visible to one student, but its column appears in the gradebook of the whole course and is empty for everybody else. Whether that empty column costs those students points depends on \'Exclude empty grades\', which any teacher can change.
+
+Either way, <b>every other student is excluded from that column one by one</b>, so the rest of the group keeps their totals under every aggregation method - not only the ones that read a weight. Somebody who enrols later, whose suspended enrolment is reactivated, or who is given a gradebook role after being enrolled, is excluded as they arrive.
+
+<b>No</b>: the column counts for nobody at all. The activity may still be graded and the teacher can use that grade as feedback, but it moves no total anywhere.
+
+<b>Yes</b>: the column counts for the student it was generated for, and only for them. Until it is graded it is pending work for that student, exactly like any other activity they have not done yet.
+
+The column has to stay directly under the course. Inside a grade category the exclusions stop protecting the students they were written for - the category comes out empty for them and an empty category counts as a zero one level up - so the whole group loses points again (measured: 80% falls to 40% under Mean and 0% under Lowest grade). That is Moodle\'s own behaviour for any excluded grade filed into a category, with or without this plugin, and nothing here can undo it. Leave the column where it is created.';
+$string['createaiactivity_hasgrade_no'] = 'No - it counts for nobody';
+$string['createaiactivity_hasgrade_yes'] = 'Yes - only for that student';
 $string['createaiactivity_placeholders_info'] = 'Available placeholders: <code>{$a->coursename}</code>, <code>{$a->courseurl}</code>, <code>{$a->fullname}</code>, <code>{$a->firstname}</code>, <code>{$a->lastname}</code>.';
 $string['createaiactivity_prompt'] = 'AI prompt';
 $string['createaiactivity_prompt_help'] = 'Write the instruction that will be sent to the AI service. You can include placeholders that will be replaced before sending the prompt.';
@@ -126,6 +141,11 @@ $string['enablegradelessthan'] = 'Enable grade less than';
 $string['enrollmentdate'] = 'Enrollment date';
 $string['error_aiactivity_generation_failed'] = 'The AI service reported a failed activity generation: {$a}';
 $string['error_empty_aiactivity_prompt'] = 'Create AI activity action executed without a valid prompt message.';
+$string['error_grade_column_appeared'] = 'A reinforcement activity gained a grade column and the other students could not be excluded from it: {$a}';
+$string['error_grade_enrolment_sweep_failed'] = 'A student who enrolled after a reinforcement activity was generated could not be shielded from its grade column: {$a}';
+$string['error_grade_isolation_failed'] = 'The reinforcement activity was created, but it could not be isolated in the gradebook and is affecting the totals of the whole course: {$a}';
+$string['error_grade_item_moved_back'] = 'The reinforcement activity \'{$a}\' was created inside a grade category and has been placed directly under the course instead. Inside a category its column cannot be shielded from the students it was hidden from.';
+$string['error_grade_item_not_at_root'] = 'The reinforcement activity \'{$a}\' is inside a grade category, so students cannot be shielded from its column. Move it back to the top level of the gradebook.';
 $string['error_required_local_coursegen'] = 'The plugin local_coursegen is required to execute the Create AI activity action.';
 $string['error_required_local_coursegen_version'] = 'The Create AI activity action requires local_coursegen version {$a} or later. Please update the Course Creator AI plugin.';
 $string['error_unexpected_airesponse'] = 'The AI service returned an unexpected response without a result payload.';
@@ -229,11 +249,20 @@ $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'This plugin is not available, because the product license has expired or is invalid. Please go to <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> to renew or purchase a new license.';
 $string['primaryrecipients'] = 'Primary recipients';
 $string['primaryrecipients_help'] = 'Select which roles receive the primary notification when the condition is met for a user in those roles.';
+$string['privacy:metadata:aigrade'] = 'A register of the reinforcement activities generated for each student, kept so the same student is not offered the same reinforcement twice.';
+$string['privacy:metadata:aigrade:actionid'] = 'The id of the rule action that generated it, kept so the same student is not given a second one.';
+$string['privacy:metadata:aigrade:cmid'] = 'The id of the course module generated as reinforcement.';
+$string['privacy:metadata:aigrade:courseid'] = 'The id of the course the reinforcement was generated in.';
+$string['privacy:metadata:aigrade:grademode'] = 'How the generated activity was configured to affect the gradebook.';
+$string['privacy:metadata:aigrade:ruleid'] = 'The id of the rule that generated the reinforcement activity.';
+$string['privacy:metadata:aigrade:timecreated'] = 'The time the reinforcement activity was generated.';
+$string['privacy:metadata:aigrade:userid'] = 'The id of the student the reinforcement activity was generated for.';
 $string['privacy:metadata:datacurso_ai'] = 'Course context is sent to the Datacurso AI service to generate reinforcement activities.';
 $string['privacy:metadata:datacurso_ai:courseid'] = 'The id of the course the reinforcement activity is generated for.';
 $string['privacy:metadata:datacurso_ai:courseurl'] = 'The URL of the course, sent as context for the generated activity.';
 $string['privacy:metadata:datacurso_ai:prompt'] = 'The configured prompt describing the reinforcement activity to generate.';
 $string['privacy:metadata:datacurso_ai:userid'] = 'The id of the user the reinforcement activity is generated for.';
+$string['privacy:path:aigrade'] = 'Reinforcement activities generated';
 $string['provider_not_enabled_warning'] = 'Enable notifications with <strong>Datacurso Message Hub</strong> to this action to send notifications via WhatsApp and SMS using providers like Twilio.
 You can enable it from <a href="{$a}" target="_blank">Notification settings</a> and searching <strong>Smart Rules AI notification</strong>.
 <br>
