@@ -91,7 +91,7 @@ Feature: A rule can be edited only until its first activation
     Then I should see "This rule was activated and can no longer be modified"
     And "//input[@name='name'][@disabled]" "xpath_element" should exist
     # The components: nothing to add, nothing to delete - even though this teacher holds the
-    # delete capability since 1.9.0, a locked rule outranks it. Anchored on OUR hrefs, not on
+    # delete capability since 1.8.3, a locked rule outranks it. Anchored on OUR hrefs, not on
     # Bootstrap classes: Boost's own drawers use list-group-item-action on every page.
     When I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration

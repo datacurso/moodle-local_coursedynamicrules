@@ -150,7 +150,7 @@ foreach ($actions as $action) {
             $row['edittitle'] = get_string('editaction', 'local_coursedynamicrules');
         }
 
-        // The trash can needs deleteaction - held by managers AND, since 1.9.0, the editing
+        // The trash can needs deleteaction - held by managers AND, since 1.8.3, the editing
         // teacher archetype (RISK_DATALOSS, explicit PROHIBITs respected) - and offering it to a
         // role without the capability puts a control in front of them that the endpoint then
         // refuses with an error page: never offer what would be refused. The endpoint keeps

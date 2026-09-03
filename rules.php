@@ -158,6 +158,40 @@ foreach ($rules as $rule) {
 
     $ruletext = html_writer::div($editrulelink . $deleterulelink, 'd-flex', ['style' => 'gap: .4rem']);
 
+    // The name is user text and it reaches this table from two places: the form, which types it
+    // PARAM_TEXT, and course restore, which writes it with no cleaning at all
+    // (restore_local_coursedynamicrules_plugin.class.php). It is emitted raw into the cell below -
+    // html_writer::table() does not escape cell text - so the escaping has to happen here.
+    //
+    // format_string() rather than s(), because PARAM_TEXT deliberately preserves valid multilang
+    // markup (lib/classes/param.php:891 returns before the final strip_tags): s() would print that
+    // markup on screen, while format_string() runs the filter that resolves it.
+    //
+    // What it does with what survives depends on a site setting, so only the guarantee that holds
+    // in both branches is claimed here: the output can never carry executable HTML. With
+    // $CFG->formatstringstriptags on - the default - tags are stripped and the remaining '<', '>'
+    // and orphaned '&' are escaped (lib/classes/formatting.php:119-127). With it off, the string
+    // goes through clean_text() instead, which keeps safe HTML and removes the rest
+    // (formatting.php:128-130), so a name written as '<b>x</b>' renders bold on such a site rather
+    // than showing its markup. Neither branch lets a script through.
+    //
+    // Unconditionally, for every rule. The first version of this block escaped only inside the if
+    // below, so the same name rendered one way with a description and another way without - a
+    // multilang name showed its raw markup in one row and resolved in the next.
+    $rulename = component_renderer::escaped_name($rule->name, $context);
+
+    // Hovering the name reveals the rule's description without spending a column on it, and only
+    // when a description exists, so the rest render no empty tooltip box. Note what this does NOT
+    // give: a native title attribute is unreachable by keyboard and by touch, because the span is
+    // not focusable and carries no data-toggle. Anyone not using a mouse still has to open the
+    // edit form to read a description. html_writer escapes the attribute value itself
+    // (lib/classes/output/html_writer.php:113), so the raw description is what belongs here.
+    if (trim((string) $rule->description) !== '') {
+        $rulename = html_writer::span($rulename, '', ['title' => $rule->description]);
+    }
+
+    $rule->name = $rulename;
+
     // One badge, four states (product directives 2026-08-31/09-01), read off the row already
     // fetched. Active = running, whether or not it has fired: event-driven rules stay active and
     // fire repeatedly, so "executed" on a live rule would be noise. Executed = stopped AND the

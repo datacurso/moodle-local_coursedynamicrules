@@ -83,7 +83,7 @@ final class page_gate_test extends \advanced_testcase {
     /**
      * And manage without view is refused too - the pair is the gate, not either half.
      *
-     * This is the half that used to be the WHOLE gate: before 1.9.0 only manage* was checked, and
+     * This is the half that used to be the WHOLE gate: before 1.8.3 only manage* was checked, and
      * the changelog warns custom-role administrators that view* is now required alongside it. This
      * test is that warning, executable.
      *

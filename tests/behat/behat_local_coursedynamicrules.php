@@ -119,7 +119,10 @@ class behat_local_coursedynamicrules extends behat_base {
      * build one, and no UI path can any more.
      *
      * @Given /^the following local coursedynamicrules bare rules exist:$/
-     * @param TableNode $table Table data with columns: course, name, active, timeactivated.
+     * @param TableNode $table Table data with columns: course, name, active, timeactivated,
+     *      description. The name is inserted VERBATIM, with no cleaning, because that is what
+     *      course restore does (restore_local_coursedynamicrules_plugin.class.php:95) and it is
+     *      the only writer a hostile name can come through - the form types the field PARAM_TEXT.
      */
     public function the_following_local_coursedynamicrules_bare_rules_exist(TableNode $table): void {
         global $DB;
@@ -129,7 +132,8 @@ class behat_local_coursedynamicrules extends behat_base {
             $DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
                 'name' => trim($row['name']),
-                'description' => 'Behat generated bare rule',
+                'description' => isset($row['description']) ? trim($row['description'])
+                    : 'Behat generated bare rule',
                 'active' => isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 0,
                 // Same axiom as every generator here: active without an explicit stamp is sealed
                 // now, because no production writer leaves an active rule unstamped.
@@ -228,6 +232,33 @@ class behat_local_coursedynamicrules extends behat_base {
             'id' => $action->id,
             'courseid' => $course->id,
             'ruleid' => $action->ruleid,
+        ]);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
+    }
+
+    /**
+     * Visit the delete confirmation page for the most recent rule in a course.
+     *
+     * Addressed by recency rather than by name on purpose: the scenario that needs this page most
+     * is the one whose rule is NAMED with a script payload, and a name like that cannot be typed
+     * into a step argument or matched in a link.
+     *
+     * @When /^I visit the coursedynamicrules delete page for the latest rule in course "(?P<shortname>[^"]*)"$/
+     * @param string $shortname Course shortname.
+     */
+    public function i_visit_the_coursedynamicrules_delete_page_for_the_latest_rule_in_course(string $shortname): void {
+        global $DB;
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $rule = $DB->get_record_sql(
+            "SELECT id FROM {local_coursedynamicrules_rule} WHERE courseid = :courseid ORDER BY id DESC",
+            ['courseid' => $course->id],
+            IGNORE_MULTIPLE
+        );
+
+        $url = new moodle_url('/local/coursedynamicrules/deleterule.php', [
+            'id' => $rule->id,
+            'courseid' => $course->id,
         ]);
         $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
     }

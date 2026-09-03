@@ -1,6 +1,6 @@
-## 1.9.0
+## 1.8.3
 
-**Released on:** 2026-08-31
+**Released on:** 2026-09-02
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
@@ -12,6 +12,8 @@
 - **Conditions and actions can be edited in place while the rule was never activated**
   The 1.8.1 withholding of in-place editing existed because editing could change what an already-running rule did to learners; the activation lock dissolved that risk, so the editor returns exactly inside the bound: a pencil on each condition/action card, shown only while the rule was never activated and only to roles holding the matching `update*` capability (both re-checked server-side with ownership before anything renders). The form opens preloaded with the stored configuration, saves preserve runtime state, and edits fire the `condition_updated`/`action_updated` audit events.
 
+- **A rule's description is revealed by hovering its name on the list**
+  The description was written on the rule form and then visible nowhere else, so telling two similarly named rules apart meant opening each one. The name on the rules list now carries the description as a tooltip, shown only for rules that have one, without spending a column on it. Note the limit: a native tooltip answers to the mouse only, so it is not reachable by keyboard or on a touch screen - the edit form remains the way to read a description without a pointer.
 ## Changed
 - **Declared capabilities are now enforced where their pages and controls live**
   Entering the rules, conditions and actions pages now requires the matching `view*` capability alongside the `manage*` one; adding a component requires `create*` both on the menu and on the URL it posts to; controls that would be refused are no longer offered - including the per-row delete controls, which are shown only to roles holding the matching `delete*` capability. **Site administrators with custom roles, note:** a custom role built without an archetype that was granted only `manage*` capabilities - previously the only ones checked - must now also be granted the matching `view*` (and `create*`, if it adds components) or it will lose access to these pages on upgrade. Roles based on the editing teacher or manager archetypes are unaffected. The `updateaction` and `updatecondition` capabilities are now enforced too: they gate the in-place component editor described under Added.
@@ -20,7 +22,7 @@
 - **Declared dependencies match the APIs actually used**
   `local_coursegen` moves to 2026082400 and `aiprovider_datacurso` to 2026081000. Without this the plugin would install against a Course Creator AI that does not have `create_mod_service`, and break in exactly the way this release fixes.
 - **Component descriptions are trimmed on the rules list and shown whole on the component pages**
-  A long condition or action description (a notification body, an AI prompt) used to stretch its row and make the rules list ragged. The list now trims every description to 80 characters with an ellipsis so all rows keep the same height, while the conditions and actions pages reached through each rule's magnifier show the full text. The cut is made on the plain text before HTML escaping, so no escaped entity is ever sliced in half.
+  A long condition or action description (a notification body, an AI prompt) used to stretch its row and make the rules list ragged. The list now trims every description to 220 characters with an ellipsis so all rows keep the same height, while the conditions and actions pages reached through each rule's magnifier show the full text. The budget covers a notification's fixed preamble - its subject and recipient roles run to about 146 characters on their own - so the message body is still visible on the list, as it was in 1.8.2. The cut is made on the plain text before HTML escaping, so no escaped entity is ever sliced in half.
 
 ## Fixed
 - **The create AI activity action works again with Course Creator AI 2.x**
@@ -35,6 +37,18 @@
   A name that is the prefix of another word (such as "Eva" inside "Evaluación") is no longer mangled in the prompt sent to the AI service, and the full name is replaced before its parts.
 - **Restoring a course reconciles notification roles and ownership markers**
   Role ids stored inside notification actions are remapped to the restored course's roles, and ownership markers survive the round trip.
+
+---
+
+## 1.8.2
+
+**Released on:** 2026-09-01
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+### Fixed
+- **Send notification action can now target copy recipients only**
+  Saving a send notification action required at least one primary recipient role, and executing it never notified copy recipients unless a primary role also matched - so a rule meant to notify only an observer role (for example, a teacher) about another role's activity, without messaging that role directly, could not be configured at all. Primary recipients are now optional: at least one recipient role, primary or copy, must be selected, and a copy-only configuration notifies its copy roles without ever messaging the matched user.
 
 ---
 

@@ -52,7 +52,7 @@ final class component_renderer_test extends \advanced_testcase {
 
         $html = component_renderer::descriptions_html([$action]);
 
-        // The raw payload must not survive into the HTML. The 80-character listing trim can cut
+        // The raw payload must not survive into the HTML. The listing trim can cut
         // through the middle of the payload, so the assertions anchor on the tag OPENING, which
         // survives any cut point: an unescaped '<script' anywhere is the vulnerability.
         $this->assertStringNotContainsString('<script', $html);
@@ -61,21 +61,28 @@ final class component_renderer_test extends \advanced_testcase {
     }
 
     /**
-     * Listing descriptions longer than 80 characters are cut at the character level with an
-     * ellipsis; shorter ones pass through whole. The cut happens on the plain text BEFORE
-     * escaping, so no entity is ever sliced in half.
+     * A description longer than the listing budget is cut with an ellipsis; a shorter one passes
+     * through whole. The cut happens on the plain text BEFORE escaping, so no entity is ever
+     * sliced in half.
+     *
+     * The lengths come from the constant rather than a literal on purpose. When the budget was a
+     * hard-coded 80 in both places, this test pinned the number instead of the behaviour - it
+     * would have gone red for the fix that RAISED the budget, and it stayed green through the
+     * whole time the listing was cutting inside a notification's fixed preamble and showing no
+     * message body at all.
      */
     public function test_long_description_is_trimmed_short_one_is_not(): void {
-        $long = str_repeat('a', 100);
-        $short = str_repeat('b', 80);
+        $budget = component_renderer::LISTING_DESCRIPTION_LENGTH;
+        $long = str_repeat('a', $budget + 20);
+        $short = str_repeat('b', $budget);
 
         $html = component_renderer::descriptions_html([
             $this->component_stub('Header', $long),
             $this->component_stub('Header', $short),
         ]);
 
-        $this->assertStringContainsString('<p>' . str_repeat('a', 80) . '…</p>', $html);
-        $this->assertStringNotContainsString(str_repeat('a', 81), $html);
+        $this->assertStringContainsString('<p>' . str_repeat('a', $budget) . '…</p>', $html);
+        $this->assertStringNotContainsString(str_repeat('a', $budget + 1), $html);
         $this->assertStringContainsString('<p>' . $short . '</p>', $html);
     }
 
@@ -185,5 +192,68 @@ final class component_renderer_test extends \advanced_testcase {
                 return $this->description;
             }
         };
+    }
+
+    /**
+     * A name carrying a script payload comes out as visible text, never as markup.
+     *
+     * The threat is not the form - rule_form.php types the field PARAM_TEXT, which strips tags.
+     * It is course restore, which writes the name with no cleaning at all
+     * (restore_local_coursedynamicrules_plugin.class.php:95). A rule arriving from a crafted .mbz
+     * carries whatever its author typed, and two pages emit it into HTML: the rules list and the
+     * delete confirmation, where core_renderer::confirm() passes its message through
+     * html_writer::tag('p', ...) untouched.
+     *
+     * Anchored on the tag OPENING because that is what makes a payload live: an unescaped
+     * '&lt;script' anywhere in the output is the vulnerability, whatever follows it.
+     *
+     * @covers \local_coursedynamicrules\helper\component_renderer::escaped_name
+     */
+    public function test_a_script_payload_in_a_name_is_escaped(): void {
+        $this->resetAfterTest(true);
+        $context = \context_course::instance($this->getDataGenerator()->create_course()->id);
+
+        $escaped = component_renderer::escaped_name(
+            '<script>alert(document.cookie)</script>Refuerzo', $context);
+
+        $this->assertStringNotContainsString('<script', $escaped);
+        $this->assertStringNotContainsString('<img', component_renderer::escaped_name(
+            '<img src=x onerror=alert(1)>Refuerzo', $context));
+    }
+
+    /**
+     * An ampersand and a stray angle bracket survive as readable text.
+     *
+     * PARAM_TEXT lets both through on purpose - core says so at lib/classes/param.php:202,
+     * "'&lt;', or '&gt;' are allowed here" - so a legitimate name like "Tareas de A &amp; B" reaches
+     * this method raw and has to come out rendering as itself.
+     *
+     * @covers \local_coursedynamicrules\helper\component_renderer::escaped_name
+     */
+    public function test_an_ampersand_in_a_name_survives_as_text(): void {
+        $this->resetAfterTest(true);
+        $context = \context_course::instance($this->getDataGenerator()->create_course()->id);
+
+        $escaped = component_renderer::escaped_name('Tareas de A & B', $context);
+
+        $this->assertStringContainsString('&amp;', $escaped);
+        $this->assertStringNotContainsString('A & B', $escaped);
+    }
+
+    /**
+     * A plain name passes through unchanged, and an empty one does not become "null".
+     *
+     * The second half is the reason the parameter is nullable: the column allows null, and a
+     * string cast on null is the kind of silent "null" label that reaches a screen.
+     *
+     * @covers \local_coursedynamicrules\helper\component_renderer::escaped_name
+     */
+    public function test_a_plain_name_is_untouched_and_null_is_empty(): void {
+        $this->resetAfterTest(true);
+        $context = \context_course::instance($this->getDataGenerator()->create_course()->id);
+
+        $this->assertSame('Refuerzo de fracciones',
+            component_renderer::escaped_name('Refuerzo de fracciones', $context));
+        $this->assertSame('', component_renderer::escaped_name(null, $context));
     }
 }

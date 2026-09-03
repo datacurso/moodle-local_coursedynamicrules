@@ -472,6 +472,105 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * A copy-only configuration (no primary role configured) must notify the copy roles about the
+     * matched user's condition without ever messaging that user directly.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_sends_copy_only_when_no_primary_role_configured(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $generator = $this->getDataGenerator();
+        $sink = $this->redirectMessages();
+
+        $course = $generator->create_course(['fullname' => 'Course placeholder test']);
+        $teacher = $generator->create_user([
+            'firstname' => 'TeacherFirst',
+            'lastname' => 'TeacherLast',
+        ]);
+        $student = $generator->create_user([
+            'firstname' => 'StudentFirst',
+            'lastname' => 'StudentLast',
+        ]);
+
+        $teacherroleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $generator->enrol_user($teacher->id, $course->id, $teacherroleid);
+        $generator->enrol_user($student->id, $course->id, $studentroleid);
+
+        $record = (object) [
+            'id' => 1,
+            'ruleid' => 1,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Nactivity notification',
+                'messagebody' => '{$a-&gt;fullname} - {$a-&gt;firstname} - {$a-&gt;lastname}',
+                'primaryroleids' => [],
+                'copyroleids' => [$teacherroleid],
+            ]),
+        ];
+
+        $action = new sendnotification_action($record, $course->id);
+        $rulecontext = (object) [
+            'courseid' => $course->id,
+            'userid' => $student->id,
+        ];
+
+        $result = $action->execute($rulecontext);
+
+        $messages = $sink->get_messages_by_component('local_coursedynamicrules');
+
+        $this->assertNotFalse($result);
+        $this->assertCount(1, $messages);
+        $message = reset($messages);
+        $this->assertEquals($teacher->id, $message->useridto);
+        $this->assertNotEquals($student->id, $message->useridto);
+    }
+
+    /**
+     * When neither primary nor copy roles are configured, execute() must bail out before touching
+     * the database, instead of resolving the user/course records for nothing.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_returns_false_when_no_roles_configured_at_all(): void {
+        $this->resetAfterTest(true);
+
+        $generator = $this->getDataGenerator();
+        $sink = $this->redirectMessages();
+
+        $course = $generator->create_course(['fullname' => 'Course placeholder test']);
+        $student = $generator->create_user();
+        $generator->enrol_user($student->id, $course->id);
+
+        $record = (object) [
+            'id' => 1,
+            'ruleid' => 1,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Nactivity notification',
+                'messagebody' => 'Body',
+                'primaryroleids' => [],
+                'copyroleids' => [],
+            ]),
+        ];
+
+        $action = new sendnotification_action($record, $course->id);
+        $rulecontext = (object) [
+            'courseid' => $course->id,
+            'userid' => $student->id,
+        ];
+
+        $result = $action->execute($rulecontext);
+
+        $this->assertFalse($result);
+        $this->assertCount(0, $sink->get_messages_by_component('local_coursedynamicrules'));
+    }
+
+    /**
      * Test matched user and observer recipients get different message formats.
      *
      * @covers ::execute

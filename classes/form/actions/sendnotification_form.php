@@ -181,17 +181,14 @@ class sendnotification_form extends action_form {
         $errors = parent::validation($data, $files);
 
         $primaryrecipients = $data['primaryrecipients'] ?? [];
-        // Check if at least one primary recipient role checkbox was selected.
-        $atleastoneselected = false;
-        foreach ($primaryrecipients as $value) {
-            if ($value == 1) {
-                $atleastoneselected = true;
-                break;
-            }
-        }
+        $copyrecipients = $data['copyrecipients'] ?? [];
+
+        // At least one recipient role must be selected, primary or copy: a rule may be configured
+        // to notify only copy recipients without ever messaging the primary (matched) user.
+        $atleastoneselected = in_array(1, $primaryrecipients) || in_array(1, $copyrecipients);
 
         if (!$atleastoneselected) {
-            $errors['primaryrecipients'] = get_string('mustselectoneprimaryrole', 'local_coursedynamicrules');
+            $errors['primaryrecipients'] = get_string('mustselectonerecipient', 'local_coursedynamicrules');
         }
 
         return $errors;
