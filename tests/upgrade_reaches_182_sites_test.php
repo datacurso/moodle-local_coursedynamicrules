@@ -120,6 +120,8 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-002: the stamping upgrade reaches sites already at 1.8.2 - an active rule comes out sealed, an inactive one unstamped.
+     *
      * A rule that is active on a 1.8.2 site must come out of the upgrade sealed.
      *
      * The rows go in with timeactivated still present, then upgrade_from_182() drops the column
@@ -168,6 +170,8 @@ final class upgrade_reaches_182_sites_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-002: the stamping upgrade reaches sites already at 1.8.2 - the same guard also delivers the delete capabilities.
+     *
      * The delete capabilities must reach the editing teacher on a 1.8.2 site too.
      *
      * Same guard, same arithmetic: the block that grants them is 2026083001, below 2026090102.

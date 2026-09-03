@@ -132,11 +132,7 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $storedparams = json_decode($stored->params);
         $this->assertSame('7', $storedparams->timeintervals);
 
-        $reflection = new \ReflectionClass(course_inactivity_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::course_inactivity($storedparams);
         $this->assertSame('7', $defaults['recurringinterval']);
 
         $editcondition = new course_inactivity_condition($stored, $this->courseid, $this->currenttime);
@@ -159,7 +155,7 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $this->assertEquals('weeks', $finalparams->intervalunit);
         $this->assertEquals(course_inactivity_condition::DATE_FROM_NOW, $finalparams->basedatetype);
 
-        $defaults2 = $method->invoke($forminstance, $finalparams);
+        $defaults2 = \local_coursedynamicrules\local\form_preload::course_inactivity($finalparams);
         $this->assertSame('7,14,30', $defaults2['customintervals']);
     }
 
@@ -335,6 +331,8 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-010: a custom milestone fires only within its 6-hour post-due window and only for a student with no access in the stretch.
+     *
      * Test for evaluate method with custom intervals.
      *
      * @dataProvider evaluate_provider
@@ -367,6 +365,8 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-010: in recurrent mode the milestone fires within the window of each interval repetition.
+     *
      * Test for evaluate method with custom intervals.
      *
      * @dataProvider evaluate_provider
@@ -580,6 +580,8 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-010: a custom milestone fires within its window for a never-accessed student when the base date falls back to enrolment creation time.
+     *
      * When the enrolment has timestart = 0 the base date must fall back to the enrolment creation
      * time, not to the unix epoch.
      *

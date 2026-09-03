@@ -126,12 +126,7 @@ class enableactivity_form extends action_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return [
-            'coursemodules' => array_map(
-                fn($cm) => (int) $cm->id,
-                $params->coursemodules ?? []
-            ),
-        ];
+        return \local_coursedynamicrules\local\form_preload::enableactivity($params);
     }
 
     /**

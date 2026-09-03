@@ -29,27 +29,31 @@ final class condition_form_test extends \advanced_testcase {
      * Load the stub_preload_condition_form fixture used to exercise the base preload hook.
      */
     public static function setUpBeforeClass(): void {
+        require_once(__DIR__ . '/../../fixtures/testable_condition_form.php');
         require_once(__DIR__ . '/../../fixtures/stub_preload_condition_form.php');
         parent::setUpBeforeClass();
     }
 
     /**
+     * MDL-UNIT-019: condition form preload passes stored params through as a plain array unchanged.
+     *
      * preload_defaults() passes through the given params object as a plain array unchanged.
+     *
+     * The form's preload_defaults() delegates verbatim to the pure form_preload::identity() mapper,
+     * so the base contract is exercised through that public, instantiation-free entry point instead
+     * of reaching into the form's protected method by reflection.
      *
      * @covers ::preload_defaults
      */
     public function test_preload_defaults_returns_params_as_array(): void {
-        $reflection = new \ReflectionClass(condition_form::class);
-        $form = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($form, (object) ['foo' => 'bar', 'baz' => 2]);
+        $result = \local_coursedynamicrules\local\form_preload::identity((object) ['foo' => 'bar', 'baz' => 2]);
 
         $this->assertSame(['foo' => 'bar', 'baz' => 2], $result);
     }
 
     /**
+     * MDL-UNIT-019: condition form definition preloads a stored record into the field defaults.
+     *
      * definition() preloads a stored record's values into the form's field defaults.
      *
      * @covers ::definition
@@ -66,6 +70,8 @@ final class condition_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-019: condition form leaves fields empty when no stored record is supplied.
+     *
      * definition() leaves the field empty when no stored record is supplied.
      *
      * @covers ::definition
@@ -82,6 +88,8 @@ final class condition_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-019: condition form definition does not error when constructed with null customdata.
+     *
      * definition() used to call array_key_exists('record', $this->_customdata) unconditionally - a
      * TypeError under PHP 8 when a caller constructs the form without passing any customdata at all
      * (moodleform defaults $_customdata to null, not an empty array) (micro-sweep).
@@ -103,6 +111,8 @@ final class condition_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-019: condition form still preloads when the record key is present but an empty array.
+     *
      * `!empty($this->_customdata['record'])` treated an edit row whose stored params decode to an
      * empty PHP array (json_decode('[]')) as "no record", since empty() is true for [] - silently
      * skipping preload_defaults() even though the 'record' key IS present (FIX2-12).
@@ -115,7 +125,7 @@ final class condition_form_test extends \advanced_testcase {
         $form = new class (
             new \moodle_url('/local/coursedynamicrules/conditions.php'),
             ['record' => []]
-        ) extends condition_form {
+        ) extends testable_condition_form {
             /** @var string type of condition */
             protected $type = 'stub';
 
@@ -143,14 +153,13 @@ final class condition_form_test extends \advanced_testcase {
     }
 
     /**
-     * Reach the protected MoodleQuickForm instance held by a moodleform.
+     * Reach the protected MoodleQuickForm instance held by a moodleform, via the testable subclass'
+     * public accessor (inheritance, not reflection).
      *
-     * @param \moodleform $form
+     * @param testable_condition_form $form
      * @return \MoodleQuickForm
      */
-    private function get_mform(\moodleform $form) {
-        $property = new \ReflectionProperty(\moodleform::class, '_form');
-        $property->setAccessible(true);
-        return $property->getValue($form);
+    private function get_mform(testable_condition_form $form): \MoodleQuickForm {
+        return $form->get_mform_for_test();
     }
 }

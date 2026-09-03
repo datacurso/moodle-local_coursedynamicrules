@@ -142,14 +142,6 @@ class course_inactivity_form extends condition_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        $defaults = (array) $params;
-
-        if (($params->intervaltype ?? null) === self::INTERVAL_CUSTOM) {
-            $defaults['customintervals'] = $params->timeintervals ?? null;
-        } else {
-            $defaults['recurringinterval'] = $params->timeintervals ?? null;
-        }
-
-        return $defaults;
+        return \local_coursedynamicrules\local\form_preload::course_inactivity($params);
     }
 }

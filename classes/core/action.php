@@ -178,6 +178,15 @@ abstract class action {
     }
 
     /**
+     * Rule id this component belongs to, or null before it is loaded.
+     *
+     * @return int|null
+     */
+    public function get_ruleid() {
+        return $this->ruleid;
+    }
+
+    /**
      * Runtime-only param keys whose stored value must survive an edit even though the operator
      * form does not submit them (e.g. a throttle timestamp maintained by the action itself).
      *

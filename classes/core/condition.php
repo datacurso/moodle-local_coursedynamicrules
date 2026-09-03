@@ -257,6 +257,15 @@ abstract class condition {
     }
 
     /**
+     * Rule id this component belongs to, or null before it is loaded.
+     *
+     * @return int|null
+     */
+    public function get_ruleid() {
+        return $this->ruleid;
+    }
+
+    /**
      * Deletes a condition record from the 'local_coursedynamicrules_condition' table. and related information with it.
      *
      * @return bool True on success, false on failure.

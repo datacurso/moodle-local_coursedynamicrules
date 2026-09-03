@@ -108,6 +108,6 @@ class complete_activity_form extends condition_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return ['coursemodule' => $params->cmid ?? null];
+        return \local_coursedynamicrules\local\form_preload::complete_activity($params);
     }
 }

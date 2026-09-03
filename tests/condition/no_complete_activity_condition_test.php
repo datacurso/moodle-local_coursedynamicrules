@@ -85,6 +85,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: the condition persists and preloads its cmid and expected date.
+     *
      * A round-trip create -> edit must persist exactly one row, same id, with the mutated cmid and
      * expectedcompletiondate, and preload_defaults() must map both stored keys onto the form fields.
      *
@@ -120,11 +122,7 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
         $this->assertSame($cm1->cmid, $storedparams->cmid);
         $this->assertSame($this->pastdate, $storedparams->expectedcompletiondate);
 
-        $reflection = new \ReflectionClass(no_complete_activity_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::no_complete_activity($storedparams);
         $this->assertSame($cm1->cmid, $defaults['coursemodule']);
         $this->assertSame($this->pastdate, $defaults['expectedcompletiondate']);
 
@@ -145,6 +143,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: before the expected date the condition fires for no one.
+     *
      * When the expected completion date is in the future the condition must not
      * fire regardless of the user's completion state.
      *
@@ -167,6 +167,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: no completion tracking yields null state and the condition fails closed.
+     *
      * Regression test: activity has completion tracking disabled.
      * get_data() returns completionstate = NULL via a RIGHT JOIN on
      * course_modules_viewed when there is no course_modules_completion row.
@@ -206,6 +208,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: after the date, an uncompleted activity makes the condition fire.
+     *
      * Activity is not completed and deadline has passed: condition fires.
      *
      * @covers ::evaluate
@@ -228,6 +232,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: after the date, a completed activity does not fire.
+     *
      * Activity is completed (COMPLETION_COMPLETE): condition must not fire.
      *
      * @covers ::evaluate
@@ -259,6 +265,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: a completed-with-pass activity does not fire.
+     *
      * Activity is completed with pass grade (COMPLETION_COMPLETE_PASS): condition must not fire.
      *
      * @covers ::evaluate
@@ -290,6 +298,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: an activity being deleted turns the condition off silently.
+     *
      * Activity module is being deleted: condition must not fire.
      *
      * @covers ::evaluate
@@ -318,6 +328,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: a missing course module is rejected at save, never stored as cmid 0.
+     *
      * A missing course module must be rejected at save time, never persisted as cmid 0.
      *
      * @covers ::save_condition
@@ -339,6 +351,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: a deleted activity yields an empty description without warnings.
+     *
      * A stale cmid must not raise warnings in the description; it returns an empty string.
      *
      * @covers ::get_description

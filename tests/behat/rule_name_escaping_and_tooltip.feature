@@ -20,6 +20,7 @@ Feature: Rule names are escaped and descriptions surface on hover
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
 
+  @MDL-E2E-012
   Scenario: A script payload in a rule name renders as text on the rules list
     # The form types this field PARAM_TEXT, which strips tags, so the form is not the threat.
     # Course restore is: it writes the name with no cleaning at all. The step below inserts it
@@ -40,6 +41,7 @@ Feature: Rule names are escaped and descriptions surface on hover
     Then "//script[contains(text(), 'alert(document.cookie)')]" "xpath_element" should not exist
     And I should see "alert(document.cookie)Refuerzo"
 
+  @MDL-E2E-012
   Scenario: A script payload in a rule name renders as text on the delete confirmation page
     # The sibling that shipped unescaped while the listing was already fixed.
     # core_renderer::confirm() emits its message through html_writer::tag('p', ...) untouched, so
@@ -53,6 +55,7 @@ Feature: Rule names are escaped and descriptions surface on hover
     Then "//script[contains(text(), 'alert(document.cookie)')]" "xpath_element" should not exist
     And I should see "alert(document.cookie)Refuerzo"
 
+  @MDL-E2E-013
   Scenario: A rule with a description carries it as a tooltip, one without carries none
     # Presence and absence both matter: an empty tooltip box on every description-less rule would
     # be worse than no tooltip at all, which is why the code only wraps when there is a

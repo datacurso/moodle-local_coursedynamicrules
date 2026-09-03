@@ -159,6 +159,8 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012: rule, condition and action arrive complete in the new course, and the condition remaps to the restored module.
+     *
      * The rule, its condition and its action all exist in the restored course, and the
      * condition points at the RESTORED module, not the source one.
      */
@@ -197,6 +199,9 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012, MDL-UNIT-018: on restore, notification role ids are resolved through the
+     * three-level cascade (mapping, then the annotated shortname, not the raw number).
+     *
      * Notification role ids follow the ROLE, not the number.
      *
      * The scenario the changelog promises to survive: the backup names a role by an id that means
@@ -235,6 +240,8 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012: the enable-activity ownership marker survives restore even when core re-encodes a mixed availability tree.
+     *
      * The ownership marker survives core RE-ENCODING the availability tree - the mixed-tree case.
      *
      * Final-review real finding: core's update_after_restore (availability/classes/info.php)
@@ -292,6 +299,8 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012: restored rules keep their activation state and stamp - sealed stay sealed, legacy-active gets stamped, inactive draft stays unlocked.
+     *
      * The activation lock survives the round trip - restore cannot be the lock's back door.
      *
      * Found by both blind judges independently: without timeactivated in the backup structure,
@@ -354,6 +363,8 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012: the enable-activity ownership marker is rewritten onto the restored action's id (and its params point at the restored module).
+     *
      * The enable-activity ownership marker is rewritten onto the restored action's id.
      *
      * Core restores course_modules.availability verbatim, so the restored restriction still names

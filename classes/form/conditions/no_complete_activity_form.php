@@ -105,9 +105,6 @@ class no_complete_activity_form extends condition_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return [
-            'coursemodule' => $params->cmid ?? null,
-            'expectedcompletiondate' => $params->expectedcompletiondate ?? null,
-        ];
+        return \local_coursedynamicrules\local\form_preload::no_complete_activity($params);
     }
 }

@@ -152,9 +152,7 @@ final class condition_test extends \advanced_testcase {
 
         $stub = new stub_condition($record, $this->courseid);
 
-        $property = new \ReflectionProperty(condition::class, 'ruleid');
-        $property->setAccessible(true);
-        $this->assertNull($property->getValue($stub));
+        $this->assertNull($stub->get_ruleid());
     }
 
     /**

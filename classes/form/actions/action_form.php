@@ -57,6 +57,6 @@ class action_form extends \moodleform {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return (array) $params;
+        return \local_coursedynamicrules\local\form_preload::identity($params);
     }
 }

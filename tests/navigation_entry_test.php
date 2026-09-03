@@ -62,6 +62,8 @@ final class navigation_entry_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: a manage-only role loses the course menu entry the view pair would earn.
+     *
      * A role holding only managerule is NOT offered the entry.
      *
      * rules.php refuses that role at the door (it also demands viewrule), so the menu offering it
@@ -81,6 +83,8 @@ final class navigation_entry_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: a role holding the page's view+manage pair is offered the course menu entry.
+     *
      * A role holding the same pair the page enforces gets the entry.
      */
     public function test_a_role_matching_the_pages_gate_is_offered_the_entry(): void {

@@ -221,11 +221,7 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
         $storedparams = json_decode($stored->params);
         $this->assertCount(2, (array) $storedparams->gradeitemsconditions);
 
-        $reflection = new \ReflectionClass(grade_in_activity_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::grade_in_activity($storedparams);
         $this->assertSame((int) $cm->id, $defaults['cmid']);
         $this->assertSame(
             json_decode(json_encode($storedparams->gradeitemsconditions), true),
@@ -311,6 +307,8 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-012: without a final grade (no grade row) the condition does not fire.
+     *
      * A user with no grade row must NOT satisfy a "grade less than" condition.
      *
      * @covers ::evaluate
@@ -328,6 +326,8 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-012: a null final grade does not fire the condition.
+     *
      * A grade row with a null final grade must NOT satisfy a "grade less than" condition.
      *
      * @covers ::evaluate
@@ -395,6 +395,8 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-012: a final grade that enters an enabled threshold (grade < value) fires the condition.
+     *
      * A user graded below the threshold satisfies the condition, without warnings.
      *
      * @covers ::evaluate

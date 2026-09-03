@@ -17,22 +17,23 @@
 namespace local_coursedynamicrules\form\actions;
 
 /**
- * Minimal concrete action_form used to exercise the base preload hook.
+ * Testable sendnotification_form subclass exposing the protected MoodleQuickForm by inheritance.
+ *
+ * The end-to-end preload tests need the real definition()/set_data() run to assert the actual
+ * exported element values; a subclass hands the protected $_form to the test through a public
+ * accessor, so those assertions never need reflection.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-final class stub_preload_action_form extends testable_action_form {
+class testable_sendnotification_form extends sendnotification_form {
     /**
-     * Adds one field ('foo') before delegating to parent::definition(), mirroring how every real
-     * per-type form adds its own fields and calls parent::definition() last.
+     * Return the protected MoodleQuickForm this form wraps.
      *
-     * @return void
+     * @return \MoodleQuickForm
      */
-    public function definition() {
-        $this->_form->addElement('text', 'foo', 'Foo');
-        $this->_form->setType('foo', PARAM_TEXT);
-        parent::definition();
+    public function get_mform_for_test(): \MoodleQuickForm {
+        return $this->_form;
     }
 }

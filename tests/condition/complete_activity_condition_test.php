@@ -48,6 +48,8 @@ final class complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-006: the complete_activity condition persists and preloads its target cmid.
+     *
      * A round-trip create -> edit must persist exactly one row, same id, with the mutated cmid, and
      * preload_defaults() must map the stored cmid back onto the 'coursemodule' form field.
      *
@@ -78,11 +80,7 @@ final class complete_activity_condition_test extends \advanced_testcase {
         $storedparams = json_decode($stored->params);
         $this->assertSame($cm1->cmid, $storedparams->cmid);
 
-        $reflection = new \ReflectionClass(complete_activity_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::complete_activity($storedparams);
         $this->assertSame($cm1->cmid, $defaults['coursemodule']);
 
         $editcondition = new complete_activity_condition($stored, $course->id);
@@ -97,6 +95,8 @@ final class complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-006: a missing course module is rejected at save, never stored as cmid 0.
+     *
      * A missing course module must be rejected at save time, never persisted as cmid 0.
      *
      * @covers ::save_condition
@@ -120,6 +120,8 @@ final class complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-006: a deleted activity turns the condition off silently (evaluate false).
+     *
      * A stale cmid (module deleted) must not raise warnings; evaluate returns false.
      *
      * @covers ::evaluate
@@ -145,6 +147,8 @@ final class complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-006: a deleted activity yields an empty description without warnings.
+     *
      * A stale cmid must not raise warnings in the description; it returns an empty string.
      *
      * @covers ::get_description

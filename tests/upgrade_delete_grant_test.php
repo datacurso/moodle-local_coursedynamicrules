@@ -60,6 +60,8 @@ final class upgrade_delete_grant_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-001: a legacy editing-teacher role that lacked the deletes receives all three after upgrade.
+     *
      * A role that never had the capabilities receives all three.
      */
     public function test_an_existing_editingteacher_role_receives_the_three_deletes(): void {
@@ -90,6 +92,8 @@ final class upgrade_delete_grant_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-001: an explicit admin prohibition survives the upgrade while untouched caps get the new default.
+     *
      * An explicit administrator decision survives the upgrade.
      *
      * A site that prohibited deletion on some editing-teacher role decided something on purpose.

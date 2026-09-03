@@ -125,6 +125,8 @@ final class rule_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-005: a single unmet condition runs no action for that student.
+     *
      * On the event path a mixed rule must NOT fire when a non-event condition is unmet.
      */
     public function test_event_path_respects_unmet_cron_condition(): void {
@@ -152,6 +154,8 @@ final class rule_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-005: actions run only when ALL conditions are met.
+     *
      * On the event path a mixed rule fires when all conditions are met.
      */
     public function test_event_path_fires_when_all_met(): void {
@@ -178,6 +182,8 @@ final class rule_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-005: every condition is evaluated under the AND semantics.
+     *
      * Two conditions on different activities must both be evaluated (rule fires when both hold).
      */
     public function test_two_activity_conditions_both_evaluated(): void {
@@ -200,6 +206,8 @@ final class rule_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-005: a stale grade id degrades to "not relevant", no action, no error.
+     *
      * A grade event whose grade row no longer exists must not raise a PHP error.
      *
      * The grade row can be deleted between the event dispatch and the adhoc task run; resolving
@@ -224,6 +232,8 @@ final class rule_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-005: an event on an unrelated activity fires no action.
+     *
      * An event on an unrelated activity must not fire a rule that does not reference it.
      */
     public function test_unrelated_event_does_not_fire(): void {

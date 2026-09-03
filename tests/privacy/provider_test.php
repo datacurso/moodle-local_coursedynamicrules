@@ -29,6 +29,8 @@ use core_privacy\local\metadata\collection;
  */
 final class provider_test extends \advanced_testcase {
     /**
+     * MDL-E2E-011: the privacy registry declares the external transfer of course data to the AI service.
+     *
      * The plugin declares the external transfer of course data to the Datacurso AI service.
      */
     public function test_get_metadata_declares_external_ai_transfer(): void {

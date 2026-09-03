@@ -104,9 +104,6 @@ class grade_in_activity_form extends condition_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return [
-            'cmid' => $params->cmid ?? 0,
-            'gradeitems' => json_encode($params->gradeitemsconditions ?? new \stdClass()),
-        ];
+        return \local_coursedynamicrules\local\form_preload::grade_in_activity($params);
     }
 }

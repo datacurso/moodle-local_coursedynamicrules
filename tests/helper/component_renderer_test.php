@@ -30,6 +30,8 @@ use local_coursedynamicrules\action\sendnotification\sendnotification_action;
  */
 final class component_renderer_test extends \advanced_testcase {
     /**
+     * MDL-UNIT-013: the listing trim never leaves a live tag when cutting through an HTML payload.
+     *
      * A configurable description must be escaped at the rules-list output boundary.
      */
     public function test_escapes_html_in_action_description(): void {
@@ -62,6 +64,8 @@ final class component_renderer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-013: free text over the budget is cut with an ellipsis while exactly-budget text passes whole.
+     *
      * Free text longer than the budget is cut with an ellipsis; shorter passes through whole.
      *
      * Reads the constant, so it pins the MECHANISM of the cut and nothing about the value. That is
@@ -84,6 +88,8 @@ final class component_renderer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-013: only the notification body is trimmed while the sentence structure stays whole.
+     *
      * The rules list must still show part of a notification's MESSAGE, whatever the budget is.
      *
      * This is the assertion both judges asked for in round 2, and the one whose absence let two
@@ -169,6 +175,8 @@ final class component_renderer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-013: the full component description is never trimmed and keeps its raw text.
+     *
      * Escaping is a display-only boundary: the underlying prompt stays intact for the AI request.
      */
     public function test_escaping_is_display_only_prompt_stays_intact(): void {

@@ -36,6 +36,8 @@ namespace local_coursedynamicrules;
  */
 final class upgrade_lock_stamp_test extends \advanced_testcase {
     /**
+     * MDL-INT-002: every active unstamped rule is stamped from the best time in its row; inactive stay unstamped, stamped ones are not re-stamped.
+     *
      * Active rules receive a stamp borrowed from their own history; inactive rules stay null.
      */
     public function test_the_upgrade_stamps_active_rules_and_only_those(): void {

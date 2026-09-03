@@ -84,6 +84,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a rule is returned when it belongs to the requested course.
+     *
      * A rule is returned when it belongs to the requested course.
      *
      * @covers ::get_rule
@@ -94,6 +96,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: loading a rule that belongs to another course is rejected.
+     *
      * Loading a rule that belongs to another course is rejected.
      *
      * @covers ::get_rule
@@ -104,6 +108,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: reports whether a rule belongs to the given course.
+     *
      * Reports whether a rule belongs to the given course.
      *
      * @covers ::rule_belongs_to_course
@@ -114,6 +120,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a condition is returned when its rule belongs to the course.
+     *
      * A condition is returned when its rule belongs to the course.
      *
      * @covers ::get_condition
@@ -124,6 +132,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: loading a condition whose rule belongs to another course is rejected.
+     *
      * Loading a condition whose rule belongs to another course is rejected.
      *
      * @covers ::get_condition
@@ -134,6 +144,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a condition under a different rule in the same course is rejected.
+     *
      * A condition belonging to a DIFFERENT rule in the SAME course must be rejected: the request's
      * ruleid is part of the ownership contract, not just the course id (G8).
      *
@@ -145,6 +157,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: an action is returned when its rule belongs to the course.
+     *
      * An action is returned when its rule belongs to the course.
      *
      * @covers ::get_action
@@ -155,6 +169,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: loading an action whose rule belongs to another course is rejected.
+     *
      * Loading an action whose rule belongs to another course is rejected.
      *
      * @covers ::get_action
@@ -165,6 +181,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: an action under a different rule in the same course is rejected.
+     *
      * An action belonging to a DIFFERENT rule in the SAME course must be rejected: the request's
      * ruleid is part of the ownership contract, not just the course id (G8).
      *
@@ -176,6 +194,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a create (no submitted id) resolves to 0 so the caller inserts a new rule.
+     *
      * A create (no submitted id) resolves to 0 so the caller inserts a new rule.
      *
      * @covers ::resolve_writable_ruleid
@@ -188,6 +208,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: an update targeting an owned rule resolves to that rule id.
+     *
      * An update targeting an owned rule resolves to that rule id.
      *
      * @covers ::resolve_writable_ruleid
@@ -201,6 +223,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: an update targeting a foreign course's rule (tampered hidden id) is rejected.
+     *
      * An update targeting a foreign course's rule (tampered hidden id) is rejected.
      *
      * @covers ::resolve_writable_ruleid
@@ -236,6 +260,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a create-only role cannot smuggle an update through the hidden form id.
+     *
      * A role allowed only to CREATE cannot smuggle an update through the hidden form id.
      *
      * The page decides its capability from the URL: no ?id means creating, so createrule is
@@ -258,6 +284,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: an update-only role cannot create by posting a zero id.
+     *
      * The mirror: a role allowed only to UPDATE cannot create by posting id=0.
      *
      * @covers ::resolve_writable_ruleid
@@ -270,6 +298,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: omitting the context fails loudly rather than skipping the capability check.
+     *
      * Omitting the context is a fatal error, not a silent skip of the capability check.
      *
      * The first version of this method made the context optional, with a comment claiming that was

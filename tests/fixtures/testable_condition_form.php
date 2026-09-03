@@ -14,25 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-namespace local_coursedynamicrules\form\actions;
+namespace local_coursedynamicrules\form\conditions;
 
 /**
- * Minimal concrete action_form used to exercise the base preload hook.
+ * Testable condition_form subclass exposing the protected MoodleQuickForm instance by inheritance.
+ *
+ * moodleform holds its MoodleQuickForm as the protected $_form property; a subclass can hand it to a
+ * test through a public accessor, so the tests never need reflection to assert on element defaults.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-final class stub_preload_action_form extends testable_action_form {
+class testable_condition_form extends condition_form {
     /**
-     * Adds one field ('foo') before delegating to parent::definition(), mirroring how every real
-     * per-type form adds its own fields and calls parent::definition() last.
+     * Return the protected MoodleQuickForm this form wraps.
      *
-     * @return void
+     * @return \MoodleQuickForm
      */
-    public function definition() {
-        $this->_form->addElement('text', 'foo', 'Foo');
-        $this->_form->setType('foo', PARAM_TEXT);
-        parent::definition();
+    public function get_mform_for_test(): \MoodleQuickForm {
+        return $this->_form;
     }
 }

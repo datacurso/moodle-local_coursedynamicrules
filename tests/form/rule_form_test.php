@@ -166,6 +166,8 @@ final class rule_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-004: a new rule with no conditions or actions cannot be created already active.
+     *
      * A brand-new rule cannot be created already active.
      *
      * Activation is the moment the rule locks forever, and a new rule has zero conditions and zero
@@ -191,6 +193,8 @@ final class rule_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-004: a rule missing either conditions or actions is incomplete and cannot be activated.
+     *
      * An incomplete existing rule cannot be activated either - and the completeness is BOTH halves.
      *
      * @covers ::validation
@@ -249,6 +253,8 @@ final class rule_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-004: a sealed incomplete rule keeps its activation toggle without re-demanding completeness.
+     *
      * A sealed INCOMPLETE rule keeps its active toggle - the upgrade population depends on it.
      *
      * Born green as a regression pin (its red counterfactual is deleting the locked-skip branch):
@@ -278,6 +284,8 @@ final class rule_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-004: a rule with at least one condition and one action is complete and activatable.
+     *
      * A complete rule activates, and saving anything while NOT activating never trips the check.
      *
      * @covers ::validation
