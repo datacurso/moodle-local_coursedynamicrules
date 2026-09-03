@@ -1,3 +1,15 @@
+## 1.8.4
+
+**Released on:** 2026-09-03
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+## Fixed
+- **Pausing a rule by hand no longer shows the Executed badge**
+  The list badge told an engine-executed rule apart from a hand-paused one only by proxy - whether the rule had ever run. That proxy was wrong: an event-driven rule records an execution time on every run yet is never switched off by the engine, so pausing it by hand wrongly showed **Executed** instead of **Paused**. The rule now records the one moment that earns Executed - the engine deactivating a one-shot scheduled rule right after it ran - in a dedicated stamp, and any manual toggle of the Active box clears that stamp. So Executed marks only a rule the engine stopped, and a rule a person pauses always reads as Paused. **Site administrators, note:** the upgrade adds the stamp empty for the whole installed base, so a rule that was already stopped reads as Paused until its next engine deactivation - a historical Executed cannot be reconstructed and is not guessed at.
+- **A grade condition keeps working after its activity's grade item is recreated**
+  A "grade in activity" condition stored each threshold against the grade item's database id. Moodle recreates that id whenever the activity's grade settings are edited or the course is restored, which orphaned the stored threshold: the rules list showed the condition with no value and no "greater/less than", and - worse, and silently - the rule stopped firing altogether, because the evaluation looked the threshold up by the new id and found nothing. Thresholds are now keyed by the grade item's stable itemnumber, so both the listing and the evaluation survive the id changing. Conditions saved before this fix are read back by position, so an existing single-item condition is revived without any migration; editing and re-saving it rewrites it in the stable shape.
+
 ## 1.8.3
 
 **Released on:** 2026-09-02
