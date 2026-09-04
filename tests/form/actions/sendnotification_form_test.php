@@ -165,4 +165,55 @@ final class sendnotification_form_test extends \advanced_testcase {
         // of how sparse the stored params are.
         $this->assertSame(0, (int) $values['primaryrecipients'][$studentroleid]);
     }
+
+    /**
+     * A copy-only configuration (no primary recipient role) must be a valid, saveable setup: notify
+     * observer roles about another role's activity without ever messaging that role directly.
+     *
+     * @covers ::validation
+     */
+    public function test_validation_passes_with_only_copy_recipients_selected(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $teacherroleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $form = new sendnotification_form(null, ['courseid' => $course->id, 'ruleid' => 1]);
+
+        $errors = $form->validation([
+            'primaryrecipients' => [$teacherroleid => 0, $studentroleid => 0],
+            'copyrecipients' => [$teacherroleid => 1, $studentroleid => 0],
+        ], []);
+
+        $this->assertArrayNotHasKey('primaryrecipients', $errors);
+    }
+
+    /**
+     * Neither primary nor copy recipients selected must still be rejected: an action with no
+     * configured recipient at all would never notify anyone.
+     *
+     * @covers ::validation
+     */
+    public function test_validation_fails_when_no_recipients_selected_at_all(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $teacherroleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $form = new sendnotification_form(null, ['courseid' => $course->id, 'ruleid' => 1]);
+
+        $errors = $form->validation([
+            'primaryrecipients' => [$teacherroleid => 0, $studentroleid => 0],
+            'copyrecipients' => [$teacherroleid => 0, $studentroleid => 0],
+        ], []);
+
+        $this->assertArrayHasKey('primaryrecipients', $errors);
+        $this->assertSame(get_string('mustselectonerecipient', 'local_coursedynamicrules'), $errors['primaryrecipients']);
+    }
 }

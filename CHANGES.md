@@ -1,16 +1,34 @@
-## 1.9.0
+## 1.8.4
 
-**Released on:** 2026-08-31
+**Released on:** 2026-09-03
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
 ## Added
-- **An editing teacher can delete what they build - a sealed rule takes the manager key**
-  The three delete capabilities were manager-only, so a component or draft rule created by mistake meant an escalation request to an administrator - multiplied by every teacher on the site. Whoever may build rules may also unbuild them: the editing teacher archetype now holds `deleterule`, `deletecondition` and `deleteaction`, on fresh installs and through the upgrade step on existing sites alike. Deleting a **sealed** rule (activated at least once - it has run against students) additionally demands the new manager-only `deletesealedrule` capability: the teacher's trash can appears only on rules that were never activated, while the manager keeps deletion as the one exit a sealed rule has. A role where an administrator explicitly prohibited any of these keeps that decision - the upgrade does not overrule it.
+- **Deleting a sealed rule takes the manager key**
+  The editing teacher deletes what they build: conditions, actions, and rules that were never activated. A **sealed** rule (activated at least once - it has run against students) keeps deletion as its one exit, and that exit now additionally demands the new manager-only `deletesealedrule` capability: the teacher's trash can appears only on rules that were never activated, the manager sees it everywhere, and the endpoint refuses a direct URL under the same pair. Being a new capability, it reaches existing sites through the standard capability update with no upgrade step, and a role where an administrator explicitly decided otherwise keeps that decision.
+
+## Fixed
+- **Pausing a rule by hand no longer shows the Executed badge**
+  The list badge told an engine-executed rule apart from a hand-paused one only by proxy - whether the rule had ever run. That proxy was wrong: an event-driven rule records an execution time on every run yet is never switched off by the engine, so pausing it by hand wrongly showed **Executed** instead of **Paused**. The rule now records the one moment that earns Executed - the engine deactivating a one-shot scheduled rule right after it ran - in a dedicated stamp, and any manual toggle of the Active box clears that stamp. So Executed marks only a rule the engine stopped, and a rule a person pauses always reads as Paused. **Site administrators, note:** the upgrade adds the stamp empty for the whole installed base, so a rule that was already stopped reads as Paused until its next engine deactivation - a historical Executed cannot be reconstructed and is not guessed at.
+- **A grade condition keeps working after its activity's grade item is recreated**
+  A "grade in activity" condition stored each threshold against the grade item's database id. Moodle recreates that id whenever the activity's grade settings are edited or the course is restored, which orphaned the stored threshold: the rules list showed the condition with no value and no "greater/less than", and - worse, and silently - the rule stopped firing altogether, because the evaluation looked the threshold up by the new id and found nothing. Thresholds are now keyed by the grade item's stable itemnumber, so both the listing and the evaluation survive the id changing. Conditions saved before this fix are read back by position, so an existing single-item condition is revived without any migration; editing and re-saving it rewrites it in the stable shape.
+
+## 1.8.3
+
+**Released on:** 2026-09-02
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+## Added
+- **An editing teacher can delete rule components and rules**
+  The three delete capabilities were manager-only, so a component created by mistake meant an escalation request to an administrator - multiplied by every teacher on the site. Whoever may build rules may also unbuild them: the editing teacher archetype now holds `deleterule`, `deletecondition` and `deleteaction`, on fresh installs and through the upgrade step on existing sites alike. A role where an administrator explicitly prohibited any of these keeps that decision - the upgrade does not overrule it.
 - **A rule becomes permanently unmodifiable at its first activation**
-  Activating a rule is now an explicit, one-way step. Saving with the Active box ticked stores every edit first and then asks for confirmation on its own page, spelling out that the rule can never be modified again and that pausing carries its own risks; replaying that confirmation later simply reports the rule is already activated. Once confirmed, the rule's name, description, conditions and actions are sealed: the form freezes, the add and delete controls disappear, direct URLs are refused, and the server re-decides at write time so a tab opened before the seal cannot smuggle an edit through. Pausing and reactivating remain available forever, and deleting stays as the rule's one exit - for the manager tier (see the deletion entry under Added) - the list shows one badge with four states: **Active** (running, whether or not it has fired - event-driven rules stay active and fire repeatedly), **Executed** (stopped and already fired at least once, in the Datacurso brand orange - one-shot scheduled rules land here on their own, because the task deactivates them right after executing), **Paused** (activated once, stopped, never fired - resumable forever) and **Inactive** (never activated, the only editable state) - and a rule with no conditions or actions cannot be activated at all - sealed incomplete could never fire nor be finished. The seal survives course backup, restore, import and duplication, and an archive made before this version restores its active rules sealed. **Site administrators, note:** the upgrade seals every rule that is active at upgrade time - active means it was activated once - while inactive rules stay editable until their first activation.
+  Activating a rule is now an explicit, one-way step. Saving with the Active box ticked stores every edit first and then asks for confirmation on its own page, spelling out that the rule can never be modified again and that pausing carries its own risks; replaying that confirmation later simply reports the rule is already activated. Once confirmed, the rule's name, description, conditions and actions are sealed: the form freezes, the add and delete controls disappear, direct URLs are refused, and the server re-decides at write time so a tab opened before the seal cannot smuggle an edit through. Pausing, reactivating and deleting remain available forever - the list shows one badge with four states: **Active** (running, whether or not it has fired - event-driven rules stay active and fire repeatedly), **Executed** (stopped and already fired at least once, in the Datacurso brand orange - one-shot scheduled rules land here on their own, because the task deactivates them right after executing), **Paused** (activated once, stopped, never fired - resumable forever) and **Inactive** (never activated, the only editable state) - and a rule with no conditions or actions cannot be activated at all - sealed incomplete could never fire nor be finished. The seal survives course backup, restore, import and duplication, and an archive made before this version restores its active rules sealed. **Site administrators, note:** the upgrade seals every rule that is active at upgrade time - active means it was activated once - while inactive rules stay editable until their first activation.
 - **Conditions and actions can be edited in place while the rule was never activated**
   The 1.8.1 withholding of in-place editing existed because editing could change what an already-running rule did to learners; the activation lock dissolved that risk, so the editor returns exactly inside the bound: a pencil on each condition/action card, shown only while the rule was never activated and only to roles holding the matching `update*` capability (both re-checked server-side with ownership before anything renders). The form opens preloaded with the stored configuration, saves preserve runtime state, and edits fire the `condition_updated`/`action_updated` audit events.
+- **A rule's description is revealed by hovering its name on the list**
+  The description was written on the rule form and then visible nowhere else, so telling two similarly named rules apart meant opening each one. The name on the rules list now carries the description as a tooltip, shown only for rules that have one, without spending a column on it. Note the limit: a native tooltip answers to the mouse only, so it is not reachable by keyboard or on a touch screen - the edit form remains the way to read a description without a pointer.
 
 ## Changed
 - **Declared capabilities are now enforced where their pages and controls live**
@@ -20,7 +38,11 @@
 - **Declared dependencies match the APIs actually used**
   `local_coursegen` moves to 2026082400 and `aiprovider_datacurso` to 2026081000. Without this the plugin would install against a Course Creator AI that does not have `create_mod_service`, and break in exactly the way this release fixes.
 - **Component descriptions are trimmed on the rules list and shown whole on the component pages**
-  A long condition or action description (a notification body, an AI prompt) used to stretch its row and make the rules list ragged. The list now trims every description to 80 characters with an ellipsis so all rows keep the same height, while the conditions and actions pages reached through each rule's magnifier show the full text. The cut is made on the plain text before HTML escaping, so no escaped entity is ever sliced in half.
+  A long condition or action description (a notification body, an AI prompt) used to stretch its row and make the rules list ragged. The list now trims the free text each component carries - a notification body, an AI prompt, the list of activities an enable action names - to 80 characters with an ellipsis, so rows keep a similar height, while the conditions and actions pages reached through each rule's magnifier show the full text. Trimming each part at its source rather than the finished sentence is what keeps the message visible: a notification's description opens with a preamble naming its subject and every recipient role, which on its own runs past 190 characters with five roles, so a cut applied to the whole sentence was swallowed before the message began. The cut is made on the plain text before HTML escaping, so no escaped entity is ever sliced in half.
+
+## Security
+- **Rule names are escaped on the rules list and the delete confirmation page**
+  A rule name was written into both pages without escaping. It could not be exploited through the rule form, which types the field as plain text and strips tags, but course restore writes the name with no cleaning at all - so a rule arriving in a prepared backup rendered as live markup on two pages that only privileged users reach. Both now escape the name through one shared boundary, which also resolves multilang names instead of printing their markup. **Site administrators, note:** this closes a vector present in 1.8.2 and earlier; a course restored from an untrusted backup is the way in, so sites that accept backups from outside should upgrade rather than defer.
 
 ## Fixed
 - **The create AI activity action works again with Course Creator AI 2.x**
@@ -35,6 +57,18 @@
   A name that is the prefix of another word (such as "Eva" inside "Evaluación") is no longer mangled in the prompt sent to the AI service, and the full name is replaced before its parts.
 - **Restoring a course reconciles notification roles and ownership markers**
   Role ids stored inside notification actions are remapped to the restored course's roles, and ownership markers survive the round trip.
+
+---
+
+## 1.8.2
+
+**Released on:** 2026-09-01
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+### Fixed
+- **Send notification action can now target copy recipients only**
+  Saving a send notification action required at least one primary recipient role, and executing it never notified copy recipients unless a primary role also matched - so a rule meant to notify only an observer role (for example, a teacher) about another role's activity, without messaging that role directly, could not be configured at all. Primary recipients are now optional: at least one recipient role, primary or copy, must be selected, and a copy-only configuration notifies its copy roles without ever messaging the matched user.
 
 ---
 

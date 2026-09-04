@@ -57,7 +57,7 @@ Feature: Manage existing rule conditions and actions
     Then I should see "Send notification 'Edited subject' to users"
     And I should not see "Send notification 'Original subject' to users"
 
-  # Since 1.9.0 the editing teacher holds deletecondition/deleteaction (RISK_DATALOSS, explicit
+  # Since 1.8.3 the editing teacher holds deletecondition/deleteaction (RISK_DATALOSS, explicit
   # PROHIBITs respected by the upgrade): whoever may build rules may also unbuild them. These
   # delete-flow scenarios therefore run as the teacher - proving the grant works end to end.
   Scenario: Deleting a condition through the real confirmation page removes only that condition

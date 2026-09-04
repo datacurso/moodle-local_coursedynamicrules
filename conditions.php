@@ -152,7 +152,7 @@ foreach ($conditions as $condition) {
             $row['edittitle'] = get_string('editcondition', 'local_coursedynamicrules');
         }
 
-        // The trash can needs deletecondition - held by managers AND, since 1.9.0, the editing
+        // The trash can needs deletecondition - held by managers AND, since 1.8.3, the editing
         // teacher archetype (RISK_DATALOSS, explicit PROHIBITs respected) - and the shared
         // template renders it whenever 'deleteurl' is present. Offering it to a role without the
         // capability puts a control in front of them that the endpoint then refuses with an

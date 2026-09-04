@@ -28,6 +28,7 @@ use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 use local_coursedynamicrules\helper\rule_lock;
+use local_coursedynamicrules\helper\rule_badge;
 
 require('../../config.php');
 
@@ -164,34 +165,60 @@ foreach ($rules as $rule) {
 
     $ruletext = html_writer::div($editrulelink . $deleterulelink, 'd-flex', ['style' => 'gap: .4rem']);
 
-    // One badge, four states (product directives 2026-08-31/09-01), read off the row already
-    // fetched. Active = running, whether or not it has fired: event-driven rules stay active and
-    // fire repeatedly, so "executed" on a live rule would be noise. Executed = stopped AND the
-    // engine fired it at least once - which is exactly where one-shot cron rules land, because
-    // no_complete_activity_task deactivates the rule right after executing it; no trigger-type
-    // sniffing needed, the state pair encodes it. Paused = activated once, stopped, never fired.
-    // Inactive = never activated (the only editable state).
-    if ($rule->active) {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('ruleactive', 'local_coursedynamicrules'),
-            'badge badge-success'
-        );
-    } else if (rule_lock::is_locked_row($rule) && !empty($rule->lastexecutiontime)) {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('ruleexecuted', 'local_coursedynamicrules'),
-            'badge local_coursedynamicrules_badge_executed'
-        );
-    } else if (rule_lock::is_locked_row($rule)) {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('rulepaused', 'local_coursedynamicrules'),
-            'badge badge-warning'
-        );
-    } else {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('ruleinactive', 'local_coursedynamicrules'),
-            'badge badge-secondary'
-        );
+    // The name is user text and it reaches this table from two places: the form, which types it
+    // PARAM_TEXT, and course restore, which writes it with no cleaning at all
+    // (restore_local_coursedynamicrules_plugin.class.php). It is emitted raw into the cell below -
+    // html_writer::table() does not escape cell text - so the escaping has to happen here.
+    //
+    // format_string() rather than s(), because PARAM_TEXT deliberately preserves valid multilang
+    // markup (lib/classes/param.php:891 returns before the final strip_tags): s() would print that
+    // markup on screen, while format_string() runs the filter that resolves it.
+    //
+    // What it does with what survives depends on a site setting, so only the guarantee that holds
+    // in both branches is claimed here: the output can never carry executable HTML. With
+    // $CFG->formatstringstriptags on - the default - tags are stripped and the remaining '<', '>'
+    // and orphaned '&' are escaped (lib/classes/formatting.php:121). With it off, the string goes
+    // through clean_text() instead, which keeps safe HTML and removes the rest
+    // (formatting.php:131), so a name written as '<b>x</b>' renders bold on such a site rather
+    // than showing its markup. Neither branch lets a script through.
+    //
+    // Unconditionally, for every rule. The first version of this block escaped only inside the if
+    // below, so the same name rendered one way with a description and another way without - a
+    // multilang name showed its raw markup in one row and resolved in the next.
+    $rulename = component_renderer::escaped_name($rule->name, $context);
+
+    // Hovering the name reveals the rule's description without spending a column on it, and only
+    // when a description exists, so the rest render no empty tooltip box. Note what this does NOT
+    // give: a native title attribute is unreachable by keyboard and by touch, because the span is
+    // not focusable and carries no data-toggle. Anyone not using a mouse still has to open the
+    // edit form to read a description. html_writer escapes the attribute value itself
+    // (lib/classes/output/html_writer.php:113), so the raw description is what belongs here.
+    if (trim((string) $rule->description) !== '') {
+        $rulename = html_writer::span($rulename, '', ['title' => $rule->description]);
     }
+
+    $rule->name = $rulename;
+
+    // One badge, four states, decided in rule_badge off the row already fetched (see that class for
+    // why "executed" is the engine's self-deactivation stamp, never a manual pause). This screen
+    // only maps the decided state to its string and CSS class.
+    $badgeclasses = [
+        rule_badge::STATE_ACTIVE => 'badge badge-success',
+        rule_badge::STATE_EXECUTED => 'badge local_coursedynamicrules_badge_executed',
+        rule_badge::STATE_PAUSED => 'badge badge-warning',
+        rule_badge::STATE_INACTIVE => 'badge badge-secondary',
+    ];
+    $badgestrings = [
+        rule_badge::STATE_ACTIVE => 'ruleactive',
+        rule_badge::STATE_EXECUTED => 'ruleexecuted',
+        rule_badge::STATE_PAUSED => 'rulepaused',
+        rule_badge::STATE_INACTIVE => 'ruleinactive',
+    ];
+    $badgestate = rule_badge::state($rule);
+    $rule->name .= ' ' . html_writer::span(
+        get_string($badgestrings[$badgestate], 'local_coursedynamicrules'),
+        $badgeclasses[$badgestate]
+    );
     $table->data[] = [
         new html_table_cell($rule->name),
         new html_table_cell($conditionstext),

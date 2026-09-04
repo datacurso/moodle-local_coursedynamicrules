@@ -114,12 +114,16 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
 
         $values = $this->export_values($form);
 
-        $this->assertEquals(1, $values['enablegradelt_' . $gradeitemid]);
-        $this->assertEquals(8.5, $values['gradelt_' . $gradeitemid]);
+        // The form's elements are named by the STABLE itemnumber (0 for this single-item quiz), and
+        // the stored key here is the LEGACY id-keyed shape: the preload resolves it back to that
+        // itemnumber by position, which is exactly the fix that revives conditions saved before the
+        // itemnumber was recorded.
+        $this->assertEquals(1, $values['enablegradelt_0']);
+        $this->assertEquals(8.5, $values['gradelt_0']);
 
         // The companion "greater than or equal" threshold was not stored: it must stay disabled,
         // not spuriously enabled by the preload.
-        $this->assertEquals(0, $values['enablegradegte_' . $gradeitemid]);
+        $this->assertEquals(0, $values['enablegradegte_0']);
     }
 
     /**
@@ -131,7 +135,7 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
     public function test_set_data_for_dynamic_submission_handles_empty_gradeitems(): void {
         $this->resetAfterTest(true);
 
-        [$course, $cm, $gradeitemid] = $this->create_graded_quiz();
+        [$course, $cm] = $this->create_graded_quiz();
 
         $ajaxformdata = [
             'courseid' => $course->id,
@@ -144,8 +148,8 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
 
         $values = $this->export_values($form);
 
-        $this->assertEquals(0, $values['enablegradelt_' . $gradeitemid]);
-        $this->assertEquals(0, $values['enablegradegte_' . $gradeitemid]);
+        $this->assertEquals(0, $values['enablegradelt_0']);
+        $this->assertEquals(0, $values['enablegradegte_0']);
     }
 
     /**
@@ -178,7 +182,7 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
 
         $values = $this->export_values($form);
 
-        $this->assertEquals(0, $values['enablegradelt_' . $gradeitemid]);
+        $this->assertEquals(0, $values['enablegradelt_0']);
     }
 
     /**
@@ -236,17 +240,19 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
         $mform = $this->get_mform($form);
 
         // The threshold groups are only added inside add_grade_elements(), which definition()
-        // only calls when $cm resolved to an eligible activity - their presence pins the fix.
-        $this->assertTrue($mform->elementExists('gradegtegroup_' . $gradeitem->id));
-        $this->assertTrue($mform->elementExists('gradeltgroup_' . $gradeitem->id));
+        // only calls when $cm resolved to an eligible activity - their presence pins the fix. The
+        // elements are named by the STABLE itemnumber (0 for this single-item quiz), not the grade
+        // item's volatile id.
+        $this->assertTrue($mform->elementExists('gradegtegroup_0'));
+        $this->assertTrue($mform->elementExists('gradeltgroup_0'));
 
         // The enable* checkboxes DO surface via exportValues() (advcheckbox always exports 0/1),
         // and pin that both thresholds start unchecked/disabled by default.
         $values = $this->export_values($form);
-        $this->assertArrayHasKey('enablegradegte_' . $gradeitem->id, $values);
-        $this->assertArrayHasKey('enablegradelt_' . $gradeitem->id, $values);
-        $this->assertEquals(0, $values['enablegradegte_' . $gradeitem->id]);
-        $this->assertEquals(0, $values['enablegradelt_' . $gradeitem->id]);
+        $this->assertArrayHasKey('enablegradegte_0', $values);
+        $this->assertArrayHasKey('enablegradelt_0', $values);
+        $this->assertEquals(0, $values['enablegradegte_0']);
+        $this->assertEquals(0, $values['enablegradelt_0']);
     }
 
     /**
@@ -293,12 +299,11 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
         ];
 
         $form = new dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
-        $gradeitem = \grade_item::fetch(['iteminstance' => $quiz->id, 'itemmodule' => 'quiz', 'itemtype' => 'mod']);
 
         // definition() must filter the ineligible activity out: no threshold groups are built.
         $mform = $this->get_mform($form);
-        $this->assertFalse($mform->elementExists('gradegtegroup_' . $gradeitem->id));
-        $this->assertFalse($mform->elementExists('gradeltgroup_' . $gradeitem->id));
+        $this->assertFalse($mform->elementExists('gradegtegroup_0'));
+        $this->assertFalse($mform->elementExists('gradeltgroup_0'));
     }
 
     /**

@@ -26,7 +26,7 @@ namespace local_coursedynamicrules;
  * activation history is unknowable, and locking a rule that may never have run punishes the
  * cautious author.
  *
- * The test drives the same UPDATE the savepoint runs, against rows built to be in each state.
+ * The test calls the upgrade step itself, against rows built to be in each state.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -63,14 +63,15 @@ final class upgrade_lock_stamp_test extends \advanced_testcase {
         $activezerotm = $make(1, 0);
         $activeallzero = $make(1, 0, 0);
 
-        // The exact statement the 2026083002 savepoint runs.
-        $DB->execute(
-            "
-            UPDATE {local_coursedynamicrules_rule}
-               SET timeactivated = COALESCE(NULLIF(timemodified, 0), NULLIF(timecreated, 0), :now)
-             WHERE active = 1 AND timeactivated IS NULL",
-            ['now' => time()]
-        );
+        // The real upgrade step, not a copy of its statement. Copying was how this test used to
+        // work, and it is why it could not see the defect the dissenter found on 2026-09-02: the
+        // 2026083001/2026083002 guards never fire on a site upgrading from the released 1.8.2
+        // (2026090102 is greater than both), so the whole step was unreachable while every
+        // assertion below stayed green. A test that re-runs the SQL itself measures the SQL, never
+        // the reachability of the code that carries it.
+        global $CFG;
+        require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
+        local_coursedynamicrules_upgrade_add_activation_stamp($DB->get_manager());
 
         $this->assertEquals(
             5000,
@@ -97,21 +98,9 @@ final class upgrade_lock_stamp_test extends \advanced_testcase {
             'With every column zero, the stamp falls back to now - never to 0.'
         );
 
-        // And the statement is not just an idea in this test: the same wiring discipline as
-        // test_every_mutation_path_consults_the_lock() pins that db/upgrade.php still carries it -
-        // edit the real WHERE or drop a NULLIF and this names it (round-3 confirmed finding: the
-        // semantic test alone stayed green with the savepoint gutted).
-        global $CFG;
-        $upgrade = file_get_contents($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
-        $this->assertStringContainsString(
-            'SET timeactivated = COALESCE(NULLIF(timemodified, 0), NULLIF(timecreated, 0), :now)',
-            $upgrade,
-            'The stamping statement left db/upgrade.php.'
-        );
-        $this->assertStringContainsString(
-            'WHERE active = 1 AND timeactivated IS NULL',
-            $upgrade,
-            'The stamping WHERE left db/upgrade.php.'
-        );
+        // The grep that used to sit here - asserting db/upgrade.php still CONTAINS the statement -
+        // is gone with the copy it defended. Matching a string proves the string is written down;
+        // the call above proves the code runs. See upgrade_reaches_182_sites_test for the other
+        // half, which proves the savepoint guarding it is reachable from the installed base.
     }
 }

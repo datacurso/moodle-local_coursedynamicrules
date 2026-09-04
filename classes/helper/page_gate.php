@@ -34,7 +34,7 @@ class page_gate {
     /**
      * Entering a component listing requires BOTH halves of its pair.
      *
-     * manage* was historically the only check; view* joined it in 1.9.0, and the changelog warns
+     * manage* was historically the only check; view* joined it in 1.8.3, and the changelog warns
      * custom-role administrators about exactly this pair. The order is fixed - view first - so the
      * error a doubly-lacking role sees names the reading permission, not the writing one.
      *

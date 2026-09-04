@@ -174,6 +174,13 @@ class rule_lock {
         $clean = (object) [
             'id' => (int) $stored->id,
             'active' => empty($data->active) ? 0 : 1,
+            // A manual toggle of active - the one edit a locked rule still accepts - always clears
+            // the engine's self-deactivation stamp. The 'executed' badge belongs to the engine, not
+            // the operator: once a human moves the switch the rule is 'paused' or 'active', never
+            // 'executed'. This is the write half of that rule; set_active() (the engine path) is the
+            // other half. A rule that was never self-deactivated already holds NULL here, so writing
+            // NULL is a no-op for it.
+            'timeautodeactivated' => null,
         ];
         if (isset($data->timemodified)) {
             $clean->timemodified = $data->timemodified;

@@ -200,6 +200,19 @@ class rule {
         $this->active = $active ? 1 : 0;
         $DB->set_field('local_coursedynamicrules_rule', 'active', $this->active, ['id' => $this->id]);
 
+        // The engine calls this to switch a one-shot cron rule off right after it runs
+        // (no_complete_activity_task is its only caller). Stamping THAT moment is what lets the badge
+        // tell an engine-executed rule apart from one a teacher paused by hand: a manual pause never
+        // reaches here (editrule.php writes 'active' directly and rule_lock::sanitise_locked_write
+        // clears this stamp), so only a genuine self-deactivation carries it. Reactivation clears it
+        // so a later manual pause reads as 'paused', never a stale 'executed'.
+        $DB->set_field(
+            'local_coursedynamicrules_rule',
+            'timeautodeactivated',
+            $this->active ? null : time(),
+            ['id' => $this->id]
+        );
+
         // After the write, never before: the stamp is conditional on what the ROW says, and it is
         // idempotent, so every path that touches 'active' calls it unconditionally.
         \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $this->id);
