@@ -28,6 +28,7 @@ use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 use local_coursedynamicrules\helper\rule_lock;
+use local_coursedynamicrules\helper\rule_badge;
 
 require('../../config.php');
 
@@ -149,7 +150,13 @@ foreach ($rules as $rule) {
         );
     }
     $deleterulelink = '';
-    if (has_capability('local/coursedynamicrules:deleterule', $context)) {
+    // A sealed rule (activated at least once) demands the manager-tier key on top of deleterule
+    // (product decision 2026-09-01): the trash can is offered under exactly the pair the endpoint
+    // enforces - never offer what would be refused.
+    $candeletethisrule = has_capability('local/coursedynamicrules:deleterule', $context)
+        && (!rule_lock::is_locked_row($rule)
+            || has_capability('local/coursedynamicrules:deletesealedrule', $context));
+    if ($candeletethisrule) {
         $deleterulelink = html_writer::link(
             $deleteruleurl,
             $OUTPUT->pix_icon('t/delete', get_string('deleterule', 'local_coursedynamicrules'))
@@ -192,34 +199,26 @@ foreach ($rules as $rule) {
 
     $rule->name = $rulename;
 
-    // One badge, four states (product directives 2026-08-31/09-01), read off the row already
-    // fetched. Active = running, whether or not it has fired: event-driven rules stay active and
-    // fire repeatedly, so "executed" on a live rule would be noise. Executed = stopped AND the
-    // engine fired it at least once - which is exactly where one-shot cron rules land, because
-    // no_complete_activity_task deactivates the rule right after executing it; no trigger-type
-    // sniffing needed, the state pair encodes it. Paused = activated once, stopped, never fired.
-    // Inactive = never activated (the only editable state).
-    if ($rule->active) {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('ruleactive', 'local_coursedynamicrules'),
-            'badge badge-success'
-        );
-    } else if (rule_lock::is_locked_row($rule) && !empty($rule->lastexecutiontime)) {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('ruleexecuted', 'local_coursedynamicrules'),
-            'badge local_coursedynamicrules_badge_executed'
-        );
-    } else if (rule_lock::is_locked_row($rule)) {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('rulepaused', 'local_coursedynamicrules'),
-            'badge badge-warning'
-        );
-    } else {
-        $rule->name .= ' ' . html_writer::span(
-            get_string('ruleinactive', 'local_coursedynamicrules'),
-            'badge badge-secondary'
-        );
-    }
+    // One badge, four states, decided in rule_badge off the row already fetched (see that class for
+    // why "executed" is the engine's self-deactivation stamp, never a manual pause). This screen
+    // only maps the decided state to its string and CSS class.
+    $badgeclasses = [
+        rule_badge::STATE_ACTIVE => 'badge badge-success',
+        rule_badge::STATE_EXECUTED => 'badge local_coursedynamicrules_badge_executed',
+        rule_badge::STATE_PAUSED => 'badge badge-warning',
+        rule_badge::STATE_INACTIVE => 'badge badge-secondary',
+    ];
+    $badgestrings = [
+        rule_badge::STATE_ACTIVE => 'ruleactive',
+        rule_badge::STATE_EXECUTED => 'ruleexecuted',
+        rule_badge::STATE_PAUSED => 'rulepaused',
+        rule_badge::STATE_INACTIVE => 'ruleinactive',
+    ];
+    $badgestate = rule_badge::state($rule);
+    $rule->name .= ' ' . html_writer::span(
+        get_string($badgestrings[$badgestate], 'local_coursedynamicrules'),
+        $badgeclasses[$badgestate]
+    );
     $table->data[] = [
         new html_table_cell($rule->name),
         new html_table_cell($conditionstext),

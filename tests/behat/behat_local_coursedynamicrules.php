@@ -69,6 +69,13 @@ class behat_local_coursedynamicrules extends behat_base {
             if ($lastexecution !== null && $timeactivated === null) {
                 $timeactivated = $lastexecution;
             }
+            // The engine's self-deactivation stamp: set ONLY when the scenario is about a one-shot
+            // cron rule the engine switched off. It is deliberately independent of lastexecutiontime
+            // - that is the whole badge fix: a rule can have fired (lastexecutiontime) and still be a
+            // manual pause (timeautodeactivated null), which must read as "Paused", not "Executed".
+            $timeautodeactivated = isset($row['timeautodeactivated']) && trim($row['timeautodeactivated']) !== ''
+                ? (int)$row['timeautodeactivated']
+                : null;
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
                 // Optional columns, defaulted for backwards compatibility with every existing
@@ -78,6 +85,7 @@ class behat_local_coursedynamicrules extends behat_base {
                 'description' => 'Behat generated rule',
                 'active' => $active,
                 'timeactivated' => $timeactivated,
+                'timeautodeactivated' => $timeautodeactivated,
                 'lastexecutiontime' => $lastexecution,
                 'timecreated' => time(),
                 'timemodified' => time(),

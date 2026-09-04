@@ -22,14 +22,16 @@ global $CFG;
 require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
 
 /**
- * The upgrade step that lets an editing teacher delete what they can create.
+ * Tests for the delete-capability grant the 2026083001 upgrade step performs.
  *
- * db/access.php cannot deliver this to an existing site: core's update_capabilities() applies
- * archetype defaults only to capabilities it is seeing for the first time, and the three delete
- * capabilities shipped releases ago as manager-only. These tests exercise the upgrade function
+ * The product decision (an editing teacher can delete what they can create) reaches fresh installs
+ * through db/access.php archetypes, but existing sites only through this upgrade step - core's
+ * update_capabilities() applies archetype defaults exclusively to NEW capabilities. Exercised
  * against the two situations a real site can be in - a role that simply never had the capability,
  * and a role where an administrator explicitly decided something. The upgrade must serve the first
- * and must not overrule the second.
+ * and must not overrule the second. The manager-only deletesealedrule key is deliberately NOT part
+ * of this grant: it is a genuinely new capability, so update_capabilities() carries it everywhere
+ * on its own (the enforcement test covers that half).
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -62,10 +64,10 @@ final class upgrade_delete_grant_test extends \advanced_testcase {
     /**
      * MDL-INT-001: a legacy editing-teacher role that lacked the deletes receives all three after upgrade.
      *
-     * A role that never had the capabilities receives all three.
+     * A role that never had the capabilities receives all three - and the sealed-rule key stays
+     * out of the grant: it belongs to the manager tier only.
      */
     public function test_an_existing_editingteacher_role_receives_the_three_deletes(): void {
-        global $DB;
         $this->resetAfterTest(true);
 
         $roleid = $this->legacy_editingteacher_role();
@@ -89,6 +91,11 @@ final class upgrade_delete_grant_test extends \advanced_testcase {
                 "After the upgrade an editing-teacher-archetype role holds {$capability}."
             );
         }
+        $this->assertFalse(
+            has_capability('local/coursedynamicrules:deletesealedrule', $context, $user),
+            'The grant must never hand out the sealed-rule key: deleting an activated rule stays '
+            . 'with managers.'
+        );
     }
 
     /**

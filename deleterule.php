@@ -50,10 +50,18 @@ $PAGE->set_url($url);
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 
+// A SEALED rule (activated at least once - it has run against students) demands the manager-tier
+// key on top of deleterule (product decision 2026-09-01). Decided BEFORE any output on the id
+// that will actually be deleted, after ownership pins it to this course; the listing hides the
+// control under the same pair, but a URL is not a listing.
+$rulerecord = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
+if (\local_coursedynamicrules\helper\rule_lock::is_locked_row($rulerecord)) {
+    require_capability('local/coursedynamicrules:deletesealedrule', $context);
+}
+
 echo $OUTPUT->header();
 
-// Ensure the rule belongs to this course before loading it (prevents cross-course deletion).
-$rule = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
+$rule = $rulerecord;
 
 // Escaped once, here, because both outputs below put this name into HTML and neither escapes it
 // for us: core_renderer::confirm() emits its message through html_writer::tag('p', ...) untouched

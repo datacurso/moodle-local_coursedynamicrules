@@ -210,8 +210,12 @@ function rebuildGradeItems() {
 
     const gradeItemsObject = {};
     document.querySelectorAll(`[data-cmid='${cmId}']`).forEach((input) => {
-        const gradeItemKey = `${input.dataset.condition}_${input.dataset.gradeitem}`;
+        // Key by the STABLE itemnumber, not the grade item's database id: Moodle recreates that id
+        // when the activity's grade settings change or the course is restored, which orphaned the
+        // stored condition (card blank, rule silently dead). gradeitem is kept for diagnostics only.
+        const gradeItemKey = `${input.dataset.condition}_${input.dataset.itemnumber}`;
         gradeItemsObject[gradeItemKey] = {
+            itemnumber: input.dataset.itemnumber,
             gradeitem: input.dataset.gradeitem,
             condition: input.dataset.condition,
             value: input.value,

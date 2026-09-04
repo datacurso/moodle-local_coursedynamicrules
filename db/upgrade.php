@@ -231,6 +231,38 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026090200, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026090300) {
+        // The 'executed' badge told a rule the engine switched off apart from one a teacher paused
+        // by hand only by proxy - lastexecutiontime - and that proxy is wrong: an event-driven rule
+        // stamps lastexecutiontime on every run yet is never self-deactivated, so pausing it by hand
+        // showed 'executed'. This column records the ONE moment that earns 'executed': the engine
+        // deactivating a one-shot cron rule after it ran. It is added NULL for the whole installed
+        // base - no historical row can be reconstructed as self-deactivated, and grandfathering them
+        // all as 'executed' would be a fresh lie - so existing stopped rules read as 'paused' until
+        // the next self-deactivation stamps them, which is the honest default.
+        $table = new xmldb_table('local_coursedynamicrules_rule');
+        $field = new xmldb_field(
+            'timeautodeactivated',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            null,
+            null,
+            null,
+            'timeactivated'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026090300, 'local', 'coursedynamicrules');
+    }
+
+    // 2026090402 needs no savepoint body: it registers the NEW deletesealedrule capability, and
+    // update_capabilities() applies archetype defaults to capabilities it sees for the first time
+    // on its own - the exact mechanism the component-deletion grant below exists to compensate
+    // for on OLD capabilities.
+
     return true;
 }
 
@@ -340,14 +372,16 @@ function local_coursedynamicrules_upgrade_migrate_sendnotification_roles(): void
 }
 
 /**
- * Grant the three component-deletion capabilities to every editing-teacher-archetype role.
+ * Grant the three deletion capabilities to every editing-teacher-archetype role.
  *
  * Extracted from the savepoint so the upgrade path itself is testable: core's
  * update_capabilities() applies archetype defaults ONLY to capabilities it is seeing for the
  * first time (it iterates $newcaps - lib/accesslib.php), and these three shipped releases ago as
  * manager-only. Editing db/access.php therefore changes nothing on any site that already has the
  * plugin: this function is what carries the product decision - whoever may build rules may also
- * unbuild them - to every existing site.
+ * unbuild them - to every existing site. deleterule alone stops at the seal: deleting a rule
+ * that was ever activated additionally demands deletesealedrule, which stays manager-only
+ * (product decision 2026-09-01) and needs no step here because it IS a new capability.
  *
  * assign_capability() is called WITHOUT overwrite: a site that explicitly prohibited or allowed
  * any of these on some role made a decision, and an upgrade must not undo it. Only roles with no
