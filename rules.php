@@ -150,7 +150,13 @@ foreach ($rules as $rule) {
         );
     }
     $deleterulelink = '';
-    if (has_capability('local/coursedynamicrules:deleterule', $context)) {
+    // A sealed rule (activated at least once) demands the manager-tier key on top of deleterule
+    // (product decision 2026-09-01): the trash can is offered under exactly the pair the endpoint
+    // enforces - never offer what would be refused.
+    $candeletethisrule = has_capability('local/coursedynamicrules:deleterule', $context)
+        && (!rule_lock::is_locked_row($rule)
+            || has_capability('local/coursedynamicrules:deletesealedrule', $context));
+    if ($candeletethisrule) {
         $deleterulelink = html_writer::link(
             $deleteruleurl,
             $OUTPUT->pix_icon('t/delete', get_string('deleterule', 'local_coursedynamicrules'))

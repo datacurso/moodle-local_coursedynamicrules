@@ -184,3 +184,30 @@ Feature: A rule can be edited only until its first activation
     # carries no engine stamp, so it must read as "Paused", never "Executed".
     And I should see "Paused" in the "Fired paused" "table_row"
     And I should not see "Executed" in the "Fired paused" "table_row"
+
+  Scenario: Deleting a sealed rule is a manager operation, a draft stays the teacher's to delete
+    # Product decision 2026-09-01: the editing teacher deletes what they build - conditions,
+    # actions, and rules that were never activated. A SEALED rule has run against students, so its
+    # one remaining exit (deletion) takes the manager-tier key (deletesealedrule). The trash can is
+    # offered under exactly the pair the endpoint enforces: teacher sees it on drafts only,
+    # manager sees it everywhere.
+    Given the following "users" exist:
+      | username | firstname | lastname | email                |
+      | manager1 | Manager1  | User1    | manager1@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | manager1 | C1     | manager |
+    And the following local coursedynamicrules no course access rules exist:
+      | course | name        | active | timeactivated | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Sealed rule | 0      | 1700000000    | 1           | days       | student      |           | S       | B    |
+      | C1     | Draft rule  | 0      |               | 1           | days       | student      |           | S       | B    |
+    And I log in as "teacher1"
+    And I am on "C1" course homepage
+    When I navigate to "Smart Rules AI" in current page administration
+    Then "//tr[contains(., 'Draft rule')]//a[contains(@href, 'deleterule.php')]" "xpath_element" should exist
+    And "//tr[contains(., 'Sealed rule')]//a[contains(@href, 'deleterule.php')]" "xpath_element" should not exist
+    When I log out
+    And I log in as "manager1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    Then "//tr[contains(., 'Sealed rule')]//a[contains(@href, 'deleterule.php')]" "xpath_element" should exist

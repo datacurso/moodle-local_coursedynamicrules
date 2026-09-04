@@ -4,6 +4,10 @@
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
+## Added
+- **Deleting a sealed rule takes the manager key**
+  The editing teacher deletes what they build: conditions, actions, and rules that were never activated. A **sealed** rule (activated at least once - it has run against students) keeps deletion as its one exit, and that exit now additionally demands the new manager-only `deletesealedrule` capability: the teacher's trash can appears only on rules that were never activated, the manager sees it everywhere, and the endpoint refuses a direct URL under the same pair. Being a new capability, it reaches existing sites through the standard capability update with no upgrade step, and a role where an administrator explicitly decided otherwise keeps that decision.
+
 ## Fixed
 - **Pausing a rule by hand no longer shows the Executed badge**
   The list badge told an engine-executed rule apart from a hand-paused one only by proxy - whether the rule had ever run. That proxy was wrong: an event-driven rule records an execution time on every run yet is never switched off by the engine, so pausing it by hand wrongly showed **Executed** instead of **Paused**. The rule now records the one moment that earns Executed - the engine deactivating a one-shot scheduled rule right after it ran - in a dedicated stamp, and any manual toggle of the Active box clears that stamp. So Executed marks only a rule the engine stopped, and a rule a person pauses always reads as Paused. **Site administrators, note:** the upgrade adds the stamp empty for the whole installed base, so a rule that was already stopped reads as Paused until its next engine deactivation - a historical Executed cannot be reconstructed and is not guessed at.

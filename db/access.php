@@ -73,8 +73,24 @@ $capabilities = [
             // manager-only deletion turned every mistakenly created component into an escalation
             // request. RISK_DATALOSS stays, so a role review still shows what this permits.
             // Archetype defaults only reach NEW capabilities, so existing sites get this through
-            // the matching step in db/upgrade.php - change one, change both.
+            // the matching step in db/upgrade.php - change one, change both. This capability alone
+            // only reaches rules that were never activated: a SEALED rule additionally demands
+            // deletesealedrule below (product decision 2026-09-01).
             'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
+        ],
+    ],
+    'local/coursedynamicrules:deletesealedrule' => [
+        'riskbitmask' => RISK_DATALOSS,
+        'captype' => 'write',
+        'contextlevel' => CONTEXT_COURSE,
+        'archetypes' => [
+            // Product decision 2026-09-01: a SEALED rule (activated at least once - it has run
+            // against students) can be deleted only by the manager tier. Deletion is the one exit
+            // a sealed rule keeps ("deleting remains available forever"), so this capability is
+            // that exit's key: deleterule alone stops at the seal. Declared AFTER the teacher
+            // grant shipped, so update_capabilities() applies this archetype default on every
+            // existing site by itself - no upgrade step needed.
             'manager' => CAP_ALLOW,
         ],
     ],
