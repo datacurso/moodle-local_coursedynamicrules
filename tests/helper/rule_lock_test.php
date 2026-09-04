@@ -215,15 +215,17 @@ final class rule_lock_test extends \advanced_testcase {
         // The whitelist is built BY ADDITION: the write object carries only what a locked rule
         // accepts, so update_record() cannot touch anything else. The old clone-the-row shape
         // wrote lastexecutiontime back from a stale read and clobbered the cron's throttle
-        // mid-run (round-2 judges, confirmed by both) - with these three keys and nothing else,
-        // that whole class of collision is unexpressible.
+        // mid-run (round-2 judges, confirmed by both) - with these keys and nothing else, that
+        // whole class of collision is unexpressible. timeautodeactivated joins them because a
+        // manual toggle must clear the engine's self-deactivation stamp (the badge fix).
         $this->assertSame(
-            ['id', 'active', 'timemodified'],
+            ['id', 'active', 'timeautodeactivated', 'timemodified'],
             array_keys(get_object_vars($clean)),
-            'A locked write carries the toggle and its bookkeeping - nothing more.'
+            'A locked write carries the toggle, its bookkeeping and the cleared self-deactivation stamp - nothing more.'
         );
         $this->assertEquals($ruleid, $clean->id);
         $this->assertEquals(0, $clean->active, 'Pausing is the one thing a locked rule still accepts.');
+        $this->assertNull($clean->timeautodeactivated, 'A manual toggle clears the engine self-deactivation stamp.');
         $this->assertEquals(12345, $clean->timemodified);
 
         // And therefore the stored row keeps its name and description whatever the payload said.

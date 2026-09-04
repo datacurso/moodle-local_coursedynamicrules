@@ -156,25 +156,31 @@ Feature: A rule can be edited only until its first activation
     And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'conditions.php')]" "xpath_element" should not exist
     And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'actions.php')]" "xpath_element" should not exist
 
-  Scenario: A stopped rule that already ran shows the executed badge, a running one stays active
-    # Fourth badge state (product directives 2026-08-31/09-01): "Executed" marks a rule that is
-    # STOPPED and has fired at least once. A running rule always says "Active" - event-driven
-    # rules stay active and fire repeatedly, so "executed" on a live rule would be noise - and
-    # one-shot cron rules land on "Executed" by themselves, because no_complete_activity_task
-    # deactivates the rule right after executing it. A stopped rule that never fired keeps
-    # saying "Paused". Assertions anchor per table row: the page as a whole mixes badge texts,
-    # and the matcher is a case-insensitive substring.
+  Scenario: The executed badge belongs to the engine, a manual pause always reads as paused
+    # Fourth badge state (product directives 2026-08-31/09-01, refined 2026-09-03): "Executed"
+    # marks ONLY a rule the ENGINE switched off after running it - a one-shot cron rule
+    # (no_complete_activity) that self-deactivates, recorded by timeautodeactivated. It is NEVER a
+    # rule a human paused: the earlier code inferred "executed" from lastexecutiontime, but an
+    # event-driven rule stamps that on every run and is never self-deactivated, so pausing it by
+    # hand wrongly showed "executed". A running rule always says "Active". A stopped rule with no
+    # engine stamp - whether it fired or not - says "Paused". Assertions anchor per table row: the
+    # page mixes badge texts and the matcher is a case-insensitive substring.
     Given the following local coursedynamicrules no course access rules exist:
-      | course | name         | active | timeactivated | lastexecutiontime | periodvalue | periodunit | primaryroles | copyroles | subject | body |
-      | C1     | Fired seldom | 0      | 1700000000    | 1700000000        | 1           | days       | student      |           | S       | B    |
-      | C1     | Live rule    | 1      | 1700000000    | 1700000000        | 1           | days       | student      |           | S       | B    |
-      | C1     | Held back    | 0      | 1700000000    |                   | 1           | days       | student      |           | S       | B    |
+      | course | name         | active | timeactivated | timeautodeactivated | lastexecutiontime | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Engine off   | 0      | 1700000000    | 1700000500          | 1700000000        | 1           | days       | student      |           | S       | B    |
+      | C1     | Live rule    | 1      | 1700000000    |                     | 1700000000        | 1           | days       | student      |           | S       | B    |
+      | C1     | Never fired  | 0      | 1700000000    |                     |                   | 1           | days       | student      |           | S       | B    |
+      | C1     | Fired paused | 0      | 1700000000    |                     | 1700000000        | 1           | days       | student      |           | S       | B    |
     And I log in as "teacher1"
     And I am on "C1" course homepage
     When I navigate to "Smart Rules AI" in current page administration
-    Then I should see "Executed" in the "Fired seldom" "table_row"
-    And I should not see "Paused" in the "Fired seldom" "table_row"
+    Then I should see "Executed" in the "Engine off" "table_row"
+    And I should not see "Paused" in the "Engine off" "table_row"
     And I should see "Active" in the "Live rule" "table_row"
     And I should not see "Executed" in the "Live rule" "table_row"
-    And I should see "Paused" in the "Held back" "table_row"
-    And I should not see "Executed" in the "Held back" "table_row"
+    And I should see "Paused" in the "Never fired" "table_row"
+    And I should not see "Executed" in the "Never fired" "table_row"
+    # The bug reported 2026-09-03: a rule that fired (lastexecutiontime set) then was PAUSED BY HAND
+    # carries no engine stamp, so it must read as "Paused", never "Executed".
+    And I should see "Paused" in the "Fired paused" "table_row"
+    And I should not see "Executed" in the "Fired paused" "table_row"

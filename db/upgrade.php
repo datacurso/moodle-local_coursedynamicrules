@@ -231,6 +231,33 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026090200, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026090300) {
+        // The 'executed' badge told a rule the engine switched off apart from one a teacher paused
+        // by hand only by proxy - lastexecutiontime - and that proxy is wrong: an event-driven rule
+        // stamps lastexecutiontime on every run yet is never self-deactivated, so pausing it by hand
+        // showed 'executed'. This column records the ONE moment that earns 'executed': the engine
+        // deactivating a one-shot cron rule after it ran. It is added NULL for the whole installed
+        // base - no historical row can be reconstructed as self-deactivated, and grandfathering them
+        // all as 'executed' would be a fresh lie - so existing stopped rules read as 'paused' until
+        // the next self-deactivation stamps them, which is the honest default.
+        $table = new xmldb_table('local_coursedynamicrules_rule');
+        $field = new xmldb_field(
+            'timeautodeactivated',
+            XMLDB_TYPE_INTEGER,
+            '10',
+            null,
+            null,
+            null,
+            null,
+            'timeactivated'
+        );
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        upgrade_plugin_savepoint(true, 2026090300, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 
