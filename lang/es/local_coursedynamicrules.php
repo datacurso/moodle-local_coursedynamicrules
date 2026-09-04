@@ -63,6 +63,7 @@ $string['coursedynamicrules:createrule'] = 'Crear reglas';
 $string['coursedynamicrules:deleteaction'] = 'Eliminar acciones';
 $string['coursedynamicrules:deletecondition'] = 'Eliminar condiciones';
 $string['coursedynamicrules:deleterule'] = 'Eliminar reglas';
+$string['coursedynamicrules:deletesealedrule'] = 'Eliminar una regla activada (sellada)';
 $string['coursedynamicrules:manageaction'] = 'Gestionar acciones';
 $string['coursedynamicrules:managecondition'] = 'Gestionar condiciones';
 $string['coursedynamicrules:managerule'] = 'Gestionar reglas';
