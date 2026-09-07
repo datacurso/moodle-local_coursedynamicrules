@@ -27,9 +27,16 @@ namespace local_coursedynamicrules\helper;
  *
  * Duplication is deliberately NOT gated by the lock - copying a sealed rule is the point - and
  * deliberately IS gated by ownership: the source must belong to the course the copy lands in.
- * Params travel verbatim: runtime throttles stored inside params (a deliberate storage choice of
- * their component classes) mirror the original's window, which for an inactive draft only decides
- * how soon it may first fire after a deliberate activation.
+ * Params travel verbatim, with one exception. Runtime throttles stored inside params (a deliberate
+ * storage choice of their component classes) mirror the original's window, which for an inactive
+ * draft only decides how soon it may first fire after a deliberate activation. The exception is the
+ * enable-activity action, whose params are not configuration alone: each module entry carries the
+ * visibility snapshot the action restores when it is deleted, and the gate it writes into the module
+ * is marked with its own id. A copy pointing at the same modules would either own nothing there and
+ * never grant access, or add a second gate that Moodle combines with the original's by AND, closing
+ * the activity to the very students the original had opened it for. So the copy of that action
+ * starts with no activities: the teacher picks them on the draft, and duplicating or discarding the
+ * copy never touches what the original manages.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -70,6 +77,10 @@ class rule_duplicator {
                 unset($component->id);
                 $component->ruleid = $newid;
                 $component->lastexecutiontime = null;
+                if (($component->actiontype ?? null) === 'enableactivity') {
+                    // The one component whose params are not configuration alone: see the class docblock.
+                    $component->params = json_encode(['coursemodules' => []]);
+                }
                 $DB->insert_record($table, $component);
             }
         }

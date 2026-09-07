@@ -16,6 +16,9 @@
 
 namespace local_coursedynamicrules\helper;
 
+use local_coursedynamicrules\action\enableactivity\enableactivity_action;
+use local_coursedynamicrules\core\rule;
+
 /**
  * Duplicating a rule - the lock's official escape hatch.
  *
@@ -151,6 +154,74 @@ final class rule_duplicator_test extends \advanced_testcase {
     }
 
     /**
+     * Build a sealed rule whose enable-activity action opens one module for one student. save_action()
+     * gives the module the action's own marked gate and makes it visible, execute() grants the
+     * student, and the rule is then stamped as activated: the end state of a rule that has run.
+     *
+     * @param \stdClass $course
+     * @param int $cmid The module the rule opens.
+     * @param int $userid The student already granted.
+     * @return int Rule id.
+     */
+    private function rule_that_opens(\stdClass $course, int $cmid, int $userid): int {
+        global $DB;
+
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $course->id,
+            'name' => 'Opens the reward',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $record = (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])];
+        $action = new enableactivity_action($record, (int) $course->id);
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$cmid],
+        ]);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $userid]);
+        $DB->set_field('local_coursedynamicrules_rule', 'timeactivated', time(), ['id' => $ruleid]);
+
+        return $ruleid;
+    }
+
+    /**
+     * Whether Moodle would let a user into a module right now, asked the way the course page asks.
+     *
+     * @param \stdClass $course
+     * @param int $cmid
+     * @param int $userid
+     * @return bool
+     */
+    private function module_is_available_to(\stdClass $course, int $cmid, int $userid): bool {
+        $info = new \core_availability\info_module(get_fast_modinfo($course)->get_cm($cmid));
+        $information = '';
+        return $info->is_available($information, false, $userid);
+    }
+
+    /**
+     * The raw restriction and visibility of a module, to compare before and after byte for byte.
+     *
+     * @param int $cmid
+     * @return array{availability: string|null, visible: int}
+     */
+    private function gate_of(int $cmid): array {
+        global $DB;
+        $cm = $DB->get_record('course_modules', ['id' => $cmid], 'availability, visible', MUST_EXIST);
+        return ['availability' => $cm->availability, 'visible' => (int) $cm->visible];
+    }
+
+    /**
+     * Skip when the availability plugin the enable-activity action writes for is not installed.
+     */
+    private function require_availability_user(): void {
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; the enable-activity action requires it.');
+        }
+    }
+
+    /**
      * A copy is never "Executed" and never sealed: the engine's auto-deactivation stamp and the
      * activation stamp stay with the original, so the list shows the copy as a plain draft and the
      * lock lets it be edited while the original stays sealed.
@@ -277,4 +348,90 @@ final class rule_duplicator_test extends \advanced_testcase {
         $this->assertStringEndsWith(' (copy 2)', $siblingcopyname);
     }
 
+    /**
+     * The copy of a rule that opens an activity starts with no activities, and the original's gate is
+     * not touched. Each enable-activity action writes its own gate into the activity and Moodle
+     * combines gates by AND, so a copy pointing at the same activity would either own nothing there or
+     * close the activity to the students the original had opened it for. The teacher picks the
+     * activities on the draft instead.
+     *
+     * @covers ::duplicate
+     */
+    public function test_the_copy_of_a_rule_that_opens_an_activity_starts_with_no_activities(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->require_availability_user();
+
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $other = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $reward = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $ruleid = $this->rule_that_opens($course, (int) $reward->cmid, (int) $student->id);
+        $before = $this->gate_of((int) $reward->cmid);
+        $this->assertTrue(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
+            'Sanity: the original opened the activity for the student.'
+        );
+
+        $newid = rule_duplicator::duplicate($ruleid, (int) $course->id, \context_course::instance($course->id));
+
+        $copied = $DB->get_record('local_coursedynamicrules_action', ['ruleid' => $newid], '*', MUST_EXIST);
+        $this->assertSame('enableactivity', $copied->actiontype, 'The action itself travels.');
+        $this->assertSame([], json_decode($copied->params)->coursemodules, 'The copy starts with no activities.');
+        $this->assertSame($before, $this->gate_of((int) $reward->cmid), 'Duplicating writes nothing into the activity.');
+
+        // The copied action running for another student changes nothing either: it manages no module.
+        (new enableactivity_action($copied, (int) $course->id))->execute(
+            (object) ['courseid' => $course->id, 'userid' => $other->id]
+        );
+        $this->assertDebuggingNotCalled();
+        $this->assertSame($before, $this->gate_of((int) $reward->cmid));
+        $this->assertTrue(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
+            'The student the original opened it for still sees it.'
+        );
+        $this->assertFalse(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $other->id),
+            'Nobody else was let in.'
+        );
+    }
+
+    /**
+     * Discarding the copy leaves the activity the original keeps open exactly as it was. The
+     * enable-activity action restores an activity's visibility snapshot when it is deleted; a copy
+     * that carried the original's snapshot would hide, on deletion, the activity the original still
+     * opens for its students. The copy carries no activities, so its deletion has nothing to restore.
+     *
+     * @covers ::duplicate
+     */
+    public function test_discarding_the_copy_leaves_the_activity_the_original_keeps_open_untouched(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->require_availability_user();
+
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        // Born hidden: the original rule is what makes it visible.
+        $reward = $this->getDataGenerator()->create_module('page', ['course' => $course->id, 'visible' => 0]);
+        $ruleid = $this->rule_that_opens($course, (int) $reward->cmid, (int) $student->id);
+        $before = $this->gate_of((int) $reward->cmid);
+        $this->assertSame(1, $before['visible'], 'Sanity: the original opened the activity.');
+
+        $newid = rule_duplicator::duplicate($ruleid, (int) $course->id, \context_course::instance($course->id));
+
+        // The teacher discards the draft, through the same path the delete page takes.
+        $copy = $DB->get_record('local_coursedynamicrules_rule', ['id' => $newid], '*', MUST_EXIST);
+        (new rule($copy, []))->delete();
+
+        $this->assertSame($before, $this->gate_of((int) $reward->cmid), 'The activity is exactly as the original left it.');
+        $this->assertTrue(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
+            'The student the original opened it for still sees it.'
+        );
+        $this->assertSame(1, $DB->count_records('local_coursedynamicrules_action', ['ruleid' => $ruleid]));
+        $this->assertSame(0, $DB->count_records('local_coursedynamicrules_rule', ['id' => $newid]));
+        $this->assertDebuggingNotCalled();
+    }
 }
