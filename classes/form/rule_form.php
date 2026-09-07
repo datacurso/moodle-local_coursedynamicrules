@@ -46,9 +46,12 @@ class rule_form extends \moodleform {
         // under Behat, and the reason 18 acceptance scenarios could not run at all.
         $rule = $customdata['rule'];
 
-        $mform->addElement('text', 'name', get_string('name', 'local_coursedynamicrules'));
+        // The column holds 255 characters: the browser stops there, and the form rule refuses a longer
+        // name on the server too, instead of letting the database refuse the row with a write error.
+        $mform->addElement('text', 'name', get_string('name', 'local_coursedynamicrules'), 'maxlength="255"');
         $mform->setType('name', PARAM_TEXT);
         $mform->addRule('name', null, 'required', null, 'client');
+        $mform->addRule('name', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
         $mform->setDefault('name', $rule->name ?? '');
 
         $mform->addElement('textarea', 'description', get_string('description', 'local_coursedynamicrules'));

@@ -305,4 +305,44 @@ final class rule_form_test extends \advanced_testcase {
             'id' => $empty->id, 'name' => 'x',
         ]), 'Saving without activating is always allowed - the gate is on activation, not on saving.');
     }
+
+    /**
+     * The name must fit its 255-character column: a longer name is refused on the form with the
+     * standard message instead of reaching the database, which refused the row with a write error the
+     * teacher could not act on. The maxlength attribute is the browser's stop; the form rule is the
+     * server's, and it runs on every real submission - which is why this goes through one rather
+     * than calling validation() directly, where form rules never run.
+     *
+     * @covers ::definition
+     */
+    public function test_a_name_longer_than_its_column_is_refused_on_the_form(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+        $build = static function () use ($courseid): rule_form {
+            return new rule_form(
+                new \moodle_url('/local/coursedynamicrules/editrule.php', ['courseid' => $courseid]),
+                ['rule' => (object) ['courseid' => $courseid], 'courseid' => $courseid]
+            );
+        };
+
+        rule_form::mock_submit(['name' => str_repeat('N', 256), 'courseid' => $courseid, 'id' => 0]);
+        $form = $build();
+        $this->assertFalse($form->is_validated(), 'A 256-character name must not validate.');
+        $this->assertNull($form->get_data());
+        $html = $form->render();
+        $this->assertStringContainsString(get_string('maximumchars', '', 255), $html, 'The refusal is shown on the form.');
+        $this->assertStringContainsString('maxlength="255"', $html, 'The browser is told where to stop.');
+
+        // Exactly the column's length is fine.
+        rule_form::mock_submit(['name' => str_repeat('N', 255), 'courseid' => $courseid, 'id' => 0]);
+        $form = $build();
+        $this->assertTrue($form->is_validated(), 'A 255-character name fits the column.');
+        $this->assertSame(str_repeat('N', 255), $form->get_data()->name);
+        $this->assertStringNotContainsString(
+            get_string('maximumchars', '', 255),
+            $form->render(),
+            'A fitting name draws no refusal: the message above measured the refusal, not its mere presence.'
+        );
+    }
 }
