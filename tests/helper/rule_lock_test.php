@@ -149,6 +149,70 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-011: the activation moment is handed out as the stamp itself, typed.
+     *
+     * activation_time() is the fact behind is_locked(), exposed as the timestamp for the one
+     * consumer that measures time from it - the inactivity condition's "from now" anchor. The
+     * stored column is a string coming out of the DML layer; the anchor arithmetic needs an int.
+     *
+     * @covers ::activation_time
+     */
+    public function test_activation_time_returns_the_stamp_as_an_int(): void {
+        $ruleid = $this->rule(1, 1700000000);
+
+        $this->assertSame(1700000000, rule_lock::activation_time($ruleid));
+    }
+
+    /**
+     * MDL-UNIT-011: a rule that was never activated has no activation moment - null, not zero.
+     *
+     * Null is what lets the consumer fail closed on its own terms; a zero here would be
+     * indistinguishable from a real stamp of the unix epoch.
+     *
+     * @covers ::activation_time
+     */
+    public function test_activation_time_is_null_for_a_rule_never_activated(): void {
+        $ruleid = $this->rule(0);
+
+        $this->assertNull(rule_lock::activation_time($ruleid));
+    }
+
+    /**
+     * MDL-UNIT-011: a missing rule is an error, never "never activated".
+     *
+     * Same stance as is_locked(): answering null for an id that does not exist would turn a data
+     * error into a condition that quietly evaluates false forever.
+     *
+     * @covers ::activation_time
+     */
+    public function test_activation_time_of_a_missing_rule_is_an_error(): void {
+        $this->expectException(\dml_missing_record_exception::class);
+        rule_lock::activation_time(999999);
+    }
+
+    /**
+     * MDL-UNIT-011: the one read path that measures time from the stamp consults the lock - wiring half.
+     *
+     * Same shape and reason as test_every_mutation_path_consults_the_lock(): the anchor's
+     * behaviour is proven by course_inactivity_basedate_now_test with real rules, but no effect
+     * test can see whether the condition still asks rule_lock or grew a second reading of
+     * timeactivated. Delete the call and this names the file.
+     *
+     * @coversNothing
+     */
+    public function test_the_from_now_anchor_consults_the_lock(): void {
+        global $CFG;
+
+        $file = $CFG->dirroot . '/local/coursedynamicrules/classes/condition/course_inactivity/course_inactivity_condition.php';
+
+        $this->assertStringContainsString(
+            'rule_lock::activation_time(',
+            file_get_contents($file),
+            'The "from now" anchor stopped reading the activation stamp through rule_lock.'
+        );
+    }
+
+    /**
      * MDL-UNIT-001: single "sealed" predicate; row and id agree; zero stamp fails closed.
      *
      * The row predicate is THE predicate: one implementation of "sealed", fed the fetched row.

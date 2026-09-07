@@ -39,7 +39,7 @@ $string['basedate_help'] = 'Choose the reference date for evaluating inactivity:
 
 * **From enrolment date**: Calculates from when the user enrolled.
 * **From course start date**: Calculates from the course start date.
-* **From now**: Calculates from the current date.';
+* **From rule activation**: Counts from the moment the rule was first activated. Pausing and reactivating the rule does not restart the count.';
 $string['before'] = 'Before';
 $string['checklicensekey'] = 'Check licence key';
 $string['complete_activity'] = 'Activity completed';
@@ -99,7 +99,7 @@ $string['datacurso'] = 'Datacurso';
 $string['datacurso_brand_alt'] = 'Datacurso logo';
 $string['date_from_course_start'] = 'From course start date';
 $string['date_from_enrollment'] = 'From enrolment date';
-$string['date_from_now'] = 'From now';
+$string['date_from_now'] = 'From rule activation';
 $string['days'] = 'Days';
 $string['deleteaction'] = 'Delete action';
 $string['deleteactioncheck'] = 'Are you absolutely sure you want to completely delete this action?';
@@ -216,7 +216,7 @@ $string['notification_action_info'] = 'This action will send a notification to u
 $string['notificationtargeting'] = 'Notification targeting';
 $string['notificationtargeting_help'] = 'Define who receives the primary notification and who receives an informational copy. If a condition is met for a user in the primary recipients roles, that user receives the primary notification and copy recipients receive an informational copy.';
 $string['notificationtargeting_info'] = 'Define who receives the primary notification and who receives an informational copy. If a condition is met for a user in the primary recipients roles, that user receives the primary notification and copy recipients receive an informational copy.';
-$string['now'] = 'Now';
+$string['now'] = 'The rule\'s activation';
 $string['observer_notification_intro'] = 'Observation copy: this notification was generated for {$a} based on the rule conditions.';
 $string['observer_notification_subject'] = 'Observation: {$a->fullname} received "{$a->subject}"';
 $string['passgrade'] = 'Activity completion with passing grade';

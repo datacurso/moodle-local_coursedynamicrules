@@ -38,7 +38,7 @@ $string['basedate_help'] = 'Choisissez la date de référence pour évaluer l’
 
 * **Depuis la date d’inscription** : Calcule depuis l’inscription de l’utilisateur.
 * **Depuis la date de début du cours** : Calcule depuis le début du cours.
-* **Depuis maintenant** : Calcule depuis la date actuelle.';
+* **Depuis l’activation de la règle** : Compte depuis la première activation de la règle. Mettre la règle en pause puis la réactiver ne réinitialise pas le décompte.';
 $string['before'] = 'Avant';
 $string['checklicensekey'] = 'Vérifier la clé de licence';
 $string['complete_activity'] = 'Activité terminée';
@@ -92,7 +92,7 @@ $string['customintervals_help'] = 'Saisissez des nombres séparés par des virgu
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'Depuis la date de début du cours';
 $string['date_from_enrollment'] = 'Depuis la date d’inscription';
-$string['date_from_now'] = 'Depuis maintenant';
+$string['date_from_now'] = 'Depuis l’activation de la règle';
 $string['days'] = 'Jours';
 $string['deleteactioncheck'] = 'Êtes‑vous absolument sûr de vouloir supprimer complètement cette action ?';
 $string['deletecondition'] = 'Supprimer la condition';
@@ -177,7 +177,7 @@ $string['no_course_access_condition_info'] = 'Cette condition vérifie quels uti
 $string['no_course_access_description'] = 'Utilisateurs restant plus de {$a->periodvalue} {$a->periodunit} sans accéder à ce cours.';
 $string['no_course_access_task'] = 'Tâche absence d’accès au cours';
 $string['notification_action_info'] = 'Cette action enverra une notification aux utilisateurs qui répondent aux critères de la règle.';
-$string['now'] = 'Maintenant';
+$string['now'] = 'L’activation de la règle';
 $string['passgrade'] = 'Achèvement de l’activité avec note de passage';
 $string['passgrade_condition_info'] = 'Cette condition vérifie quel utilisateur a terminé le module d’activité sélectionné avec une note de passage.';
 $string['passgrade_description'] = 'Utilisateurs ayant terminé le module d’activité du cours « {$a} » avec une note de passage';

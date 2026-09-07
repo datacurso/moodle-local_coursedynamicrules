@@ -39,7 +39,7 @@ $string['basedate_help'] = 'Elija la fecha de referencia para evaluar la inactiv
 
 * **Desde la fecha de matrícula**: Calcula desde cuando el usuario se matriculó.
 * **Desde la fecha de inicio del curso**: Calcula desde la fecha de inicio del curso.
-* **Desde ahora**: Calcula desde la fecha actual.';
+* **Desde la activación de la regla**: Cuenta desde el momento en que la regla se activó por primera vez. Pausar y reactivar la regla no reinicia la cuenta.';
 $string['before'] = 'Antes';
 $string['checklicensekey'] = 'Comprobar clave de licencia';
 $string['complete_activity'] = 'Actividad completada';
@@ -98,7 +98,7 @@ $string['customintervals_help'] = 'Ingrese números enteros mayores que 0 en ord
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'Desde la fecha de inicio del curso';
 $string['date_from_enrollment'] = 'Desde la fecha de matrícula';
-$string['date_from_now'] = 'Desde ahora';
+$string['date_from_now'] = 'Desde la activación de la regla';
 $string['days'] = 'Días';
 $string['deleteaction'] = 'Eliminar acción';
 $string['deleteactioncheck'] = '¿Está absolutamente seguro de que desea eliminar por completo esta acción?';
@@ -215,7 +215,7 @@ $string['notification_action_info'] = 'Esta acción enviará una notificación a
 $string['notificationtargeting'] = 'Segmentación de la notificación';
 $string['notificationtargeting_help'] = 'Define quién recibe la notificación principal y quién recibe una copia informativa. Si una condición se cumple para un usuario dentro de los roles de destinatarios principales, ese usuario recibe la notificación principal y los destinatarios en copia reciben una copia informativa.';
 $string['notificationtargeting_info'] = 'Define quién recibe la notificación principal y quién recibe una copia informativa. Si una condición se cumple para un usuario de los destinatarios principales, ese usuario recibe la notificación principal y los destinatarios en copia reciben una copia informativa.';
-$string['now'] = 'Ahora';
+$string['now'] = 'La activación de la regla';
 $string['observer_notification_intro'] = 'Copia de observación: esta notificación fue generada para {$a} según las condiciones de la regla.';
 $string['observer_notification_subject'] = 'Observación: {$a->fullname} recibió "{$a->subject}"';
 $string['passgrade'] = 'Finalización de actividad con calificación aprobatoria';

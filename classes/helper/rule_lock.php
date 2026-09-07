@@ -95,6 +95,30 @@ class rule_lock {
     }
 
     /**
+     * The moment the rule was activated, or null for a rule that never was.
+     *
+     * The same fact is_locked() reads, handed out as the timestamp instead of the boolean. A
+     * component that measures time from "when the rule started" - the course-inactivity condition's
+     * "from now" base date - asks here, so the one column that records activation keeps being read
+     * from one place and nobody grows a second idea of what "activated" means.
+     *
+     * Fetched MUST_EXIST for the same reason is_locked() is: a condition pointing at a rule that
+     * does not exist is a data error, and answering "never activated" for it would quietly turn
+     * that error into a rule that evaluates false forever.
+     *
+     * @param int $ruleid
+     * @return int|null Activation timestamp, null while the rule has never been activated.
+     * @throws \dml_missing_record_exception When no such rule exists.
+     */
+    public static function activation_time(int $ruleid): ?int {
+        global $DB;
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], 'id, timeactivated', MUST_EXIST);
+
+        return $rule->timeactivated === null ? null : (int) $rule->timeactivated;
+    }
+
+    /**
      * Whether the rule has what activation requires: at least one condition AND one action.
      *
      * Activation is the moment the rule locks forever, so activating an incomplete rule would

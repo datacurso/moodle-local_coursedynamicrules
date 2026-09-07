@@ -32,7 +32,7 @@ class course_inactivity_form extends condition_form {
     /** @var string base date for evaluating the intervals is start date of course */
     const DATE_FROM_COURSE_START = course_inactivity_condition::DATE_FROM_COURSE_START;
 
-    /** @var string base date for evaluating the intervals is current date */
+    /** @var string base date for evaluating the intervals is the moment the rule was first activated */
     const DATE_FROM_NOW = course_inactivity_condition::DATE_FROM_NOW;
 
     /**

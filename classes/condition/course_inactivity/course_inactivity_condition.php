@@ -19,6 +19,7 @@ namespace local_coursedynamicrules\condition\course_inactivity;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\course_inactivity_form;
+use local_coursedynamicrules\helper\rule_lock;
 use stdClass;
 
 /**
@@ -35,7 +36,14 @@ class course_inactivity_condition extends condition {
     /** @var string base date for evaluating the intervals is start date of course */
     const DATE_FROM_COURSE_START = 'coursestart';
 
-    /** @var string base date for evaluating the intervals is current date */
+    /**
+     * Base date for evaluating the intervals is the moment the rule was activated.
+     *
+     * The stored value stays 'now' so conditions saved before 1.8.4 keep resolving; the anchor
+     * semantics live in get_activation_basedate().
+     *
+     * @var string
+     */
     const DATE_FROM_NOW = 'now';
 
     /** @var int indicate time in hours to interval window */
@@ -59,6 +67,14 @@ class course_inactivity_condition extends condition {
      * @var int $currenttime The current timestamp, used for more consistence in time calculations
      */
     protected $currenttime;
+
+    /**
+     * @var int|null The rule's activation moment, resolved once per instance for the "from now" base.
+     *
+     * Cached because evaluate() runs once per enrolled user on the same instance, and the anchor is
+     * a property of the rule, not of the user. Null until first read.
+     */
+    private ?int $activationtime = null;
 
     /**
      * course_inactivity_condition constructor.
@@ -315,6 +331,16 @@ class course_inactivity_condition extends condition {
         $firstintervaltime = $this->add_time_interval($basetime, $interval, $intervalunit);
         $intervalspassed = $this->count_completed_intervals($basetime, $this->currenttime, $firstintervaltime);
 
+        // Interval 0 is the anchor itself, not a milestone: nothing has elapsed yet, so nobody can
+        // have been inactive "for the interval". Without this guard the first window sat at
+        // [anchor, anchor + CRON_INTERVAL_HOURS] - a stable anchor (activation, enrolment, course
+        // start) then swept every never-accessed student on the first task run after the anchor,
+        // before the interval the rule promises had elapsed. A negative count (clock before the
+        // anchor) has no milestone either.
+        if ($intervalspassed < 1) {
+            return false;
+        }
+
         $currentinterval = $intervalspassed * $interval;
         $prevtimeinterval = $currentinterval - $interval;
 
@@ -346,7 +372,9 @@ class course_inactivity_condition extends condition {
      *
      * This function determines the base date for interval calculations by checking the type of base date
      * specified in the parameters. It can be based on the user's enrollment date, the course start date,
-     * or the current time.
+     * or the moment the rule was activated. Whatever the type, the base is an ANCHOR that stands
+     * still between evaluations; the moving clock is $this->currenttime, compared against the
+     * milestones measured from that anchor.
      *
      * @param int $courseid The ID of the course.
      * @param int $userid The ID of the user.
@@ -368,13 +396,37 @@ class course_inactivity_condition extends condition {
                 $basedate->timestart = $course->startdate;
                 break;
             case self::DATE_FROM_NOW:
-                $basedate->timestart = $this->currenttime;
+                $basedate->timestart = $this->get_activation_basedate();
                 break;
             default:
                 throw new \moodle_exception('invalidbasedate', 'local_coursedynamicrules', '', $basedatetype);
         }
 
         return $basedate;
+    }
+
+    /**
+     * The moment the rule was activated: the anchor the "from now" base measures its intervals from.
+     *
+     * "Now" as the rule's author meant it when switching the rule on - NOT the clock of each
+     * evaluation. The intervals are milestones measured from an anchor, and an anchor that moved
+     * with every cron run put every custom milestone permanently in the future (the condition never
+     * fired) and every recurring milestone permanently at the present (it fired on every run).
+     *
+     * Read through rule_lock, the one owner of the activation stamp, and cached on the instance so
+     * a task evaluating hundreds of users asks once. A rule that was never activated has no anchor
+     * and yields 0, which evaluate() treats like a missing enrolment or course start date: the
+     * condition fails closed instead of anchoring the intervals at the unix epoch.
+     *
+     * @return int Activation timestamp, 0 when the rule has never been activated.
+     * @throws \dml_missing_record_exception When the condition's rule no longer exists.
+     */
+    private function get_activation_basedate(): int {
+        if ($this->activationtime === null) {
+            $this->activationtime = rule_lock::activation_time((int) $this->ruleid) ?? 0;
+        }
+
+        return $this->activationtime;
     }
 
     /**
@@ -467,8 +519,8 @@ class course_inactivity_condition extends condition {
     public function get_description() {
         $stringoptions = [
             'intervals' => str_replace(',', ', ', $this->params->timeintervals),
-            'unit' => strtolower(get_string($this->params->intervalunit, 'local_coursedynamicrules')),
-            'basedate' => strtolower($this->get_basedate_string($this->params->basedatetype)),
+            'unit' => \core_text::strtolower(get_string($this->params->intervalunit, 'local_coursedynamicrules')),
+            'basedate' => \core_text::strtolower($this->get_basedate_string($this->params->basedatetype)),
         ];
 
         if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
@@ -496,7 +548,7 @@ class course_inactivity_condition extends condition {
      * @param int $basedatetype The type of the base date. Possible values are:
      *                          - self::DATE_FROM_ENROLLMENT: Enrollment date.
      *                          - self::DATE_FROM_COURSE_START: Course start date.
-     *                          - self::DATE_FROM_NOW: Current date.
+     *                          - self::DATE_FROM_NOW: The rule's activation moment.
      * @return string The localized string representation of the base date type.
      */
     private function get_basedate_string($basedatetype) {

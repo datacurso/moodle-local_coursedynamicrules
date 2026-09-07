@@ -22,12 +22,12 @@ use local_coursedynamicrules\condition\course_inactivity\course_inactivity_condi
  * The "from now" base date of the course-inactivity condition must anchor on a STABLE moment
  * (the rule's activation), not on the instant of each evaluation.
  *
- * KNOWN DEFECT (materialises MDL-UNIT-011, [Pendiente:fail], product bug): today the base is
- * recomputed as the current time on every evaluation, so the milestone is always "right now".
- * With a recurring interval the 6-hour window is satisfied on every cron pass — an inactive
- * student is notified every 6 hours instead of once per interval. With custom intervals every
- * milestone lands in the future and the condition never fires. These tests assert the CORRECT
- * behaviour and MUST FAIL until the base is anchored to the rule's activation moment.
+ * Materialises MDL-UNIT-011. Until 1.8.4 the base was recomputed as the current time on every
+ * evaluation, so the milestone was always "right now": with a recurring interval the 6-hour window
+ * was satisfied on every cron pass — an inactive student was notified every 6 hours instead of
+ * once per interval — and with custom intervals every milestone landed in the future and the
+ * condition never fired. The base is now the rule's activation moment (rule_lock::activation_time),
+ * and these tests pin that anchor from both sides: too early must not fire, inside the window must.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -91,6 +91,8 @@ final class course_inactivity_basedate_now_test extends \advanced_testcase {
      * With the bug the base equals the evaluation clock, so the milestone is always "now" and the
      * inactive student matches on every pass. Correct: measured from activation, two days in is
      * long before the 7-day milestone, so the condition is NOT met.
+     *
+     * @covers ::evaluate
      */
     public function test_recurring_from_now_does_not_fire_before_the_first_interval(): void {
         $condition = $this->condition_at([
@@ -113,12 +115,45 @@ final class course_inactivity_basedate_now_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-011: a recurring "from now" rule must not fire on the first task run after activation.
+     *
+     * The two-day sample above sits in the dead zone between the anchor and the first milestone, so
+     * it passes even when interval 0 is treated as a milestone. This sample sits INSIDE the window
+     * that interval 0 would open - [activation, activation + CRON_INTERVAL_HOURS] - which is exactly
+     * where the every-6-hours task lands right after an operator activates the rule. Nothing has
+     * elapsed yet, so nobody can have been inactive "for 7 days": the condition must NOT be met.
+     *
+     * @covers ::evaluate
+     */
+    public function test_recurring_from_now_does_not_fire_on_the_first_run_after_activation(): void {
+        $condition = $this->condition_at([
+            'intervaltype' => course_inactivity_condition::INTERVAL_RECURRING,
+            'timeintervals' => '7',
+            'intervalunit' => 'days',
+            'basedatetype' => course_inactivity_condition::DATE_FROM_NOW,
+        ], $this->activation + 3 * HOURSECS);
+
+        $met = $condition->evaluate((object) [
+            'courseid' => $this->courseid,
+            'userid' => $this->student->id,
+        ]);
+
+        $this->assertFalse(
+            $met,
+            'Three hours after activation no interval has elapsed; matching here would sweep the whole '
+            . 'never-accessed cohort on day zero.'
+        );
+    }
+
+    /**
      * MDL-UNIT-011: custom intervals with base "from now" must fire inside the window of a
      * milestone measured from the rule's activation.
      *
      * With the bug the base equals the evaluation clock, so every milestone is in the future and
      * the condition never fires. Correct: at the 7-day milestone (measured from activation, inside
      * the 6-hour window) the inactive student IS matched.
+     *
+     * @covers ::evaluate
      */
     public function test_custom_from_now_fires_inside_the_milestone_window(): void {
         $condition = $this->condition_at([

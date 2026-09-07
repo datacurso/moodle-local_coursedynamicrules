@@ -38,7 +38,7 @@ $string['basedate_help'] = 'Escolha a data de referência para avaliar a inativi
 
 * **Desde a data de inscrição**: Calcula a partir da inscrição do usuário.
 * **Desde a data de início do curso**: Calcula a partir do início do curso.
-* **A partir de agora**: Calcula a partir da data atual.';
+* **A partir da ativação da regra**: Conta a partir da primeira ativação da regra. Pausar e reativar a regra não reinicia a contagem.';
 $string['before'] = 'Antes';
 $string['checklicensekey'] = 'Verificar chave de licença';
 $string['complete_activity'] = 'Atividade concluída';
@@ -92,7 +92,7 @@ $string['customintervals_help'] = 'Insira números separados por vírgulas repre
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'Desde a data de início do curso';
 $string['date_from_enrollment'] = 'Desde a data de inscrição';
-$string['date_from_now'] = 'A partir de agora';
+$string['date_from_now'] = 'A partir da ativação da regra';
 $string['days'] = 'Dias';
 $string['deleteactioncheck'] = 'Tem certeza de que deseja excluir completamente esta ação?';
 $string['deletecondition'] = 'Excluir condição';
@@ -167,7 +167,7 @@ $string['no_course_access_condition_info'] = 'Esta condição verificará quais 
 $string['no_course_access_description'] = 'Usuários que ficam mais de {$a->periodvalue} {$a->periodunit} sem acessar este curso.';
 $string['no_course_access_task'] = 'Tarefa sem acesso ao curso';
 $string['notification_action_info'] = 'Esta ação enviará uma notificação aos usuários que atenderem aos critérios da regra.';
-$string['now'] = 'Agora';
+$string['now'] = 'ativação da regra';
 $string['passgrade'] = 'Conclusão da atividade com nota de aprovação';
 $string['passgrade_condition_info'] = 'Esta condição verificará qual usuário concluiu o módulo de atividade selecionado com nota de aprovação.';
 $string['passgrade_description'] = 'Usuários que concluíram o módulo de atividade do curso "{$a}" com nota de aprovação';
