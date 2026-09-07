@@ -315,38 +315,74 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
 
         $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
 
-        // definition() must filter the ineligible activity out: no threshold groups are built.
+        // definition() must filter the ineligible activity out: no threshold groups are built, and
+        // no substitute is chosen either. The activity still exists, so it is not a ghost: no notice.
         $mform = $this->get_mform($form);
         $this->assertFalse($mform->elementExists('gradegtegroup_0'));
         $this->assertFalse($mform->elementExists('gradeltgroup_0'));
+        $this->assertEmpty($this->export_values($form)['coursemodule'] ?? null);
+        $this->assertFalse($mform->elementExists('targetmissing'));
     }
 
     /**
-     * MDL-UNIT-019: grade condition falls back safely when the stored activity is no longer eligible.
+     * MDL-UNIT-019: creating a grade condition preselects nothing.
      *
-     * A stored 'coursemodule' whose activity is no longer eligible (deleted, or no longer
-     * completion/grade tracked) must not fatal: definition() indexed $filteredcms[$cmid] directly
-     * and then dereferenced the result's ->id unconditionally, so a stale/foreign cmid crashed the
-     * whole edit page instead of falling back to the first eligible activity (G5).
+     * The picker opens on its blank option; the thresholds appear once an activity is chosen (the
+     * sub-form reloads on change). Preselecting the first eligible activity was the same fallback
+     * that re-pointed ghost conditions on edit, so it is gone on both paths.
      *
      * @covers ::definition
      */
-    public function test_definition_falls_back_when_stored_cmid_no_longer_eligible(): void {
+    public function test_definition_preselects_nothing_when_creating(): void {
         $this->resetAfterTest(true);
 
-        [$course, $cm, $gradeitemid] = $this->create_graded_quiz();
+        [$course, $cm] = $this->create_graded_quiz();
+
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, [
+            'courseid' => $course->id,
+        ]);
+
+        $this->assertDebuggingNotCalled();
+        $mform = $this->get_mform($form);
+        $values = $this->export_values($form);
+        $this->assertEmpty($values['coursemodule'] ?? null, 'Nothing is chosen for the operator.');
+        $this->assertFalse($mform->elementExists('gradegtegroup_0'), 'No thresholds before an activity is chosen.');
+        $this->assertFalse($mform->elementExists('targetmissing'), 'Nothing is missing on a fresh form.');
+    }
+
+    /**
+     * MDL-UNIT-019 / MDL-INT-014: editing a condition whose stored activity is no longer eligible
+     * does NOT substitute another activity.
+     *
+     * The previous behaviour fell back to the first eligible activity to avoid dereferencing a null
+     * cm - crash-avoidance that became a user-facing path once ghost components were listed with
+     * their pencil: the form opened preselecting an unrelated activity, prefilled the stored
+     * thresholds onto it, and Save re-pointed the rule without a word. Now the stored target is
+     * offered or nothing is: no selection, no threshold elements (so validation refuses the save),
+     * and a notice saying the activity is no longer available. Still no PHP warning.
+     *
+     * @covers ::definition
+     */
+    public function test_definition_does_not_substitute_when_stored_cmid_no_longer_eligible(): void {
+        $this->resetAfterTest(true);
+
+        [$course, $cm] = $this->create_graded_quiz();
 
         $stalecmid = $cm->id + 999999;
 
-        $ajaxformdata = [
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, [
             'courseid' => $course->id,
             'coursemodule' => $stalecmid,
-        ];
-
-        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
+        ]);
 
         $this->assertDebuggingNotCalled();
+        $mform = $this->get_mform($form);
         $values = $this->export_values($form);
-        $this->assertEquals($cm->id, $values['coursemodule']);
+        $this->assertEmpty(
+            $values['coursemodule'] ?? null,
+            'A stale stored activity must not be replaced by the first eligible one.'
+        );
+        $this->assertFalse($mform->elementExists('gradegtegroup_0'), 'No thresholds for an activity that was not chosen.');
+        $this->assertTrue($mform->elementExists('targetmissing'), 'The form says why there is nothing to edit.');
     }
 }

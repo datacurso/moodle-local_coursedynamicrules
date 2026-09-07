@@ -350,11 +350,14 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
-     * The description of a condition whose activity was deleted returns empty without a PHP warning.
+     * The description of a condition whose activity was deleted warns, without a PHP warning.
+     *
+     * An empty description would drop the card from every listing (MDL-INT-014), so the ghost
+     * describes itself with the shared missing-activity warning instead.
      *
      * @covers ::get_description
      */
-    public function test_get_description_empty_when_activity_deleted(): void {
+    public function test_get_description_warns_when_activity_deleted(): void {
         $this->resetAfterTest(true);
 
         $course = $this->getDataGenerator()->create_course();
@@ -367,7 +370,10 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
         ]);
         $condition = new grade_in_activity_condition($record, $course->id);
 
-        $this->assertSame('', $condition->get_description());
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $condition->get_description()
+        );
         $this->assertDebuggingNotCalled();
     }
 
@@ -414,6 +420,42 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
         $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $student->id]);
 
         $this->assertTrue($result);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * MDL-INT-014: an activity whose deletion is still in progress is a ghost too.
+     *
+     * The recycle bin makes asynchronous deletion the default: a teacher's delete leaves the module
+     * flagged deletioninprogress until cron runs, and that is the state the cards render in first.
+     * evaluate() already refuses to fire on it; the description must warn just the same.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_warns_while_the_activity_deletion_is_in_progress(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $module = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC, 'completionusegrade' => 1]
+        );
+        $record = (object) [
+            'ruleid' => 1,
+            'conditiontype' => 'grade_in_activity',
+            'params' => json_encode(['cmid' => $module->cmid, 'gradeitemsconditions' => []]),
+        ];
+        $condition = new grade_in_activity_condition($record, $course->id);
+        $this->assertStringContainsString($module->name, $condition->get_description(), 'Sanity: the module is live.');
+
+        $DB->set_field('course_modules', 'deletioninprogress', 1, ['id' => $module->cmid]);
+        rebuild_course_cache($course->id, true);
+
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $condition->get_description()
+        );
         $this->assertDebuggingNotCalled();
     }
 }

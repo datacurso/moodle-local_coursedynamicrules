@@ -339,6 +339,23 @@ abstract class condition {
     }
 
     /**
+     * The description of a component whose target activity no longer exists in the course.
+     *
+     * A component is rendered only while it has a description: conditions.php, actions.php and
+     * component_renderer::descriptions_html() all skip an empty one. Returning '' for a deleted
+     * activity therefore made the component vanish from every listing while its row stayed in the
+     * database - evaluating false forever, still counting towards the rule's completeness, and
+     * unreachable by the only trash can the operator has. A ghost must describe itself, with a
+     * warning, so it can be seen and removed. One string for every component type, so the listing
+     * reads the same whichever condition lost its activity.
+     *
+     * @return string
+     */
+    protected function get_missing_target_description(): string {
+        return get_string('componenttargetmissing', 'local_coursedynamicrules');
+    }
+
+    /**
      * Creates and returns an instance of the form for editing the item
      *
      * @param mixed $action the action attribute for the form. If empty defaults to auto detect the

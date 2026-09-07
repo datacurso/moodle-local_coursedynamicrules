@@ -46,6 +46,7 @@ $string['complete_activity'] = 'Activity completed';
 $string['complete_activity_condition_info'] = 'This condition will check which user has completed the selected activity module.';
 $string['complete_activity_description'] = 'Users who have completed the course activity module \'{$a->moddescription}\'';
 $string['completiondate'] = 'Completion date';
+$string['componenttargetmissing'] = 'The selected activity is no longer available in this course, so this component can never take effect.';
 $string['conditions'] = 'Conditions';
 $string['conditions_help'] = 'Conditions define the criteria that must be met to run the actions of the rule. All conditions in a rule must be met (AND). To run the actions when at least one of several criteria is met (OR), create a separate rule for each criterion with the same actions.';
 $string['copiedtoclipboard'] = 'Copied to clipboard';

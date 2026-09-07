@@ -67,14 +67,21 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             }
         }
 
-        // A stored cmid may no longer be eligible (activity deleted, or completion/grade settings
-        // changed since the condition was saved): fall back to the first eligible activity instead
-        // of indexing a missing key and dereferencing a null $cm.
-        $cm = $filteredcms[$cmid] ?? (reset($filteredcms) ?: null);
+        // The stored (or just chosen) activity, or NOTHING - never a substitute. This used to fall
+        // back to the first eligible activity, which turned a click on the pencil of a condition
+        // whose activity was gone into a silent retarget of the rule, thresholds carried over. With
+        // no selection there are no threshold elements and the outer form refuses the save.
+        $cm = $filteredcms[$cmid] ?? null;
+
+        // A blank option FIRST, with an empty label. The autocomplete is a plain <select>: when no
+        // option is marked selected the browser selects the first one, and the widget shows it as the
+        // choice. Core skips options with an empty label when it rebuilds the selection, so this one
+        // is what the browser lands on, and the widget shows the no-selection string instead.
+        $options = ['' => ''] + $options;
 
         $attributes = [
             'multiple' => false,
-            'noselectionstring' => get_string('allcourseactivitymodules', 'local_coursedynamicrules'),
+            'noselectionstring' => get_string('selectanactivity', 'local_coursedynamicrules'),
         ];
         $mform->addElement(
             'autocomplete',
@@ -83,6 +90,18 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             $options,
             $attributes
         );
+
+        // Only a real ghost gets the notice: the stored activity is gone or being deleted. An
+        // activity that still exists but stopped being grade-tracked is simply not offered.
+        $storedcm = $cmid > 0 ? ($cms[$cmid] ?? null) : null;
+        if ($cmid > 0 && ($storedcm === null || $storedcm->deletioninprogress)) {
+            $mform->addElement(
+                'static',
+                'targetmissing',
+                '',
+                get_string('componenttargetmissing', 'local_coursedynamicrules')
+            );
+        }
 
         if ($cm) {
             $mform->setDefault('coursemodule', $cm->id);

@@ -46,6 +46,7 @@ $string['complete_activity'] = 'Actividad completada';
 $string['complete_activity_condition_info'] = 'Esta condición comprobará qué usuario ha completado el módulo de actividad seleccionado.';
 $string['complete_activity_description'] = 'Usuarios que han completado el módulo de actividad del curso "{$a->moddescription}"';
 $string['completiondate'] = 'Fecha de finalización';
+$string['componenttargetmissing'] = 'La actividad seleccionada ya no está disponible en este curso, así que este componente nunca podrá surtir efecto.';
 $string['conditions'] = 'Condiciones';
 $string['conditions_help'] = 'Las condiciones definen los criterios que deben cumplirse para ejecutar las acciones de la regla. Todas las condiciones de una regla deben cumplirse (Y). Para ejecutar las acciones cuando se cumpla al menos uno de varios criterios (O), cree una regla separada por cada criterio con las mismas acciones.';
 $string['copiedtoclipboard'] = 'Copiado al portapapeles';

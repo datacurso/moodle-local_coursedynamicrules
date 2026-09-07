@@ -47,12 +47,14 @@ final class pending_gaps_test extends \advanced_testcase {
     }
 
     /**
-     * MDL-E2E-008: the "pass grade" activity picker must exclude activities pending deletion, and
-     * the grade-condition edit form must warn when the stored activity is no longer eligible.
-     * [Pendiente:skip] — both are pending (the picker filter and the eligibility warning).
+     * MDL-E2E-008: the "pass grade" activity picker must exclude activities pending deletion.
+     * [Pendiente:skip] — the picker filter is pending. Of the case's other half, the grade-condition
+     * edit form warning, only the notice for a stored activity that is no longer in the course shipped
+     * in 1.8.4 (covered by dynamic_grade_in_activity_form_test); the warning for an activity that
+     * still exists but is no longer eligible is still pending.
      */
-    public function test_passgrade_picker_and_grade_form_eligibility_warning(): void {
-        $this->markTestSkipped('Pass-grade deletion filter and grade-form eligibility warning pending.');
+    public function test_passgrade_picker_excludes_activities_pending_deletion(): void {
+        $this->markTestSkipped('Pass-grade deletion filter pending (out of the 1.8.4 scope, see CHANGES.md).');
     }
 
     /**
