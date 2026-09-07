@@ -286,6 +286,68 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $this->remap_persisted_params();
         $this->remap_notification_roles();
         $this->remap_ownership_markers();
+        $this->readopt_stripped_markers();
+    }
+
+    /**
+     * Re-adopt ownership markers that core's own restore stripped from mixed availability trees.
+     *
+     * remap_ownership_markers() renames markers that survived the restore - but core's
+     * update_after_restore re-encodes any tree in which a sibling condition changed (a
+     * completion/grade/date restriction always does, by id remap), and availability_user's save()
+     * drops the marker property in that re-encode. This pass runs after core's re-encode (this
+     * hook is a later step of restore_final_task) and re-derives ownership from the restored
+     * action's OWN params - the snapshot that names the modules it manages - adopting the single
+     * unmarked user node exactly the way execute() adopts pre-marker legacy trees in production.
+     *
+     * @return void
+     */
+    protected function readopt_stripped_markers() {
+        global $DB;
+
+        $courseid = $this->task->get_courseid();
+        $rewritten = 0;
+
+        foreach ($this->get_restored_action_id_map() as $newactionid) {
+            $action = $DB->get_record(
+                'local_coursedynamicrules_action',
+                ['id' => $newactionid],
+                'id, actiontype, params'
+            );
+            if (!$action || $action->actiontype !== 'enableactivity') {
+                continue;
+            }
+
+            $params = json_decode((string) $action->params);
+            foreach ((array) ($params->coursemodules ?? []) as $coursemodule) {
+                $cmid = (int) (is_object($coursemodule) ? ($coursemodule->id ?? 0) : $coursemodule);
+                if ($cmid <= 0) {
+                    continue;
+                }
+                // Params were remapped first (after_restore_course order), so this cmid is a module
+                // THIS restore created - never a live module of a pre-existing target course.
+                $availability = $DB->get_field(
+                    'course_modules',
+                    'availability',
+                    ['id' => $cmid, 'course' => $courseid]
+                );
+                if (empty($availability)) {
+                    continue;
+                }
+                $adopted = \local_coursedynamicrules\action\enableactivity\enableactivity_action::adopt_stripped_marker(
+                    (string) $availability,
+                    (int) $action->id
+                );
+                if ($adopted !== null && $adopted !== $availability) {
+                    $DB->set_field('course_modules', 'availability', $adopted, ['id' => $cmid]);
+                    $rewritten++;
+                }
+            }
+        }
+
+        if ($rewritten > 0) {
+            rebuild_course_cache($courseid, true);
+        }
     }
 
     /**

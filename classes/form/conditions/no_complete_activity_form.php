@@ -54,6 +54,12 @@ class no_complete_activity_form extends condition_form {
             }
         }
 
+        // A blank option FIRST, with an empty label: when the stored activity is gone nothing matches,
+        // the browser selects the first option, and without this the widget would show - and Save
+        // would store - whichever activity happened to come first. Core skips empty-label options
+        // when rebuilding the selection, so this one lands as "no selection" and validation refuses.
+        $options = ['' => ''] + $options;
+
         $attributes = [
             'multiple' => false,
             'noselectionstring' => get_string('selectanactivity', 'local_coursedynamicrules'),
@@ -105,9 +111,6 @@ class no_complete_activity_form extends condition_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return [
-            'coursemodule' => $params->cmid ?? null,
-            'expectedcompletiondate' => $params->expectedcompletiondate ?? null,
-        ];
+        return \local_coursedynamicrules\local\form_preload::no_complete_activity($params);
     }
 }

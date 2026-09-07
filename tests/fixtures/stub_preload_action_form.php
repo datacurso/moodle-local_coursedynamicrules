@@ -23,7 +23,7 @@ namespace local_coursedynamicrules\form\actions;
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-final class stub_preload_action_form extends action_form {
+final class stub_preload_action_form extends testable_action_form {
     /**
      * Adds one field ('foo') before delegating to parent::definition(), mirroring how every real
      * per-type form adds its own fields and calls parent::definition() last.

@@ -38,13 +38,14 @@ $string['basedate_help'] = 'Выберите опорную дату для оц
 
 * **С даты зачисления**: Рассчитывается с момента зачисления пользователя.
 * **С даты начала курса**: Рассчитывается с даты начала курса.
-* **Сейчас**: Рассчитывается от текущей даты.';
+* **С момента активации правила**: Отсчитывается с момента первой активации правила. Приостановка и повторная активация правила не сбрасывают отсчёт.';
 $string['before'] = 'До';
 $string['checklicensekey'] = 'Проверить лицензионный ключ';
 $string['complete_activity'] = 'Активность завершена';
 $string['complete_activity_condition_info'] = 'Это условие проверит, какой пользователь завершил выбранный модуль активности.';
 $string['complete_activity_description'] = 'Пользователи, завершившие модуль активности курса «{$a->moddescription}»';
 $string['completiondate'] = 'Дата завершения';
+$string['componenttargetmissing'] = 'Выбранная активность больше не доступна в этом курсе, поэтому этот компонент никогда не сработает.';
 $string['conditions'] = 'Условия';
 $string['conditions_help'] = 'Условия определяют критерии, которые должны быть выполнены для запуска действий правила';
 $string['copiedtoclipboard'] = 'Скопировано в буфер обмена';
@@ -92,7 +93,7 @@ $string['customintervals_help'] = 'Введите числа, разделённ
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'С даты начала курса';
 $string['date_from_enrollment'] = 'С даты зачисления';
-$string['date_from_now'] = 'Сейчас';
+$string['date_from_now'] = 'С момента активации правила';
 $string['days'] = 'Дни';
 $string['deleteactioncheck'] = 'Вы действительно хотите полностью удалить это действие?';
 $string['deletecondition'] = 'Удалить условие';
@@ -117,6 +118,7 @@ $string['enrollmentdate'] = 'Дата зачисления';
 $string['errorgradeoutofrange'] = 'Значение должно быть между {$a->min} и {$a->max}.';
 $string['errormaxgradeexceeded'] = 'Оценка не может превышать максимальную оценку для активности.';
 $string['errornegativegrade'] = 'Оценка должна быть 0 или больше.';
+$string['errornocoursemodule'] = 'Вы должны выбрать активность из этого курса.';
 $string['expectedcompletiondate'] = 'Ожидаемая дата завершения';
 $string['firstname'] = 'Имя пользователя';
 $string['fullname'] = 'Полное имя пользователя';
@@ -177,7 +179,7 @@ $string['no_course_access_condition_info'] = 'Это условие провер
 $string['no_course_access_description'] = 'Пользователи, которые более чем {$a->periodvalue} {$a->periodunit} не заходят на этот курс.';
 $string['no_course_access_task'] = 'Задача отсутствия доступа к курсу';
 $string['notification_action_info'] = 'Это действие отправит уведомление пользователям, соответствующим критериям правила.';
-$string['now'] = 'Сейчас';
+$string['now'] = 'Момента активации правила';
 $string['passgrade'] = 'Завершение активности с проходной оценкой';
 $string['passgrade_condition_info'] = 'Это условие проверит, какой пользователь завершил выбранный модуль активности с проходной оценкой.';
 $string['passgrade_description'] = 'Пользователи, завершившие модуль активности курса «{$a}» с проходной оценкой';
@@ -204,6 +206,7 @@ $string['rules'] = 'Правила';
 $string['rules_help'] = 'Правила используются для определения набора условий и действий, которые будут выполняться';
 $string['ruleupdatedsuccessfully'] = 'Правило успешно обновлено';
 $string['searchcourseactivitymodules'] = 'Поиск модулей активности курса';
+$string['selectanactivity'] = 'Выберите активность';
 $string['sendnotification'] = 'Отправить уведомление';
 $string['sendnotification_description'] = 'Отправить уведомление «{$a}» пользователям';
 $string['typemissing'] = 'Отсутствует значение «type»';

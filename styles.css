@@ -2,3 +2,9 @@
     color: var(--primary);
     margin-left: .4rem;
 }
+
+/* Executed badge state: Datacurso brand orange, no Bootstrap badge-* palette equivalent. */
+.badge.local_coursedynamicrules_badge_executed {
+    background-color: #ed6e54;
+    color: #fff;
+}

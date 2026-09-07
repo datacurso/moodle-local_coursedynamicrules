@@ -26,8 +26,23 @@ namespace local_coursedynamicrules\form\actions;
  */
 final class sendnotification_form_test extends \advanced_testcase {
     /**
+     * Load the testable_sendnotification_form fixture used to reach the real mform by inheritance.
+     */
+    public static function setUpBeforeClass(): void {
+        parent::setUpBeforeClass();
+        require_once(__DIR__ . '/../../fixtures/testable_sendnotification_form.php');
+    }
+
+    /**
+     * MDL-UNIT-020: notification preload zero-fills every role and marks only the stored recipients.
+     *
      * Unchecked roles must be explicitly zero-filled so set_data() cannot leave a role checked via
      * the mform's own setDefault('primaryrecipients[<student>]', 1) (G2/blocker 4).
+     *
+     * The form's preload_defaults() delegates verbatim to the pure form_preload::sendnotification()
+     * mapper, passing the course's assignable role ids exactly as the form does; the mapping is
+     * exercised through that public entry point instead of reaching the protected method by
+     * reflection.
      *
      * @covers ::preload_defaults
      */
@@ -40,16 +55,14 @@ final class sendnotification_form_test extends \advanced_testcase {
         $teacherroleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
         $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
 
-        $form = new sendnotification_form(null, ['courseid' => $course->id, 'ruleid' => 1]);
-        $method = new \ReflectionMethod(sendnotification_form::class, 'preload_defaults');
-        $method->setAccessible(true);
+        $roles = get_default_enrol_roles(\context_course::instance($course->id));
 
-        $result = $method->invoke($form, (object) [
+        $result = \local_coursedynamicrules\local\form_preload::sendnotification((object) [
             'messagesubject' => 'Subj',
             'messagebody' => 'Body',
             'primaryroleids' => [$studentroleid],
             'copyroleids' => [],
-        ]);
+        ], array_keys($roles));
 
         $this->assertSame(0, $result['primaryrecipients'][$teacherroleid]);
         $this->assertSame(1, $result['primaryrecipients'][$studentroleid]);
@@ -60,6 +73,8 @@ final class sendnotification_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: notification preload resolves legacy stored role-id param keys.
+     *
      * Legacy stored param keys (observedroleids/roleids/observerroleids) must still resolve via the
      * shared resolve_roleids() so an action saved before the rename preloads correctly.
      *
@@ -73,20 +88,20 @@ final class sendnotification_form_test extends \advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
 
-        $form = new sendnotification_form(null, ['courseid' => $course->id, 'ruleid' => 1]);
-        $method = new \ReflectionMethod(sendnotification_form::class, 'preload_defaults');
-        $method->setAccessible(true);
+        $roles = get_default_enrol_roles(\context_course::instance($course->id));
 
-        $result = $method->invoke($form, (object) [
+        $result = \local_coursedynamicrules\local\form_preload::sendnotification((object) [
             'messagesubject' => 'Subj',
             'messagebody' => 'Body',
             'observedroleids' => [$studentroleid],
-        ]);
+        ], array_keys($roles));
 
         $this->assertSame(1, $result['primaryrecipients'][$studentroleid]);
     }
 
     /**
+     * MDL-UNIT-020: editing a notification keeps a deliberately-unchecked student role unchecked.
+     *
      * VERIFY-FIRST (Judge B suspect / FIX-3): definition()'s own setDefault('primaryrecipients[
      * <studentroleid>]', 1) stores a FLAT bracketed key in the mform's _defaultValues. The claim is
      * that HTML_QuickForm resolves an element's value from that flat key BEFORE the nested
@@ -114,24 +129,21 @@ final class sendnotification_form_test extends \advanced_testcase {
             'copyroleids' => [],
         ];
 
-        $form = new sendnotification_form(null, [
+        $form = new testable_sendnotification_form(null, [
             'courseid' => $course->id,
             'ruleid' => 1,
             'record' => $record,
         ]);
 
-        $reflection = new \ReflectionClass($form);
-        $property = $reflection->getProperty('_form');
-        $property->setAccessible(true);
-        $mform = $property->getValue($form);
-
-        $values = $mform->exportValues();
+        $values = $form->get_mform_for_test()->exportValues();
 
         $this->assertSame(0, (int) $values['primaryrecipients'][$studentroleid]);
         $this->assertSame(1, (int) $values['primaryrecipients'][$teacherroleid]);
     }
 
     /**
+     * MDL-UNIT-020: editing a notification with an empty-array record is still treated as an edit, not a create.
+     *
      * A stored row whose params decode to an EMPTY ARRAY (json_decode('[]'), e.g. an edit row
      * saved with sparse params) must still be treated as editing: `!empty($customdata['record'])`
      * is false for an empty array (though never false for an object), so $isediting silently
@@ -147,22 +159,72 @@ final class sendnotification_form_test extends \advanced_testcase {
         $course = $this->getDataGenerator()->create_course();
         $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
 
-        $form = new sendnotification_form(null, [
+        $form = new testable_sendnotification_form(null, [
             'courseid' => $course->id,
             'ruleid' => 1,
             // Simulates json_decode('[]'): an edit row whose stored params happen to be empty.
             'record' => [],
         ]);
 
-        $reflection = new \ReflectionClass($form);
-        $property = $reflection->getProperty('_form');
-        $property->setAccessible(true);
-        $mform = $property->getValue($form);
-
-        $values = $mform->exportValues();
+        $values = $form->get_mform_for_test()->exportValues();
 
         // On CREATE, the student role would default to checked; on EDIT it must not, regardless
         // of how sparse the stored params are.
         $this->assertSame(0, (int) $values['primaryrecipients'][$studentroleid]);
+    }
+
+    /**
+     * MDL-UNIT-020: notification accepts a copy-only recipient configuration.
+     *
+     * A copy-only configuration (no primary recipient role) must be a valid, saveable setup: notify
+     * observer roles about another role's activity without ever messaging that role directly.
+     *
+     * @covers ::validation
+     */
+    public function test_validation_passes_with_only_copy_recipients_selected(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $teacherroleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $form = new sendnotification_form(null, ['courseid' => $course->id, 'ruleid' => 1]);
+
+        $errors = $form->validation([
+            'primaryrecipients' => [$teacherroleid => 0, $studentroleid => 0],
+            'copyrecipients' => [$teacherroleid => 1, $studentroleid => 0],
+        ], []);
+
+        $this->assertArrayNotHasKey('primaryrecipients', $errors);
+    }
+
+    /**
+     * MDL-UNIT-020: notification requires at least one recipient, primary or copy.
+     *
+     * Neither primary nor copy recipients selected must still be rejected: an action with no
+     * configured recipient at all would never notify anyone.
+     *
+     * @covers ::validation
+     */
+    public function test_validation_fails_when_no_recipients_selected_at_all(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $teacherroleid = $DB->get_field('role', 'id', ['shortname' => 'editingteacher'], MUST_EXIST);
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $form = new sendnotification_form(null, ['courseid' => $course->id, 'ruleid' => 1]);
+
+        $errors = $form->validation([
+            'primaryrecipients' => [$teacherroleid => 0, $studentroleid => 0],
+            'copyrecipients' => [$teacherroleid => 0, $studentroleid => 0],
+        ], []);
+
+        $this->assertArrayHasKey('primaryrecipients', $errors);
+        $this->assertSame(get_string('mustselectonerecipient', 'local_coursedynamicrules'), $errors['primaryrecipients']);
     }
 }

@@ -22,6 +22,7 @@ use context_course;
 use core_form\dynamic_form;
 use core_grades\component_gradeitems;
 use grade_item;
+use local_coursedynamicrules\helper\grade_condition_thresholds;
 use moodle_url;
 use MoodleQuickForm;
 
@@ -66,14 +67,21 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             }
         }
 
-        // A stored cmid may no longer be eligible (activity deleted, or completion/grade settings
-        // changed since the condition was saved): fall back to the first eligible activity instead
-        // of indexing a missing key and dereferencing a null $cm.
-        $cm = $filteredcms[$cmid] ?? (reset($filteredcms) ?: null);
+        // The stored (or just chosen) activity, or NOTHING - never a substitute. This used to fall
+        // back to the first eligible activity, which turned a click on the pencil of a condition
+        // whose activity was gone into a silent retarget of the rule, thresholds carried over. With
+        // no selection there are no threshold elements and the outer form refuses the save.
+        $cm = $filteredcms[$cmid] ?? null;
+
+        // A blank option FIRST, with an empty label. The autocomplete is a plain <select>: when no
+        // option is marked selected the browser selects the first one, and the widget shows it as the
+        // choice. Core skips options with an empty label when it rebuilds the selection, so this one
+        // is what the browser lands on, and the widget shows the no-selection string instead.
+        $options = ['' => ''] + $options;
 
         $attributes = [
             'multiple' => false,
-            'noselectionstring' => get_string('allcourseactivitymodules', 'local_coursedynamicrules'),
+            'noselectionstring' => get_string('selectanactivity', 'local_coursedynamicrules'),
         ];
         $mform->addElement(
             'autocomplete',
@@ -82,6 +90,18 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             $options,
             $attributes
         );
+
+        // Only a real ghost gets the notice: the stored activity is gone or being deleted. An
+        // activity that still exists but stopped being grade-tracked is simply not offered.
+        $storedcm = $cmid > 0 ? ($cms[$cmid] ?? null) : null;
+        if ($cmid > 0 && ($storedcm === null || $storedcm->deletioninprogress)) {
+            $mform->addElement(
+                'static',
+                'targetmissing',
+                '',
+                get_string('componenttargetmissing', 'local_coursedynamicrules')
+            );
+        }
 
         if ($cm) {
             $mform->setDefault('coursemodule', $cm->id);
@@ -140,6 +160,10 @@ class dynamic_grade_in_activity_form extends dynamic_form {
 
         $attributes = [
             'data-cmid' => $cm->id,
+            // The STABLE identity the JS serialises and the condition stores by. data-gradeitem
+            // stays for diagnostics only; keying by the grade item's live id is exactly the bug
+            // that orphaned conditions when Moodle recreated that id.
+            'data-itemnumber' => $itemnumber,
             'data-gradeitem' => $gradeitem->id,
             'data-grademin' => $grademin,
             'data-grademax' => $grademax,
@@ -151,7 +175,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
                 $options[$i + 1] = $name;
             }
 
-            $identifier = 'gradegte_' . $gradeitem->id;
+            $identifier = 'gradegte_' . $itemnumber;
             $attributes['data-condition'] = 'gradegte';
             $attributes['id'] = $identifier;
             $elementgradegte = $mform->createElement(
@@ -162,7 +186,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
                 $attributes
             );
 
-            $identifier = 'gradelt_' . $gradeitem->id;
+            $identifier = 'gradelt_' . $itemnumber;
             $attributes['id'] = $identifier;
             $attributes['data-condition'] = 'gradelt';
             $elementgradelt = $mform->createElement(
@@ -173,7 +197,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
                 $attributes
             );
         } else {
-            $identifier = 'gradegte_' . $gradeitem->id;
+            $identifier = 'gradegte_' . $itemnumber;
             $attributes['id'] = $identifier;
             $attributes['data-condition'] = 'gradegte';
             $elementgradegte = $mform->createElement(
@@ -183,7 +207,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
                 $attributes
             );
 
-            $identifier = 'gradelt_' . $gradeitem->id;
+            $identifier = 'gradelt_' . $itemnumber;
             $attributes['id'] = $identifier;
             $attributes['data-condition'] = 'gradelt';
             $elementgradelt = $mform->createElement(
@@ -198,7 +222,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
         $gradegreatergroup = [];
         $gradegreatergroup[] = $mform->createElement(
             'advcheckbox',
-            'enablegradegte_' . $gradeitem->id,
+            'enablegradegte_' . $itemnumber,
             '',
             get_string('gradegreaterthanorequal', 'local_coursedynamicrules'),
         );
@@ -207,28 +231,28 @@ class dynamic_grade_in_activity_form extends dynamic_form {
         $groupstring .= ' (' . $grademin . ' - ' . $grademax . ')';
         $mform->addGroup(
             $gradegreatergroup,
-            'gradegtegroup_' . $gradeitem->id,
+            'gradegtegroup_' . $itemnumber,
             $groupstring,
             ' ',
             false
         );
-        $mform->addHelpButton('gradegtegroup_' . $gradeitem->id, 'gradegreaterthanorequal', 'local_coursedynamicrules');
-        $mform->disabledIf('gradegte_' . $gradeitem->id, 'enablegradegte_' . $gradeitem->id, 'notchecked');
-        $mform->setType('gradegte_' . $gradeitem->id, PARAM_FLOAT);
+        $mform->addHelpButton('gradegtegroup_' . $itemnumber, 'gradegreaterthanorequal', 'local_coursedynamicrules');
+        $mform->disabledIf('gradegte_' . $itemnumber, 'enablegradegte_' . $itemnumber, 'notchecked');
+        $mform->setType('gradegte_' . $itemnumber, PARAM_FLOAT);
 
         // Create elements for "grade less than" condition.
         $gradelessgroup = [];
         $gradelessgroup[] = $mform->createElement(
             'advcheckbox',
-            'enablegradelt_' . $gradeitem->id,
+            'enablegradelt_' . $itemnumber,
             '',
             get_string('gradelessthan', 'local_coursedynamicrules'),
         );
         $gradelessgroup[] = $elementgradelt;
-        $mform->addGroup($gradelessgroup, 'gradeltgroup_' . $gradeitem->id, '', ' ', false);
-        $mform->addHelpButton('gradeltgroup_' . $gradeitem->id, 'gradelessthan', 'local_coursedynamicrules');
-        $mform->disabledIf('gradelt_' . $gradeitem->id, 'enablegradelt_' . $gradeitem->id, 'notchecked');
-        $mform->setType('gradelt_' . $gradeitem->id, PARAM_FLOAT);
+        $mform->addGroup($gradelessgroup, 'gradeltgroup_' . $itemnumber, '', ' ', false);
+        $mform->addHelpButton('gradeltgroup_' . $itemnumber, 'gradelessthan', 'local_coursedynamicrules');
+        $mform->disabledIf('gradelt_' . $itemnumber, 'enablegradelt_' . $itemnumber, 'notchecked');
+        $mform->setType('gradelt_' . $itemnumber, PARAM_FLOAT);
     }
 
     /**
@@ -307,24 +331,63 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             return;
         }
 
-        $defaults = [];
+        // Keep only the enabled thresholds the operator actually set: a deliberately disabled entry
+        // (the AMD rebuild serialises disabled:true too) must stay unchecked on a redisplay, not be
+        // force-re-enabled just because it still carries a stored value (FIX2-7).
+        $active = [];
         foreach ($gradeitems as $key => $item) {
-            if (!is_array($item) || !isset($item['value'])) {
-                continue;
+            if (is_array($item) && isset($item['value']) && $item['value'] !== '' && empty($item['disabled'])) {
+                $active[$key] = $item;
             }
-            if (!empty($item['disabled'])) {
-                // A deliberately disabled threshold (the AMD rebuild serialises disabled:true
-                // entries) must stay unchecked on a failed-validation redisplay, not be
-                // force-re-enabled just because it still carries a stored value (FIX2-7).
-                continue;
+        }
+
+        // Resolve to element names by the STABLE itemnumber. The form's elements are now named
+        // {cond}_{itemnumber}; a condition saved before the itemnumber was recorded is keyed by a
+        // grade_item id Moodle may have recreated, so mapping it back by position is what keeps the
+        // edit form pre-filled instead of silently blank - a blank redisplay would lose the stored
+        // thresholds on the next save.
+        $cmid = (int) $this->optional_param('coursemodule', 0, PARAM_INT);
+        $thresholds = grade_condition_thresholds::by_itemnumber($active, $this->grade_item_numbers($cmid));
+
+        $defaults = [];
+        foreach ($thresholds as $itemnumber => $itemthresholds) {
+            if ($itemthresholds->gradegte) {
+                $defaults['enablegradegte_' . $itemnumber] = 1;
+                $defaults['gradegte_' . $itemnumber] = $itemthresholds->gradegte->value;
             }
-            $defaults['enable' . $key] = 1;
-            $defaults[$key] = $item['value'];
+            if ($itemthresholds->gradelt) {
+                $defaults['enablegradelt_' . $itemnumber] = 1;
+                $defaults['gradelt_' . $itemnumber] = $itemthresholds->gradelt->value;
+            }
         }
 
         if (!empty($defaults)) {
             $this->set_data((object) $defaults);
         }
+    }
+
+    /**
+     * The itemnumbers of an activity's grade items, in the same shape the form and the card use.
+     *
+     * Single-item activities are addressed as itemnumber 0 (matching add_grade_elements); multi-item
+     * activities use the component's itemname-mapping keys.
+     *
+     * @param int $cmid
+     * @return int[] Ordered itemnumbers, empty when the activity or its grade items are unavailable.
+     */
+    private function grade_item_numbers(int $cmid): array {
+        if (!$cmid) {
+            return [];
+        }
+        $courseid = (int) $this->optional_param('courseid', 0, PARAM_INT);
+        $modinfo = get_fast_modinfo($courseid);
+        $cms = $modinfo->get_cms();
+        $cm = $cms[$cmid] ?? null;
+        if (!$cm) {
+            return [];
+        }
+        $itemnames = component_gradeitems::get_itemname_mapping_for_component('mod_' . $cm->modname);
+        return count($itemnames) === 1 ? [0] : array_keys($itemnames);
     }
 
     /**

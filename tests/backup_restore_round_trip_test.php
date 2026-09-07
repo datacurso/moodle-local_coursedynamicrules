@@ -159,6 +159,8 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012: rule, condition and action arrive complete in the new course, and the condition remaps to the restored module.
+     *
      * The rule, its condition and its action all exist in the restored course, and the
      * condition points at the RESTORED module, not the source one.
      */
@@ -197,6 +199,9 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012, MDL-UNIT-018: on restore, notification role ids are resolved through the
+     * three-level cascade (mapping, then the annotated shortname, not the raw number).
+     *
      * Notification role ids follow the ROLE, not the number.
      *
      * The scenario the changelog promises to survive: the backup names a role by an id that means
@@ -235,6 +240,67 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012: the enable-activity ownership marker survives restore even when core re-encodes a mixed availability tree.
+     *
+     * The ownership marker survives core RE-ENCODING the availability tree - the mixed-tree case.
+     *
+     * Final-review real finding: core's update_after_restore (availability/classes/info.php)
+     * re-encodes the WHOLE tree via each condition's save() whenever ANY child changed - and a
+     * completion/grade/date sibling always changes (id remap). availability_user::save() emits
+     * only {type, userids}, so the plugin's custom marker property is stripped. A gated activity
+     * with any teacher-added restriction beside ours - the normal case, since apply_availability
+     * deliberately merges with existing restrictions - restored with an owner-less node: the
+     * action could neither grant nor revoke, the activity stayed hidden forever. The user-only
+     * tree of the sibling test is precisely the one shape core never re-encodes, which is why it
+     * stayed green. This one carries a completion sibling so core's stripping ALWAYS runs.
+     */
+    public function test_the_marker_survives_core_re_encoding_of_mixed_trees(): void {
+        global $DB;
+
+        [$course, $sourcecmid, $ruleid, $sourceactionid] = $this->course_with_rule(
+            'enableactivity',
+            static function (int $cmid): array {
+                return ['coursemodules' => [['id' => $cmid, 'visible' => 1, 'visibleoncoursepage' => 1]]];
+            }
+        );
+
+        // The tree a real course holds: OUR marked user node PLUS a teacher's completion
+        // restriction on a second module - the sibling whose cm id remap forces the re-encode.
+        // (Tracking itself is irrelevant here: availability_completion remaps its cm reference
+        // on restore either way, and that remap is what triggers core's re-encode.)
+        $other = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $marked = (object) ['type' => 'user', 'userids' => [], 'source' => self::MARKER_PREFIX . $sourceactionid];
+        $completion = (object) ['type' => 'completion', 'cm' => (int) $other->cmid, 'e' => 1];
+        $treejson = json_encode(tree::get_root_json([$marked, $completion], tree::OP_AND, false));
+        $DB->set_field('course_modules', 'availability', $treejson, ['id' => $sourcecmid]);
+        rebuild_course_cache($course->id, true);
+
+        $newcourseid = $this->restore_course($this->backup_course($course));
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['courseid' => $newcourseid], '*', MUST_EXIST);
+        $action = $DB->get_record('local_coursedynamicrules_action', ['ruleid' => $rule->id], '*', MUST_EXIST);
+        $newcmid = (int) json_decode($action->params)->coursemodules[0]->id;
+
+        $availability = json_decode((string) $DB->get_field('course_modules', 'availability', ['id' => $newcmid]));
+        $this->assertNotNull($availability, 'The restored module keeps its availability tree.');
+
+        $sources = [];
+        foreach ($availability->c as $node) {
+            if (($node->type ?? '') === 'user') {
+                $sources[] = $node->source ?? '(stripped)';
+            }
+        }
+        $this->assertContains(
+            self::MARKER_PREFIX . $action->id,
+            $sources,
+            'Core re-encoded the mixed tree and the marker did not come back: the restored action '
+            . 'owns nothing, and the activity stays hidden with no owner to ever grant access.'
+        );
+    }
+
+    /**
+     * MDL-INT-012: restored rules keep their activation state and stamp - sealed stay sealed, legacy-active gets stamped, inactive draft stays unlocked.
+     *
      * The activation lock survives the round trip - restore cannot be the lock's back door.
      *
      * Found by both blind judges independently: without timeactivated in the backup structure,
@@ -297,6 +363,8 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-012: the enable-activity ownership marker is rewritten onto the restored action's id (and its params point at the restored module).
+     *
      * The enable-activity ownership marker is rewritten onto the restored action's id.
      *
      * Core restores course_modules.availability verbatim, so the restored restriction still names

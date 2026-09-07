@@ -59,6 +59,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: on edit, a removed activity recovers its visibility snapshot while retained ones keep granted access.
+     *
      * Editing an enableactivity action must reconcile cmids without revoking access already granted
      * by execute() on a retained module, and must restore a deselected module's visible/
      * visibleoncoursepage snapshot (D6/blocker 3).
@@ -117,6 +119,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: on an AND root the own user node is merged as an extra clause, preserving the teacher's restriction.
+     *
      * Adding a module with a PRE-EXISTING manual restriction (e.g. a teacher-added date
      * restriction) must not overwrite the whole availability column: the plugin's own user
      * restriction is merged in alongside it, and the manual restriction survives untouched (G7).
@@ -160,6 +164,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: a single unmarked user node is adopted as own and removed, leaving the teacher's restriction untouched.
+     *
      * Deleting an enableactivity action must remove ONLY the plugin's own user-type node from the
      * availability tree, leaving an unrelated manual restriction (e.g. a date restriction) intact
      * instead of nulling the whole column (G7).
@@ -198,6 +204,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: an existing OR root is wrapped under a new AND root so the plugin's gate cannot be OR-ed away.
+     *
      * FIX2-2: when the existing tree's root operator is OR ('|'), appending the plugin's user
      * node directly into the same root would let the OR combine it away - the gate would be
      * satisfied (and the module shown) whenever the OTHER branch passes, even for a user the
@@ -270,6 +278,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: a negated NOT-AND root is wrapped under a new AND root with a normalised showc array.
+     *
      * FIX2-2: same wrapping behaviour for a NOT-AND ('!&') root, which uses a single 'show' bool
      * rather than a showc array - the wrap must still normalise the new AND root to a proper showc
      * array, not carry over the old 'show' semantics.
@@ -317,6 +327,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: a negated NOT-OR root is wrapped, deriving the show flag from its per-child showc array.
+     *
      * FIX4-2: a NOT-OR ('!|') root carries a PER-CHILD ->showc array (like AND), not a single
      * ->show bool (like OR/NOT-AND). Reading ->show on a NOT-OR root always misses (it is never
      * set), so the previous code collapsed the teacher's "show greyed out" choice to "hide" on
@@ -375,6 +387,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: after wrapping a non-AND root, removing the own node unwraps to a structurally valid tree.
+     *
      * FIX2-2/FIX2-3: after wrapping an existing non-AND root, removing the plugin's own node
      * (delete()/edit's removed-cmid path) must leave a STILL-VALID tree behind (root op/showc
      * consistent with the remaining children), not a structurally broken one.
@@ -434,6 +448,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: the marker distinguishes the plugin's own node from a teacher-added user node so each is handled independently.
+     *
      * FIX2-3: a teacher-added user restriction (a genuine `availability_user` restriction added
      * independently via the "Restrict access" UI) must coexist with the plugin's own node: adding/
      * removing the plugin's gate must not touch the teacher's node, and execute() must inject the
@@ -510,6 +526,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: on save the activity is resolved and snapshotted against the action's own course, not client formdata.
+     *
      * FIX2-4: save_action() must resolve newly-added course modules against $this->courseid (the
      * course the action instance is bound to), not the client-controlled $formdata->courseid - a
      * mismatched/bogus formdata->courseid must not corrupt the snapshot.
@@ -547,6 +565,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: an unresolvable activity id is skipped on save with a debugging() call, without fataling.
+     *
      * FIX2-4: a course module id that does not resolve at all (bogus/tampered id, or a race where
      * it was deleted between form render and submit) must be skipped with a debugging() call
      * instead of fataling on a false get_coursemodule_from_id() result.
@@ -576,6 +596,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: a multi-activity save gates and makes visible every configured activity consistently.
+     *
      * FIX2-9: a multi-module save must leave params and module state fully consistent (both new
      * modules snapshotted/gated, batched as a single reconciliation) - a regression test for the
      * transactional/no-N+1-rebuild reconciliation, at the unit level this suite can reach.
@@ -614,6 +636,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: removing the own node on edit preserves an unrelated manual restriction instead of nulling the tree.
+     *
      * Deselecting a module on edit (the removed-cmid diff, shared with delete()'s restore path)
      * must also preserve an unrelated manual restriction instead of nulling the whole column (G7).
      *
@@ -660,6 +684,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: each action gets its own identity-bearing marked node so two actions on one module never cross-revoke.
+     *
      * FIX3-3: the marker used to be a single constant shared by EVERY enableactivity action, so two
      * different actions gating the SAME course module ended up sharing one node - deleting either
      * action's grants cross-revoked the other's. Each action must get its OWN, identity-bearing
@@ -705,6 +731,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-017: the own marked node is found and reused even when nested under a teacher grouping, with no duplicate gate appended.
+     *
      * FIX3-6: a teacher grouping restrictions via the core "Restrict access" UI can nest this
      * action's own (marked) node inside a child subtree instead of leaving it a direct root child.
      * Previously only the top level was searched, so the action would go inert (execute() could no
@@ -745,19 +773,29 @@ final class enableactivity_action_test extends \advanced_testcase {
         $this->assertContains($grantee->id, $after->c[0]->c[0]->userids);
         $this->assertDebuggingNotCalled();
 
-        // Re-running apply_availability() for the SAME cmid (e.g. re-saving the rule unchanged)
-        // must NOT append a second, empty gate alongside the nested one: the marker exists, just
-        // nested, and find_marked_user_condition() must find it there.
-        $reflection = new \ReflectionClass($action);
-        $method = $reflection->getMethod('apply_availability');
-        $method->setAccessible(true);
-        $method->invoke($action, $page->cmid, false);
+        // Re-running the reconciliation for the SAME cmid must NOT append a second, empty gate
+        // alongside the nested one: the marker exists, just nested, and find_marked_user_condition()
+        // must find it there. apply_availability() is private; its only public caller is
+        // save_action(), which re-applies the gate only for a cmid it treats as newly-added.
+        // Reload the action from its stored row with the coursemodules snapshot cleared, so the
+        // (still-gated) cmid is seen as new and apply_availability() runs again over the regrouped
+        // tree - through the public entry point, with the same action id (hence the same marker).
+        $stored = $DB->get_record(action::TABLE, ['id' => $action->get_id()], '*', MUST_EXIST);
+        $stored->params = json_encode([]);
+        $resaveaction = new enableactivity_action($stored, $course->id);
+        $resaveaction->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$page->cmid],
+        ]);
 
         $final = json_decode($DB->get_field('course_modules', 'availability', ['id' => $page->cmid]));
         $this->assertCount(1, $final->c, 'No second gate must be appended: the marker exists, just nested.');
     }
 
     /**
+     * MDL-INT-009: with two or more unmarked user nodes the ambiguous case is reported without guessing or mutating either node.
+     *
      * FIX3-7: when the marker has been stripped (e.g. a teacher re-saved the module's "Restrict
      * access" UI from scratch, which regenerates the tree and drops unknown properties) AND a
      * genuine teacher-added user restriction now coexists, 2+ unmarked nodes are ambiguous -
@@ -820,6 +858,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: on execute the matched student is added to the activity's user restriction list.
+     *
      * Normal case: the matched user is added to the module's user restriction.
      *
      * @covers ::execute
@@ -846,6 +886,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: on execute the student is granted even when the user restriction is not the first condition.
+     *
      * The user restriction is found and updated even when it is not the first condition.
      *
      * A teacher may add another restriction (e.g. a date restriction) that shifts the plugin's user
@@ -883,6 +925,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: a configured activity that no longer exists is skipped on execute without affecting the others.
+     *
      * A deleted module must be skipped without a fatal error, and later modules still processed.
      *
      * @covers ::execute
@@ -912,6 +956,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-008: an activity whose availability was cleared is skipped on execute without corrupting it.
+     *
      * A module whose availability was cleared must be skipped without corrupting it.
      *
      * @covers ::execute
@@ -937,6 +983,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-009: the action is deletable even when a managed activity no longer exists.
+     *
      * The rule/action must be deletable even when a referenced module no longer exists.
      *
      * @covers ::delete

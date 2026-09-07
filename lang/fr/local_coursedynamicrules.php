@@ -38,13 +38,14 @@ $string['basedate_help'] = 'Choisissez la date de référence pour évaluer l’
 
 * **Depuis la date d’inscription** : Calcule depuis l’inscription de l’utilisateur.
 * **Depuis la date de début du cours** : Calcule depuis le début du cours.
-* **Depuis maintenant** : Calcule depuis la date actuelle.';
+* **Depuis l’activation de la règle** : Compte depuis la première activation de la règle. Mettre la règle en pause puis la réactiver ne réinitialise pas le décompte.';
 $string['before'] = 'Avant';
 $string['checklicensekey'] = 'Vérifier la clé de licence';
 $string['complete_activity'] = 'Activité terminée';
 $string['complete_activity_condition_info'] = 'Cette condition vérifie quels utilisateurs ont terminé le module d’activité sélectionné.';
 $string['complete_activity_description'] = 'Utilisateurs ayant terminé le module d’activité du cours « {$a->moddescription} »';
 $string['completiondate'] = 'Date d’achèvement';
+$string['componenttargetmissing'] = 'L’activité sélectionnée n’est plus disponible dans ce cours, ce composant ne pourra donc jamais prendre effet.';
 $string['conditions'] = 'Conditions';
 $string['conditions_help'] = 'Les conditions définissent les critères à satisfaire pour exécuter les actions de la règle';
 $string['copiedtoclipboard'] = 'Copié dans le presse‑papiers';
@@ -92,7 +93,7 @@ $string['customintervals_help'] = 'Saisissez des nombres séparés par des virgu
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'Depuis la date de début du cours';
 $string['date_from_enrollment'] = 'Depuis la date d’inscription';
-$string['date_from_now'] = 'Depuis maintenant';
+$string['date_from_now'] = 'Depuis l’activation de la règle';
 $string['days'] = 'Jours';
 $string['deleteactioncheck'] = 'Êtes‑vous absolument sûr de vouloir supprimer complètement cette action ?';
 $string['deletecondition'] = 'Supprimer la condition';
@@ -117,6 +118,7 @@ $string['enrollmentdate'] = 'Date d’inscription';
 $string['errorgradeoutofrange'] = 'La valeur doit être comprise entre {$a->min} et {$a->max}.';
 $string['errormaxgradeexceeded'] = 'La note ne peut pas dépasser la note maximale de l’activité.';
 $string['errornegativegrade'] = 'La note doit être supérieure ou égale à 0.';
+$string['errornocoursemodule'] = 'Vous devez sélectionner une activité de ce cours.';
 $string['expectedcompletiondate'] = 'Date d’achèvement prévue';
 $string['firstname'] = 'Prénom de l’utilisateur';
 $string['fullname'] = 'Nom complet de l’utilisateur';
@@ -177,7 +179,7 @@ $string['no_course_access_condition_info'] = 'Cette condition vérifie quels uti
 $string['no_course_access_description'] = 'Utilisateurs restant plus de {$a->periodvalue} {$a->periodunit} sans accéder à ce cours.';
 $string['no_course_access_task'] = 'Tâche absence d’accès au cours';
 $string['notification_action_info'] = 'Cette action enverra une notification aux utilisateurs qui répondent aux critères de la règle.';
-$string['now'] = 'Maintenant';
+$string['now'] = 'L’activation de la règle';
 $string['passgrade'] = 'Achèvement de l’activité avec note de passage';
 $string['passgrade_condition_info'] = 'Cette condition vérifie quel utilisateur a terminé le module d’activité sélectionné avec une note de passage.';
 $string['passgrade_description'] = 'Utilisateurs ayant terminé le module d’activité du cours « {$a} » avec une note de passage';
@@ -204,6 +206,7 @@ $string['rules'] = 'Règles';
 $string['rules_help'] = 'Les règles servent à définir un ensemble de conditions et d’actions qui seront exécutées';
 $string['ruleupdatedsuccessfully'] = 'Règle mise à jour avec succès';
 $string['searchcourseactivitymodules'] = 'Rechercher des modules d’activité du cours';
+$string['selectanactivity'] = 'Sélectionner une activité';
 $string['sendnotification'] = 'Envoyer une notification';
 $string['sendnotification_description'] = 'Envoyer la notification « {$a} » aux utilisateurs';
 $string['typemissing'] = 'Valeur « type » manquante';

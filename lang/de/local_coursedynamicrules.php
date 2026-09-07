@@ -38,13 +38,14 @@ $string['basedate_help'] = 'Wählen Sie das Referenzdatum zur Bewertung der Inak
 
 * **Ab Einschreibedatum**: Berechnet ab dem Zeitpunkt der Einschreibung.
 * **Ab Kursbeginn**: Berechnet ab dem Kursstartdatum.
-* **Ab jetzt**: Berechnet ab dem aktuellen Datum.';
+* **Ab Aktivierung der Regel**: Zählt ab dem Zeitpunkt, an dem die Regel zum ersten Mal aktiviert wurde. Pausieren und erneutes Aktivieren setzen die Zählung nicht zurück.';
 $string['before'] = 'Vor';
 $string['checklicensekey'] = 'Lizenzschlüssel prüfen';
 $string['complete_activity'] = 'Aktivität abgeschlossen';
 $string['complete_activity_condition_info'] = 'Diese Bedingung prüft, welche Nutzer das ausgewählte Aktivitätsmodul abgeschlossen haben.';
 $string['complete_activity_description'] = 'Nutzer, die das Kurs-Aktivitätsmodul "{$a->moddescription}" abgeschlossen haben';
 $string['completiondate'] = 'Abschlussdatum';
+$string['componenttargetmissing'] = 'Die ausgewählte Aktivität ist in diesem Kurs nicht mehr verfügbar, daher kann diese Komponente niemals wirksam werden.';
 $string['conditions'] = 'Bedingungen';
 $string['conditions_help'] = 'Bedingungen definieren die Kriterien, die erfüllt sein müssen, damit die Regelaktionen ausgeführt werden';
 $string['copiedtoclipboard'] = 'In die Zwischenablage kopiert';
@@ -92,7 +93,7 @@ $string['customintervals_help'] = 'Geben Sie durch Komma getrennte Zahlen für I
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'Ab Kursbeginn';
 $string['date_from_enrollment'] = 'Ab Einschreibedatum';
-$string['date_from_now'] = 'Ab jetzt';
+$string['date_from_now'] = 'Ab Aktivierung der Regel';
 $string['days'] = 'Tage';
 $string['deleteactioncheck'] = 'Sind Sie absolut sicher, dass Sie diese Aktion vollständig löschen möchten?';
 $string['deletecondition'] = 'Bedingung löschen';
@@ -117,6 +118,7 @@ $string['enrollmentdate'] = 'Einschreibedatum';
 $string['errorgradeoutofrange'] = 'Der Wert muss zwischen {$a->min} und {$a->max} liegen.';
 $string['errormaxgradeexceeded'] = 'Die Note darf die Maximalpunktzahl der Aktivität nicht überschreiten.';
 $string['errornegativegrade'] = 'Die Note muss 0 oder größer sein.';
+$string['errornocoursemodule'] = 'Sie müssen eine Aktivität aus diesem Kurs auswählen.';
 $string['expectedcompletiondate'] = 'Voraussichtliches Abschlussdatum';
 $string['firstname'] = 'Vorname des Nutzers';
 $string['fullname'] = 'Vollständiger Name des Nutzers';
@@ -177,7 +179,7 @@ $string['no_course_access_condition_info'] = 'Diese Bedingung prüft, welche Nut
 $string['no_course_access_description'] = 'Nutzer, die mehr als {$a->periodvalue} {$a->periodunit} benötigen, ohne auf diesen Kurs zuzugreifen.';
 $string['no_course_access_task'] = 'Aufgabe Kein Kurszugriff';
 $string['notification_action_info'] = 'Diese Aktion sendet eine Benachrichtigung an Nutzer, die die Regelkriterien erfüllen.';
-$string['now'] = 'Jetzt';
+$string['now'] = 'Der Aktivierung der Regel';
 $string['passgrade'] = 'Aktivitätsabschluss mit Bestehensnote';
 $string['passgrade_condition_info'] = 'Diese Bedingung prüft, welcher Nutzer das ausgewählte Aktivitätsmodul mit Bestehensnote abgeschlossen hat.';
 $string['passgrade_description'] = 'Nutzer, die das Kurs-Aktivitätsmodul "{$a}" mit Bestehensnote abgeschlossen haben';
@@ -204,6 +206,7 @@ $string['rules'] = 'Regeln';
 $string['rules_help'] = 'Regeln definieren eine Reihe von Bedingungen und Aktionen, die ausgeführt werden';
 $string['ruleupdatedsuccessfully'] = 'Regel erfolgreich aktualisiert';
 $string['searchcourseactivitymodules'] = 'Kurs-Aktivitätsmodule suchen';
+$string['selectanactivity'] = 'Aktivität auswählen';
 $string['sendnotification'] = 'Benachrichtigung senden';
 $string['sendnotification_description'] = 'Benachrichtigung "{$a}" an Nutzer senden';
 $string['typemissing'] = 'Fehlender Wert "type"';

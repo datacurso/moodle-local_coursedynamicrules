@@ -38,13 +38,14 @@ $string['basedate_help'] = 'Pilih tanggal acuan untuk mengevaluasi ketidakaktifa
 
 * **Sejak tanggal pendaftaran**: Dihitung sejak pengguna terdaftar.
 * **Sejak tanggal mulai kursus**: Dihitung sejak tanggal mulai kursus.
-* **Mulai sekarang**: Dihitung sejak tanggal saat ini.';
+* **Sejak aturan diaktifkan**: Dihitung sejak aturan pertama kali diaktifkan. Menjeda dan mengaktifkan kembali aturan tidak mengatur ulang hitungan.';
 $string['before'] = 'Sebelum';
 $string['checklicensekey'] = 'Periksa kunci lisensi';
 $string['complete_activity'] = 'Aktivitas selesai';
 $string['complete_activity_condition_info'] = 'Ketentuan ini akan memeriksa pengguna mana yang telah menyelesaikan modul aktivitas yang dipilih.';
 $string['complete_activity_description'] = 'Pengguna yang telah menyelesaikan modul aktivitas kursus "{$a->moddescription}"';
 $string['completiondate'] = 'Tanggal penyelesaian';
+$string['componenttargetmissing'] = 'Aktivitas yang dipilih tidak lagi tersedia di kursus ini, sehingga komponen ini tidak akan pernah berlaku.';
 $string['conditions'] = 'Ketentuan';
 $string['conditions_help'] = 'Ketentuan digunakan untuk mendefinisikan syarat yang harus dipenuhi agar tindakan aturan dijalankan';
 $string['copiedtoclipboard'] = 'Disalin ke papan klip';
@@ -92,7 +93,7 @@ $string['customintervals_help'] = 'Masukkan angka yang dipisahkan koma yang mewa
 $string['datacurso'] = 'Datacurso';
 $string['date_from_course_start'] = 'Sejak tanggal mulai kursus';
 $string['date_from_enrollment'] = 'Sejak tanggal pendaftaran';
-$string['date_from_now'] = 'Mulai sekarang';
+$string['date_from_now'] = 'Sejak aturan diaktifkan';
 $string['days'] = 'Hari';
 $string['deleteactioncheck'] = 'Apakah Anda benar-benar yakin ingin menghapus tindakan ini sepenuhnya?';
 $string['deletecondition'] = 'Hapus ketentuan';
@@ -117,6 +118,7 @@ $string['enrollmentdate'] = 'Tanggal pendaftaran';
 $string['errorgradeoutofrange'] = 'Nilai harus antara {$a->min} dan {$a->max}.';
 $string['errormaxgradeexceeded'] = 'Nilai tidak boleh melebihi nilai maksimum untuk aktivitas.';
 $string['errornegativegrade'] = 'Nilai harus 0 atau lebih.';
+$string['errornocoursemodule'] = 'Anda harus memilih aktivitas dari kursus ini.';
 $string['expectedcompletiondate'] = 'Tanggal penyelesaian yang diharapkan';
 $string['firstname'] = 'Nama depan pengguna';
 $string['fullname'] = 'Nama lengkap pengguna';
@@ -177,7 +179,7 @@ $string['no_course_access_condition_info'] = 'Ketentuan ini akan memeriksa pengg
 $string['no_course_access_description'] = 'Pengguna yang lebih dari {$a->periodvalue} {$a->periodunit} tanpa mengakses kursus ini.';
 $string['no_course_access_task'] = 'Tugas tanpa akses kursus';
 $string['notification_action_info'] = 'Tindakan ini akan mengirim notifikasi kepada pengguna yang memenuhi kriteria aturan.';
-$string['now'] = 'Sekarang';
+$string['now'] = 'Saat aturan diaktifkan';
 $string['passgrade'] = 'Penyelesaian aktivitas dengan nilai lulus';
 $string['passgrade_condition_info'] = 'Ketentuan ini akan memeriksa pengguna yang menyelesaikan modul aktivitas yang dipilih dengan nilai lulus.';
 $string['passgrade_description'] = 'Pengguna yang telah menyelesaikan modul aktivitas kursus "{$a}" dengan nilai lulus';
@@ -204,6 +206,7 @@ $string['rules'] = 'Aturan';
 $string['rules_help'] = 'Aturan digunakan untuk mendefinisikan serangkaian ketentuan dan tindakan yang akan dijalankan';
 $string['ruleupdatedsuccessfully'] = 'Aturan berhasil diperbarui';
 $string['searchcourseactivitymodules'] = 'Cari modul aktivitas kursus';
+$string['selectanactivity'] = 'Pilih aktivitas';
 $string['sendnotification'] = 'Kirim notifikasi';
 $string['sendnotification_description'] = 'Kirim notifikasi "{$a}" kepada pengguna';
 $string['typemissing'] = 'Nilai "type" hilang';

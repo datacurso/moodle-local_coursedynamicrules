@@ -22,6 +22,7 @@ Feature: A rule can be edited only until its first activation
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
 
+  @MDL-E2E-001
   Scenario: A rule cannot be born active
     Given I log in as "teacher1"
     And I am on "C1" course homepage
@@ -37,6 +38,7 @@ Feature: A rule can be edited only until its first activation
     Then I should see "Too eager"
     And I should see "Inactive"
 
+  @MDL-E2E-001
   Scenario: Activating a complete rule warns, confirms, and locks it for good
     Given the following local coursedynamicrules no course access rules exist:
       | course | name          | active | periodvalue | periodunit | primaryroles | copyroles | subject | body |
@@ -52,9 +54,11 @@ Feature: A rule can be edited only until its first activation
     And I should see "it can never be modified again"
     When I press "Activate permanently"
     Then I should see "The rule was activated"
-    And I should see "Locked"
+    # 'Active' substring-matches inside 'Inactive' (case-insensitive matcher): pin the absence too.
+    And I should not see "Inactive"
     And I should see "Active"
 
+  @MDL-E2E-001
   Scenario: Cancelling the confirmation keeps every edit saved and the rule inactive
     Given the following local coursedynamicrules no course access rules exist:
       | course | name       | active | periodvalue | periodunit | primaryroles | copyroles | subject | body |
@@ -70,8 +74,9 @@ Feature: A rule can be edited only until its first activation
     # The rename survived the cancelled activation - edits are never hostage to the confirmation.
     Then I should see "Renamed but cautious"
     And I should see "Inactive"
-    And I should not see "Locked"
+    And I should not see "Paused"
 
+  @MDL-E2E-003
   Scenario: A locked rule offers no way to modify itself, and pausing still works
     Given the following local coursedynamicrules no course access rules exist:
       | course | name        | active | periodvalue | periodunit | primaryroles | copyroles | subject | body |
@@ -90,7 +95,7 @@ Feature: A rule can be edited only until its first activation
     Then I should see "This rule was activated and can no longer be modified"
     And "//input[@name='name'][@disabled]" "xpath_element" should exist
     # The components: nothing to add, nothing to delete - even though this teacher holds the
-    # delete capability since 1.9.0, a locked rule outranks it. Anchored on OUR hrefs, not on
+    # delete capability since 1.8.3, a locked rule outranks it. Anchored on OUR hrefs, not on
     # Bootstrap classes: Boost's own drawers use list-group-item-action on every page.
     When I am on "C1" course homepage
     And I navigate to "Smart Rules AI" in current page administration
@@ -103,9 +108,11 @@ Feature: A rule can be edited only until its first activation
     And I click on "//tr[contains(., 'Sealed rule')]//a[contains(@href, 'editrule.php')]" "xpath_element"
     And I set the field "Active" to ""
     And I press "Save changes"
-    Then I should see "Inactive"
-    And I should see "Locked"
+    # A sealed, stopped rule reads "Paused" - "Inactive" is reserved for never-activated drafts.
+    Then I should see "Paused"
+    And I should not see "Inactive"
 
+  @MDL-E2E-001
   Scenario: Replaying the activation confirmation on a sealed rule tells the truth
     # Both judges flagged the replay lie: back button, double click or an old tab reaches the
     # confirmation of a rule that already sealed, and the page either asked the irreversible
@@ -118,6 +125,7 @@ Feature: A rule can be edited only until its first activation
     Then I should see "This rule has already been activated"
     And I should not see "You are about to activate this rule"
 
+  @MDL-E2E-003
   Scenario: A sealed rule offers viewing its components, never editing them
     # Both judges, round 2: the empty-column add links were muted for sealed rules, but a sealed
     # rule WITH components kept a pencil promising "Edit conditions"/"Edit actions" - a link into
@@ -154,6 +162,7 @@ Feature: A rule can be edited only until its first activation
     When I click on "//tr[contains(., '(copy)')]//a[contains(@href, 'editrule.php')]" "xpath_element"
     Then "//input[@name='name' and not(@disabled)]" "xpath_element" should exist
 
+  @MDL-E2E-003
   Scenario: A sealed rule with no components is not offered the add links
     # The upgrade seals every active rule, including ones the pre-lock form allowed to be active
     # with zero components. The listing offered those "Add conditions"/"Add actions" links gated
@@ -169,3 +178,60 @@ Feature: A rule can be edited only until its first activation
     And I should see "Add actions"
     And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'conditions.php')]" "xpath_element" should not exist
     And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'actions.php')]" "xpath_element" should not exist
+
+  @MDL-E2E-002
+  Scenario: The executed badge belongs to the engine, a manual pause always reads as paused
+    # Fourth badge state (product directives 2026-08-31/09-01, refined 2026-09-03): "Executed"
+    # marks ONLY a rule the ENGINE switched off after running it - a one-shot cron rule
+    # (no_complete_activity) that self-deactivates, recorded by timeautodeactivated. It is NEVER a
+    # rule a human paused: the earlier code inferred "executed" from lastexecutiontime, but an
+    # event-driven rule stamps that on every run and is never self-deactivated, so pausing it by
+    # hand wrongly showed "executed". A running rule always says "Active". A stopped rule with no
+    # engine stamp - whether it fired or not - says "Paused". Assertions anchor per table row: the
+    # page mixes badge texts and the matcher is a case-insensitive substring.
+    Given the following local coursedynamicrules no course access rules exist:
+      | course | name         | active | timeactivated | timeautodeactivated | lastexecutiontime | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Engine off   | 0      | 1700000000    | 1700000500          | 1700000000        | 1           | days       | student      |           | S       | B    |
+      | C1     | Live rule    | 1      | 1700000000    |                     | 1700000000        | 1           | days       | student      |           | S       | B    |
+      | C1     | Never fired  | 0      | 1700000000    |                     |                   | 1           | days       | student      |           | S       | B    |
+      | C1     | Fired paused | 0      | 1700000000    |                     | 1700000000        | 1           | days       | student      |           | S       | B    |
+    And I log in as "teacher1"
+    And I am on "C1" course homepage
+    When I navigate to "Smart Rules AI" in current page administration
+    Then I should see "Executed" in the "Engine off" "table_row"
+    And I should not see "Paused" in the "Engine off" "table_row"
+    And I should see "Active" in the "Live rule" "table_row"
+    And I should not see "Executed" in the "Live rule" "table_row"
+    And I should see "Paused" in the "Never fired" "table_row"
+    And I should not see "Executed" in the "Never fired" "table_row"
+    # The bug reported 2026-09-03: a rule that fired (lastexecutiontime set) then was PAUSED BY HAND
+    # carries no engine stamp, so it must read as "Paused", never "Executed".
+    And I should see "Paused" in the "Fired paused" "table_row"
+    And I should not see "Executed" in the "Fired paused" "table_row"
+
+  Scenario: Deleting a sealed rule is a manager operation, a draft stays the teacher's to delete
+    # Product decision 2026-09-01: the editing teacher deletes what they build - conditions,
+    # actions, and rules that were never activated. A SEALED rule has run against students, so its
+    # one remaining exit (deletion) takes the manager-tier key (deletesealedrule). The trash can is
+    # offered under exactly the pair the endpoint enforces: teacher sees it on drafts only,
+    # manager sees it everywhere.
+    Given the following "users" exist:
+      | username | firstname | lastname | email                |
+      | manager1 | Manager1  | User1    | manager1@example.com |
+    And the following "course enrolments" exist:
+      | user     | course | role    |
+      | manager1 | C1     | manager |
+    And the following local coursedynamicrules no course access rules exist:
+      | course | name        | active | timeactivated | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Sealed rule | 0      | 1700000000    | 1           | days       | student      |           | S       | B    |
+      | C1     | Draft rule  | 0      |               | 1           | days       | student      |           | S       | B    |
+    And I log in as "teacher1"
+    And I am on "C1" course homepage
+    When I navigate to "Smart Rules AI" in current page administration
+    Then "//tr[contains(., 'Draft rule')]//a[contains(@href, 'deleterule.php')]" "xpath_element" should exist
+    And "//tr[contains(., 'Sealed rule')]//a[contains(@href, 'deleterule.php')]" "xpath_element" should not exist
+    When I log out
+    And I log in as "manager1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    Then "//tr[contains(., 'Sealed rule')]//a[contains(@href, 'deleterule.php')]" "xpath_element" should exist

@@ -9,6 +9,7 @@ Feature: Configurable action descriptions are escaped on the delete confirmation
       | fullname | shortname | category |
       | Course 1 | C1        | 0        |
 
+  @MDL-E2E-012
   Scenario: A malicious prompt is shown escaped on the delete action page
     # A draft rule: the delete page only exists for unsealed rules, so the escape check must
     # run against the one state where anyone can actually reach this page.

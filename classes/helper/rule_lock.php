@@ -95,6 +95,30 @@ class rule_lock {
     }
 
     /**
+     * The moment the rule was activated, or null for a rule that never was.
+     *
+     * The same fact is_locked() reads, handed out as the timestamp instead of the boolean. A
+     * component that measures time from "when the rule started" - the course-inactivity condition's
+     * "from now" base date - asks here, so the one column that records activation keeps being read
+     * from one place and nobody grows a second idea of what "activated" means.
+     *
+     * Fetched MUST_EXIST for the same reason is_locked() is: a condition pointing at a rule that
+     * does not exist is a data error, and answering "never activated" for it would quietly turn
+     * that error into a rule that evaluates false forever.
+     *
+     * @param int $ruleid
+     * @return int|null Activation timestamp, null while the rule has never been activated.
+     * @throws \dml_missing_record_exception When no such rule exists.
+     */
+    public static function activation_time(int $ruleid): ?int {
+        global $DB;
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], 'id, timeactivated', MUST_EXIST);
+
+        return $rule->timeactivated === null ? null : (int) $rule->timeactivated;
+    }
+
+    /**
      * Whether the rule has what activation requires: at least one condition AND one action.
      *
      * Activation is the moment the rule locks forever, so activating an incomplete rule would
@@ -102,15 +126,13 @@ class rule_lock {
      * deletion. The check lives with the lock because they are two halves of one contract, and the
      * form's validation and the confirm endpoint must agree on it.
      *
-     * KNOWN LIMITATION (deliberately deferred, 2026-08-31 round-2 review): this counts ROWS, and a
-     * "ghost" component - one whose target was deleted, e.g. complete_activity with a removed cm -
-     * still counts. Ghosts are invisible in the listings (conditions.php:114 renders only
-     * components with non-empty header AND description; complete_activity_condition returns ''
-     * for a missing cm), unremovable from the UI, evaluate false forever, and conditions combine
-     * with AND (rule.php:105-108) - so a rule carrying one can be activated, sealed, and never
-     * fire. All of that PREDATES the lock (the ghost was equally dead and equally unremovable
-     * before); the complete fix needs ghost VISIBILITY in the listings first, a UX decision that
-     * belongs to its own change, not a completeness tweak here.
+     * This counts ROWS, so a "ghost" component - one whose target activity was deleted, e.g.
+     * complete_activity with a removed cm - still counts, and a rule whose only condition is a
+     * ghost can be activated and sealed although it can never fire (conditions combine with AND).
+     * Product decision, kept as it was when 1.8.4 made ghosts visible: since then a ghost
+     * describes itself with a warning in every listing, so on a never-activated rule the operator
+     * can see the dead condition - and its trash can - before activating. Whether completeness
+     * should also refuse it is a separate decision, recorded in CHANGES.md.
      *
      * @param int $ruleid
      * @return bool
@@ -174,6 +196,13 @@ class rule_lock {
         $clean = (object) [
             'id' => (int) $stored->id,
             'active' => empty($data->active) ? 0 : 1,
+            // A manual toggle of active - the one edit a locked rule still accepts - always clears
+            // the engine's self-deactivation stamp. The 'executed' badge belongs to the engine, not
+            // the operator: once a human moves the switch the rule is 'paused' or 'active', never
+            // 'executed'. This is the write half of that rule; set_active() (the engine path) is the
+            // other half. A rule that was never self-deactivated already holds NULL here, so writing
+            // NULL is a no-op for it.
+            'timeautodeactivated' => null,
         ];
         if (isset($data->timemodified)) {
             $clean->timemodified = $data->timemodified;

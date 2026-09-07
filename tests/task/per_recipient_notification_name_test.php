@@ -32,6 +32,8 @@ namespace local_coursedynamicrules\task;
  */
 final class per_recipient_notification_name_test extends \advanced_testcase {
     /**
+     * MDL-INT-007: each primary recipient's message is built with their own name (no cross-delivery), the unconfigured teacher role gets none, and the rule self-deactivates.
+     *
      * Two matched students each receive their own name; no cross-delivery; rule self-deactivates.
      */
     public function test_each_matched_user_receives_own_name(): void {

@@ -27,6 +27,8 @@ namespace local_coursedynamicrules\task;
  */
 final class no_complete_activity_task_test extends \advanced_testcase {
     /**
+     * MDL-INT-004: the no-complete-activity pass notifies each active enrolled non-completer once, not per enrolment method.
+     *
      * A user enrolled through two methods must be notified only once when the activity is not completed.
      */
     public function test_dual_enrolled_user_is_notified_once(): void {

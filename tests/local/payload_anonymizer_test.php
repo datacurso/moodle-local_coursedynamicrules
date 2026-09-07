@@ -39,6 +39,8 @@ final class payload_anonymizer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-016: only whole-word name occurrences are anonymised, a prefix of another word is left intact.
+     *
      * A name that happens to be the prefix of an unrelated word must be left alone, while the
      * same name standing on its own (including next to punctuation) is replaced.
      */
@@ -97,6 +99,8 @@ final class payload_anonymizer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-016: name anonymisation respects word boundaries across punctuation, accents and digits.
+     *
      * A name is replaced when it stands alone (next to whitespace or punctuation, including an
      * apostrophe) and left alone when glued to letters or digits on either side.
      *
@@ -118,6 +122,8 @@ final class payload_anonymizer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-016: the full name is replaced before its parts, avoiding partial mangling.
+     *
      * The full name must be replaced as a unit before its parts, so a mention of the full name
      * yields a single [STUDENT_NAME] token and isolated parts yield their own tokens.
      */
@@ -141,6 +147,8 @@ final class payload_anonymizer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-016: only the free-text keys are anonymised, every other key travels untouched.
+     *
      * Both free-text keys are anonymized; every other key travels untouched.
      */
     public function test_anonymize_handles_message_and_instructions_keys_only(): void {
@@ -161,6 +169,8 @@ final class payload_anonymizer_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-016: de-anonymisation restores names recursively through nested structures.
+     *
      * De-anonymizing the AI result restores the original names recursively through nested arrays.
      */
     public function test_deanonymize_data_round_trip_on_nested_arrays(): void {

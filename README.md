@@ -141,7 +141,7 @@ This condition runs recurrently every day at `00:00`, `06:00`, `12:00`, and `18:
    Select the base date from which the condition will be evaluated. Available options:
    - `From enrolment date`: Intervals are counted from each user's enrolment date in the course.
    - `From course start date`: Intervals are counted from the course start date.
-   - `From now`: Intervals are counted from the date the rule is created.
+   - `From rule activation`: Intervals are counted from the moment the rule was first activated. Pausing and reactivating the rule does not restart the count.
 
     ![Base date](__docs/images/local_cdr_base-date.png)
    

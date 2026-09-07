@@ -20,6 +20,7 @@ use core_availability\tree;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\enableactivity_form;
+use local_coursedynamicrules\helper\component_renderer;
 
 /**
  * Class enableactivity_action
@@ -105,6 +106,86 @@ class enableactivity_action extends action {
     }
 
     /**
+     * Re-adopt an ownership marker that core's restore stripped from the tree.
+     *
+     * remap_ownership_markers() can only rename markers that SURVIVED - and core's
+     * update_after_restore (availability/classes/info.php) re-encodes the whole tree through each
+     * condition's save() whenever any sibling changed, and availability_user::save() emits only
+     * {type, userids}: the marker property is gone before the remap ever runs. Any gated activity
+     * carrying a teacher-added completion/grade/date restriction beside ours - the normal case,
+     * since apply_availability() deliberately merges with existing restrictions - restores with an
+     * owner-less node. This pass runs AFTER core's re-encode (after_restore_course is a later step
+     * of restore_final_task, verified against core), so what it writes is the last word.
+     *
+     * Adoption uses the SAME heuristic execute() applies to pre-marker legacy rows in production:
+     * claim a user-type node only when it is the single unmarked one in the tree - ambiguity means
+     * hands off, exactly as at execute time. A node already marked for this action id means the
+     * remap already did the job and nothing is written.
+     *
+     * @param string|null $availabilityjson The course module's availability JSON, possibly null/empty.
+     * @param int $actionid The RESTORED action's id, whose marker the tree should carry.
+     * @return string|null The rewritten JSON, or null when nothing was (or could be) adopted.
+     */
+    public static function adopt_stripped_marker(?string $availabilityjson, int $actionid): ?string {
+        if (empty($availabilityjson) || $actionid <= 0) {
+            return null;
+        }
+
+        $tree = json_decode($availabilityjson);
+        if (!is_object($tree)) {
+            return null;
+        }
+
+        $marked = [];
+        $unmarked = [];
+        self::collect_user_nodes($tree, $marked, $unmarked);
+
+        foreach ($marked as $node) {
+            if ($node->{self::MARKER_KEY} === self::MARKER_PREFIX . $actionid) {
+                // The marker survived (or was remapped): nothing to adopt.
+                return null;
+            }
+        }
+
+        if (count($unmarked) !== 1) {
+            // Zero nodes: nothing of ours survived to own. Two or more: ambiguous, hands off -
+            // the same refusal execute() applies to ambiguous legacy trees.
+            return null;
+        }
+
+        $unmarked[0]->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
+
+        return json_encode($tree);
+    }
+
+    /**
+     * Collect the user-type nodes of an availability tree, split by marker presence.
+     *
+     * @param object $node A decoded availability tree node.
+     * @param object[] $marked Collects nodes carrying any ownership marker of this plugin.
+     * @param object[] $unmarked Collects user-type nodes carrying none.
+     * @return void
+     */
+    private static function collect_user_nodes(object $node, array &$marked, array &$unmarked): void {
+        if (($node->type ?? null) === 'user') {
+            $marker = $node->{self::MARKER_KEY} ?? null;
+            if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+                $marked[] = $node;
+            } else {
+                $unmarked[] = $node;
+            }
+        }
+
+        if (isset($node->c) && is_array($node->c)) {
+            foreach ($node->c as $child) {
+                if (is_object($child)) {
+                    self::collect_user_nodes($child, $marked, $unmarked);
+                }
+            }
+        }
+    }
+
+    /**
      * Rewrite the ownership markers of one availability node and its children, in place.
      *
      * @param object $node A decoded availability tree node.
@@ -180,6 +261,84 @@ class enableactivity_action extends action {
         }
 
         rebuild_course_cache($this->courseid, true);
+    }
+
+    /**
+     * Remove a user's id from this action's OWN restriction node on every module it manages, once
+     * the site has deleted that user (MDL-E2E-011).
+     *
+     * The runtime counterpart of execute(). Core's availability_user declares itself a privacy
+     * null_provider and nothing in core reacts to a user deletion on its behalf, so the id this
+     * action wrote would stay behind for good, and the restriction would go on displaying the deleted
+     * person's name. Only the plugin's own node is touched, found by the same rule execute() applies
+     * - the marker first, then the sole unmarked user node of a managed module - so a restriction a
+     * teacher added by hand keeps whatever it lists. Like execute(), this is a runtime write and not
+     * an operator edit, so it does not go through the rule lock and works on a sealed rule too. A
+     * managed module that no longer exists, or carries no restriction, is skipped, as
+     * restore_coursemodules() does; an ambiguous module (two or more unmarked user nodes, the marker
+     * stripped - FIX3-7) is left alone and reported the same way.
+     *
+     * The caller rebuilds the course cache when this returns true: a user deletion walks every
+     * action on the site, and one rebuild per course beats one per action.
+     *
+     * @param int $userid The deleted user's id.
+     * @return bool Whether any managed module's restriction was rewritten.
+     */
+    public function revoke_user(int $userid): bool {
+        global $DB;
+
+        $cmids = [];
+        foreach ($this->params->coursemodules ?? [] as $cm) {
+            $cmids[] = (int) $cm->id;
+        }
+        if (empty($cmids)) {
+            return false;
+        }
+
+        // One read for all managed modules: a module that was deleted is simply absent.
+        $changed = false;
+        $cmrecords = $DB->get_records_list('course_modules', 'id', $cmids, '', 'id, availability');
+        foreach ($cmrecords as $cmrecord) {
+            if (empty($cmrecord->availability)) {
+                // No restriction at all: nothing to scrub.
+                continue;
+            }
+            $availability = json_decode($cmrecord->availability);
+
+            $usercondition = $this->find_user_condition($availability);
+            if ($usercondition === null) {
+                $unmarkedcount = count($this->collect_unmarked_user_conditions($availability));
+                if ($unmarkedcount > 1) {
+                    debugging(
+                        'enableactivity: course module ' . $cmrecord->id . ' has ' . $unmarkedcount
+                            . ' ambiguous unmarked user restriction node(s); the deleted user ' . $userid
+                            . ' could not be removed from this action\'s own node - manual cleanup required',
+                        DEBUG_DEVELOPER
+                    );
+                }
+                continue;
+            }
+
+            // A node whose user list is not a list is corrupt. It must not abort the site's user
+            // deletion half-way (the event manager catches exceptions, not the TypeError array_filter()
+            // would throw), so it is read as empty and left exactly as it is.
+            $userids = is_array($usercondition->userids ?? null) ? $usercondition->userids : [];
+            // The stored list can mix strings and integers (execute() keeps whatever the rule engine
+            // hands it), so compare as integers. Re-index: array_filter() keeps keys, and a gapped
+            // array would encode as a JSON object, which availability_user rejects with a TypeError.
+            $remaining = array_values(array_filter($userids, static function ($storedid) use ($userid): bool {
+                return (int) $storedid !== $userid;
+            }));
+            if (count($remaining) === count($userids)) {
+                continue;
+            }
+
+            $usercondition->userids = $remaining;
+            $DB->set_field('course_modules', 'availability', json_encode($availability), ['id' => $cmrecord->id]);
+            $changed = true;
+        }
+
+        return $changed;
     }
 
     /**
@@ -686,6 +845,24 @@ class enableactivity_action extends action {
      * @return string
      */
     public function get_description() {
+        return $this->build_description(false);
+    }
+
+    #[\Override]
+    public function get_listing_description() {
+        return $this->build_description(true);
+    }
+
+    /**
+     * Compose the description, with the activity list either whole or cut for the listing.
+     *
+     * The list grows one entry per selected activity, so it is free text in the sense that
+     * matters here: nothing bounds its length.
+     *
+     * @param bool $forlisting Whether to cut the activity list to the listing budget.
+     * @return string
+     */
+    private function build_description(bool $forlisting) {
         $coursemodules = $this->params->coursemodules ?? [];
         $descriptionarray = [];
 
@@ -697,10 +874,15 @@ class enableactivity_action extends action {
             }
             $descriptionarray[] = ucfirst($cminfo->modname) . " - " . $cminfo->name;
         }
+        $list = implode(', ', $descriptionarray);
+        if ($forlisting) {
+            $list = component_renderer::cut_freetext($list);
+        }
+
         return get_string(
             'enableactivity_description',
             'local_coursedynamicrules',
-            implode(', ', $descriptionarray)
+            $list
         );
     }
 

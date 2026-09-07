@@ -67,6 +67,8 @@ final class page_gate_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: view without manage is refused, so the listing rejects the half-pair role.
+     *
      * Every listing needs BOTH halves of its pair: view without manage is refused.
      *
      * @dataProvider components_provider
@@ -81,9 +83,11 @@ final class page_gate_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: manage without view is refused too, so the listing rejects the other half-pair.
+     *
      * And manage without view is refused too - the pair is the gate, not either half.
      *
-     * This is the half that used to be the WHOLE gate: before 1.9.0 only manage* was checked, and
+     * This is the half that used to be the WHOLE gate: before 1.8.3 only manage* was checked, and
      * the changelog warns custom-role administrators that view* is now required alongside it. This
      * test is that warning, executable.
      *
@@ -99,6 +103,8 @@ final class page_gate_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: the exact view+manage pair opens the listing.
+     *
      * The exact pair opens the listing.
      *
      * @dataProvider components_provider
@@ -113,6 +119,8 @@ final class page_gate_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: the listing pair alone cannot create; the create URL rejects without create*.
+     *
      * Creating needs create*, whatever else the role holds.
      *
      * The add menu is only rendered for a role that holds it, but the component type arrives as a
@@ -130,6 +138,8 @@ final class page_gate_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: with create* the creation branch opens.
+     *
      * With create* the creation branch opens.
      *
      * @dataProvider creatable_components_provider
@@ -162,6 +172,8 @@ final class page_gate_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-023: each listing page is wired to consult the gate that requires its capabilities.
+     *
      * The pages actually consult the gate - the wiring half of the coverage.
      *
      * An occurrence scan, deliberately: the effect tests above prove what the gate DOES, but they

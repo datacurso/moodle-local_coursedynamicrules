@@ -28,6 +28,14 @@ namespace local_coursedynamicrules\form\conditions;
  */
 final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
     /**
+     * Load the testable_dynamic_grade_in_activity_form fixture used to reach the mform by inheritance.
+     */
+    public static function setUpBeforeClass(): void {
+        parent::setUpBeforeClass();
+        require_once(__DIR__ . '/../../fixtures/testable_dynamic_grade_in_activity_form.php');
+    }
+
+    /**
      * Build a course with a graded quiz (automatic completion + require grade).
      *
      * @return array [stdClass $course, cm_info-like $cm, int $gradeitemid]
@@ -61,7 +69,8 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
     }
 
     /**
-     * Reflect out the protected \MoodleQuickForm instance backing a moodleform/dynamic_form.
+     * Return the protected \MoodleQuickForm instance backing a moodleform/dynamic_form, via the
+     * testable subclass' public accessor (inheritance, not reflection).
      *
      * Needed to assert element *existence* (via elementExists()) for the grade condition groups:
      * exportValues() only surfaces a grouped value element (gradegte_X, gradelt_X) once it has a
@@ -75,18 +84,16 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
      * indexes the element/group it is given), so elementExists() on the group name is the reliable
      * existence check.
      *
-     * @param \moodleform $form Form instance.
+     * @param testable_dynamic_grade_in_activity_form $form Form instance.
      * @return \MoodleQuickForm
      */
     private function get_mform($form): \MoodleQuickForm {
-        $reflection = new \ReflectionClass($form);
-        $property = $reflection->getProperty('_form');
-        $property->setAccessible(true);
-
-        return $property->getValue($form);
+        return $form->get_mform_for_test();
     }
 
     /**
+     * MDL-UNIT-019: grade condition preloads the stored grade threshold checkbox and value.
+     *
      * set_data_for_dynamic_submission() must decode the ajax-supplied 'gradeitems' JSON and
      * pre-populate the matching enable{cond}_{gid} checkbox and {cond}_{gid} value input.
      *
@@ -109,20 +116,26 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
             ]),
         ];
 
-        $form = new dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
         $form->set_data_for_dynamic_submission();
 
         $values = $this->export_values($form);
 
-        $this->assertEquals(1, $values['enablegradelt_' . $gradeitemid]);
-        $this->assertEquals(8.5, $values['gradelt_' . $gradeitemid]);
+        // The form's elements are named by the STABLE itemnumber (0 for this single-item quiz), and
+        // the stored key here is the LEGACY id-keyed shape: the preload resolves it back to that
+        // itemnumber by position, which is exactly the fix that revives conditions saved before the
+        // itemnumber was recorded.
+        $this->assertEquals(1, $values['enablegradelt_0']);
+        $this->assertEquals(8.5, $values['gradelt_0']);
 
         // The companion "greater than or equal" threshold was not stored: it must stay disabled,
         // not spuriously enabled by the preload.
-        $this->assertEquals(0, $values['enablegradegte_' . $gradeitemid]);
+        $this->assertEquals(0, $values['enablegradegte_0']);
     }
 
     /**
+     * MDL-UNIT-019: grade condition leaves thresholds off for an empty gradeitems payload.
+     *
      * An empty gradeitems payload (the "create" flow's blank state) must leave the form untouched:
      * no threshold checkbox is forced on.
      *
@@ -131,7 +144,7 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
     public function test_set_data_for_dynamic_submission_handles_empty_gradeitems(): void {
         $this->resetAfterTest(true);
 
-        [$course, $cm, $gradeitemid] = $this->create_graded_quiz();
+        [$course, $cm] = $this->create_graded_quiz();
 
         $ajaxformdata = [
             'courseid' => $course->id,
@@ -139,16 +152,18 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
             'gradeitems' => '{}',
         ];
 
-        $form = new dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
         $form->set_data_for_dynamic_submission();
 
         $values = $this->export_values($form);
 
-        $this->assertEquals(0, $values['enablegradelt_' . $gradeitemid]);
-        $this->assertEquals(0, $values['enablegradegte_' . $gradeitemid]);
+        $this->assertEquals(0, $values['enablegradelt_0']);
+        $this->assertEquals(0, $values['enablegradegte_0']);
     }
 
     /**
+     * MDL-UNIT-019: grade condition keeps a deliberately-disabled threshold unchecked on redisplay.
+     *
      * A stored entry marked disabled:true (the AMD rebuild serialises disabled:true entries for a
      * deliberately unchecked threshold) must stay unchecked on a failed-validation redisplay - not
      * be force re-enabled just because it still carries a stored value (FIX2-7).
@@ -173,15 +188,17 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
             ]),
         ];
 
-        $form = new dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
         $form->set_data_for_dynamic_submission();
 
         $values = $this->export_values($form);
 
-        $this->assertEquals(0, $values['enablegradelt_' . $gradeitemid]);
+        $this->assertEquals(0, $values['enablegradelt_0']);
     }
 
     /**
+     * MDL-UNIT-019: grade condition offers threshold elements only for a completion-grade-tracked activity.
+     *
      * definition() only offers activities where completion depends on a grade item
      * (`!is_null($cm->completiongradeitemnumber)` AND `COMPLETION_TRACKING_AUTOMATIC`), and only
      * builds the enable{cond}_{gid} / {cond}_{gid} threshold elements for the resolved $cm inside
@@ -232,24 +249,28 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
             'coursemodule' => $cm->id,
         ];
 
-        $form = new dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
         $mform = $this->get_mform($form);
 
         // The threshold groups are only added inside add_grade_elements(), which definition()
-        // only calls when $cm resolved to an eligible activity - their presence pins the fix.
-        $this->assertTrue($mform->elementExists('gradegtegroup_' . $gradeitem->id));
-        $this->assertTrue($mform->elementExists('gradeltgroup_' . $gradeitem->id));
+        // only calls when $cm resolved to an eligible activity - their presence pins the fix. The
+        // elements are named by the STABLE itemnumber (0 for this single-item quiz), not the grade
+        // item's volatile id.
+        $this->assertTrue($mform->elementExists('gradegtegroup_0'));
+        $this->assertTrue($mform->elementExists('gradeltgroup_0'));
 
         // The enable* checkboxes DO surface via exportValues() (advcheckbox always exports 0/1),
         // and pin that both thresholds start unchecked/disabled by default.
         $values = $this->export_values($form);
-        $this->assertArrayHasKey('enablegradegte_' . $gradeitem->id, $values);
-        $this->assertArrayHasKey('enablegradelt_' . $gradeitem->id, $values);
-        $this->assertEquals(0, $values['enablegradegte_' . $gradeitem->id]);
-        $this->assertEquals(0, $values['enablegradelt_' . $gradeitem->id]);
+        $this->assertArrayHasKey('enablegradegte_0', $values);
+        $this->assertArrayHasKey('enablegradelt_0', $values);
+        $this->assertEquals(0, $values['enablegradegte_0']);
+        $this->assertEquals(0, $values['enablegradelt_0']);
     }
 
     /**
+     * MDL-UNIT-019: grade condition excludes an activity when the course has completion disabled.
+     *
      * Negative control for the previous test: pins that the *course-level* 'enablecompletion' flag
      * - not the activity's own 'completion'/'completionusegrade' fields - is the actual gate. When
      * the course does not have completion tracking enabled, completion_info::is_enabled() returns
@@ -292,39 +313,76 @@ final class dynamic_grade_in_activity_form_test extends \advanced_testcase {
             'coursemodule' => $cm->id,
         ];
 
-        $form = new dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
-        $gradeitem = \grade_item::fetch(['iteminstance' => $quiz->id, 'itemmodule' => 'quiz', 'itemtype' => 'mod']);
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
 
-        // definition() must filter the ineligible activity out: no threshold groups are built.
+        // definition() must filter the ineligible activity out: no threshold groups are built, and
+        // no substitute is chosen either. The activity still exists, so it is not a ghost: no notice.
         $mform = $this->get_mform($form);
-        $this->assertFalse($mform->elementExists('gradegtegroup_' . $gradeitem->id));
-        $this->assertFalse($mform->elementExists('gradeltgroup_' . $gradeitem->id));
+        $this->assertFalse($mform->elementExists('gradegtegroup_0'));
+        $this->assertFalse($mform->elementExists('gradeltgroup_0'));
+        $this->assertEmpty($this->export_values($form)['coursemodule'] ?? null);
+        $this->assertFalse($mform->elementExists('targetmissing'));
     }
 
     /**
-     * A stored 'coursemodule' whose activity is no longer eligible (deleted, or no longer
-     * completion/grade tracked) must not fatal: definition() indexed $filteredcms[$cmid] directly
-     * and then dereferenced the result's ->id unconditionally, so a stale/foreign cmid crashed the
-     * whole edit page instead of falling back to the first eligible activity (G5).
+     * MDL-UNIT-019: creating a grade condition preselects nothing.
+     *
+     * The picker opens on its blank option; the thresholds appear once an activity is chosen (the
+     * sub-form reloads on change). Preselecting the first eligible activity was the same fallback
+     * that re-pointed ghost conditions on edit, so it is gone on both paths.
      *
      * @covers ::definition
      */
-    public function test_definition_falls_back_when_stored_cmid_no_longer_eligible(): void {
+    public function test_definition_preselects_nothing_when_creating(): void {
         $this->resetAfterTest(true);
 
-        [$course, $cm, $gradeitemid] = $this->create_graded_quiz();
+        [$course, $cm] = $this->create_graded_quiz();
+
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, [
+            'courseid' => $course->id,
+        ]);
+
+        $this->assertDebuggingNotCalled();
+        $mform = $this->get_mform($form);
+        $values = $this->export_values($form);
+        $this->assertEmpty($values['coursemodule'] ?? null, 'Nothing is chosen for the operator.');
+        $this->assertFalse($mform->elementExists('gradegtegroup_0'), 'No thresholds before an activity is chosen.');
+        $this->assertFalse($mform->elementExists('targetmissing'), 'Nothing is missing on a fresh form.');
+    }
+
+    /**
+     * MDL-UNIT-019 / MDL-INT-014: editing a condition whose stored activity is no longer eligible
+     * does NOT substitute another activity.
+     *
+     * The previous behaviour fell back to the first eligible activity to avoid dereferencing a null
+     * cm - crash-avoidance that became a user-facing path once ghost components were listed with
+     * their pencil: the form opened preselecting an unrelated activity, prefilled the stored
+     * thresholds onto it, and Save re-pointed the rule without a word. Now the stored target is
+     * offered or nothing is: no selection, no threshold elements (so validation refuses the save),
+     * and a notice saying the activity is no longer available. Still no PHP warning.
+     *
+     * @covers ::definition
+     */
+    public function test_definition_does_not_substitute_when_stored_cmid_no_longer_eligible(): void {
+        $this->resetAfterTest(true);
+
+        [$course, $cm] = $this->create_graded_quiz();
 
         $stalecmid = $cm->id + 999999;
 
-        $ajaxformdata = [
+        $form = new testable_dynamic_grade_in_activity_form(null, null, 'post', '', null, true, [
             'courseid' => $course->id,
             'coursemodule' => $stalecmid,
-        ];
-
-        $form = new dynamic_grade_in_activity_form(null, null, 'post', '', null, true, $ajaxformdata);
+        ]);
 
         $this->assertDebuggingNotCalled();
+        $mform = $this->get_mform($form);
         $values = $this->export_values($form);
-        $this->assertEquals($cm->id, $values['coursemodule']);
+        $this->assertEmpty(
+            $values['coursemodule'] ?? null,
+            'A stale stored activity must not be replaced by the first eligible one.'
+        );
+        $this->assertFalse($mform->elementExists('gradegtegroup_0'), 'No thresholds for an activity that was not chosen.');
+        $this->assertTrue($mform->elementExists('targetmissing'), 'The form says why there is nothing to edit.');
     }
 }

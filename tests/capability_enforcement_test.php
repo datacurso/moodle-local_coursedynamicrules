@@ -57,11 +57,14 @@ final class capability_enforcement_test extends \advanced_testcase {
      * bind is being lied to. The dormancy test below keeps this list honest in both directions.
      */
     private const DECLARED_BUT_DORMANT = [
-        'updateaction',
-        'updatecondition',
+        // Empty since the bounded component editor woke updateaction/updatecondition
+        // (2026-08-31): every declared capability is now consulted somewhere. The scan keeps
+        // this honest in both directions - a capability added here must truly do nothing.
     ];
 
     /**
+     * MDL-UNIT-023: the editingteacher archetype receives every newly enforced capability by default.
+     *
      * Enforcing a capability is only safe if the role that used to do the work still holds it.
      *
      * The capabilities were declared with the archetypes of the `manage*` capabilities that
@@ -91,6 +94,8 @@ final class capability_enforcement_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-023: the student archetype receives none of the declared capabilities.
+     *
      * A student must hold none of them, so enforcement is not vacuous.
      *
      * The control case of the pair above: if everybody passed, the checks would let anyone through
@@ -114,6 +119,8 @@ final class capability_enforcement_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: a prohibited createrule is obeyed even when managerule is granted.
+     *
      * A denial of one of the eight is now obeyed instead of being overridden by its manage* sibling.
      *
      * This is the whole point of the fix: before it, a role granted `managerule` could create rules
@@ -169,25 +176,31 @@ final class capability_enforcement_test extends \advanced_testcase {
     }
 
     /**
-     * An editing teacher can DELETE what they can create.
+     * MDL-UNIT-023: the editingteacher archetype receives the delete capabilities (data-loss risk) by default.
+     *
+     * An editing teacher can DELETE what they can create - but a SEALED rule takes the manager key.
      *
      * The three delete capabilities were manager-only, so the everyday flow was: a teacher creates
      * a component by mistake, cannot remove it, and escalates - multiplied by every teacher on the
-     * site, a queue of requests for a two-click operation. Product decision 2026-08-31: whoever may
-     * build rules may also unbuild them; RISK_DATALOSS stays declared so admins reviewing the role
-     * still see the risk.
+     * site. Product decision 2026-08-31: whoever may build rules may also unbuild them. Refined
+     * 2026-09-01: deleterule alone reaches only rules that were never activated - deleting a
+     * SEALED rule (it has run against students) additionally demands deletesealedrule, which only
+     * the manager archetype holds. RISK_DATALOSS stays declared on all four so admins reviewing a
+     * role still see the risk.
      *
      * Archetype defaults only reach NEW capabilities (accesslib's update_capabilities iterates
-     * $newcaps), so this grant needs BOTH halves: db/access.php for fresh installs - which is what
-     * this test's install-time role sees - and an upgrade step for every existing site, which the
-     * companion upgrade test covers.
+     * $newcaps), so the teacher grant needs BOTH halves (db/access.php for fresh installs, the
+     * upgrade step for existing sites - the companion upgrade test covers it), while
+     * deletesealedrule, being genuinely new, reaches every site through update_capabilities()
+     * alone - which is exactly what this install-time test exercises.
      */
-    public function test_an_editing_teacher_can_delete_what_they_can_create(): void {
+    public function test_an_editing_teacher_deletes_freely_but_sealed_rules_take_the_manager_key(): void {
         $this->resetAfterTest(true);
 
         $course = $this->getDataGenerator()->create_course();
         $context = \context_course::instance($course->id);
         $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $manager = $this->getDataGenerator()->create_and_enrol($course, 'manager');
 
         foreach (['deleterule', 'deletecondition', 'deleteaction'] as $capability) {
             $this->assertTrue(
@@ -196,6 +209,15 @@ final class capability_enforcement_test extends \advanced_testcase {
                 . 'them escalate to remove it turns every mistake into a support request.'
             );
         }
+
+        $this->assertFalse(
+            has_capability('local/coursedynamicrules:deletesealedrule', $context, $teacher),
+            'Deleting a SEALED rule is reserved for managers: an editing teacher must not hold the key.'
+        );
+        $this->assertTrue(
+            has_capability('local/coursedynamicrules:deletesealedrule', $context, $manager),
+            'While the manager holds the sealed-rule deletion key.'
+        );
     }
 
     /**

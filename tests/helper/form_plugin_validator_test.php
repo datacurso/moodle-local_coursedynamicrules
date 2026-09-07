@@ -16,6 +16,11 @@
 
 namespace local_coursedynamicrules\helper;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->libdir . '/formslib.php');
+
 /**
  * Tests for the form plugin validator helper.
  *
@@ -27,6 +32,8 @@ namespace local_coursedynamicrules\helper;
  */
 final class form_plugin_validator_test extends \advanced_testcase {
     /**
+     * MDL-UNIT-020: an installed action-dependency plugin without an enableurl validates cleanly.
+     *
      * An installed plugin declared without the optional enableurl key must validate cleanly,
      * without raising an undefined array key warning.
      *
@@ -46,6 +53,8 @@ final class form_plugin_validator_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: a missing action-dependency plugin adds a notification and is reported.
+     *
      * A plugin that is not installed must add a notification and be reported as missing.
      *
      * @covers ::add_notifications_to_form
