@@ -28,6 +28,8 @@ use local_coursedynamicrules\condition\course_inactivity\course_inactivity_condi
  */
 final class course_inactivity_form_test extends \advanced_testcase {
     /**
+     * MDL-UNIT-019: inactivity edit form rejects an invalid recurring interval via the same server-side validation.
+     *
      * A form constructed exactly as conditions.php does for an edit (customdata carries a stored
      * 'record') must still reject an invalid recurring interval via the identical validation()
      * used at creation — editing does not bypass or relax server-side validation.
@@ -64,6 +66,8 @@ final class course_inactivity_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-019: inactivity edit form accepts a valid recurring interval.
+     *
      * The same edit-mode form must accept valid input (no false-positive rejection introduced by
      * the preload path).
      *

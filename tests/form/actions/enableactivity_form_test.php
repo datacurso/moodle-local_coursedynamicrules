@@ -26,17 +26,26 @@ namespace local_coursedynamicrules\form\actions;
  */
 final class enableactivity_form_test extends \advanced_testcase {
     /**
+     * Load the testable_enableactivity_form fixture used to reach the real mform by inheritance.
+     */
+    public static function setUpBeforeClass(): void {
+        parent::setUpBeforeClass();
+        require_once(__DIR__ . '/../../fixtures/testable_enableactivity_form.php');
+    }
+
+    /**
+     * MDL-UNIT-020: enable-activity preload maps stored course modules down to a plain id list.
+     *
      * preload_defaults() maps the stored coursemodules objects down to a plain id list.
+     *
+     * The form's preload_defaults() delegates verbatim to the pure form_preload::enableactivity()
+     * mapper, so the mapping is exercised through that public, instantiation-free entry point
+     * instead of reaching the form's protected method by reflection.
      *
      * @covers ::preload_defaults
      */
     public function test_preload_defaults_maps_coursemodules_to_id_list(): void {
-        $reflection = new \ReflectionClass(enableactivity_form::class);
-        $form = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($form, (object) [
+        $result = \local_coursedynamicrules\local\form_preload::enableactivity((object) [
             'coursemodules' => [
                 (object) ['id' => 12, 'visible' => 1, 'visibleoncoursepage' => 1],
                 (object) ['id' => 34, 'visible' => 0, 'visibleoncoursepage' => 0],
@@ -47,22 +56,23 @@ final class enableactivity_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: enable-activity preload returns an empty course-module list when none are stored.
+     *
      * preload_defaults() returns an empty coursemodules list when none are stored.
+     *
+     * Exercised through the pure form_preload::enableactivity() mapper the form delegates to.
      *
      * @covers ::preload_defaults
      */
     public function test_preload_defaults_handles_empty_coursemodules(): void {
-        $reflection = new \ReflectionClass(enableactivity_form::class);
-        $form = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($form, (object) ['coursemodules' => []]);
+        $result = \local_coursedynamicrules\local\form_preload::enableactivity((object) ['coursemodules' => []]);
 
         $this->assertSame(['coursemodules' => []], $result);
     }
 
     /**
+     * MDL-UNIT-020: enable-activity definition sets PARAM_INT on the real coursemodules element.
+     *
      * definition() used to call setType('coursemodule', ...) - singular, naming a non-existent
      * element - so the real 'coursemodules' multi-select never had its PARAM_INT filter registered
      * (FIX2-11).
@@ -83,20 +93,19 @@ final class enableactivity_form_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course();
 
-        $form = new enableactivity_form(
+        $form = new testable_enableactivity_form(
             new \moodle_url('/local/coursedynamicrules/actions.php'),
             ['courseid' => $course->id, 'ruleid' => 1]
         );
 
-        $reflection = new \ReflectionClass($form);
-        $property = $reflection->getProperty('_form');
-        $property->setAccessible(true);
-        $mform = $property->getValue($form);
+        $mform = $form->get_mform_for_test();
 
         $this->assertSame(PARAM_INT, $mform->getCleanType('coursemodules', '5', PARAM_RAW));
     }
 
     /**
+     * MDL-UNIT-020: enable-activity rejects a submission with no activity selected.
+     *
      * FIX3-8: submitting with no course module selected must be rejected - silently accepting it
      * would revert EVERY currently-managed module on the next save_action() reconciliation.
      *
@@ -105,17 +114,20 @@ final class enableactivity_form_test extends \advanced_testcase {
     public function test_validation_rejects_empty_coursemodules_selection(): void {
         $this->resetAfterTest(true);
 
-        $reflection = new \ReflectionClass(enableactivity_form::class);
-        $form = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('validation');
-        $method->setAccessible(true);
+        $course = $this->getDataGenerator()->create_course();
+        $form = new enableactivity_form(
+            new \moodle_url('/local/coursedynamicrules/actions.php'),
+            ['courseid' => $course->id, 'ruleid' => 1]
+        );
 
-        $errors = $method->invoke($form, ['coursemodules' => []], []);
+        $errors = $form->validation(['coursemodules' => []], []);
 
         $this->assertArrayHasKey('coursemodules', $errors);
     }
 
     /**
+     * MDL-UNIT-020: enable-activity accepts a non-empty activity selection.
+     *
      * FIX3-8: a non-empty selection must not be rejected.
      *
      * @covers ::validation
@@ -123,17 +135,20 @@ final class enableactivity_form_test extends \advanced_testcase {
     public function test_validation_accepts_non_empty_coursemodules_selection(): void {
         $this->resetAfterTest(true);
 
-        $reflection = new \ReflectionClass(enableactivity_form::class);
-        $form = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('validation');
-        $method->setAccessible(true);
+        $course = $this->getDataGenerator()->create_course();
+        $form = new enableactivity_form(
+            new \moodle_url('/local/coursedynamicrules/actions.php'),
+            ['courseid' => $course->id, 'ruleid' => 1]
+        );
 
-        $errors = $method->invoke($form, ['coursemodules' => [12]], []);
+        $errors = $form->validation(['coursemodules' => [12]], []);
 
         $this->assertArrayNotHasKey('coursemodules', $errors);
     }
 
     /**
+     * MDL-UNIT-020: enable-activity rejects the forged empty submission even when the degraded form omits the field.
+     *
      * When the required availability_user plugin is missing, definition() early-returns before
      * adding the 'coursemodules' element at all - a browser never submits that degraded form, so
      * the only way this validation runs is a forged POST, and it must be REJECTED: the error is

@@ -63,6 +63,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-002: stamping an active rule records the moment a single time.
+     *
      * Stamping an active, never-stamped rule records the moment once.
      *
      * @covers ::stamp_if_active
@@ -77,6 +79,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-002: stamping an inactive rule does nothing.
+     *
      * An INACTIVE rule is never stamped - the stamp records activation, not saving.
      *
      * The caller is every write path that touches 'active'; making the helper read the state
@@ -94,6 +98,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-002: pause and reactivation never move the original stamp.
+     *
      * The stamp survives pause and reactivation untouched - once means once.
      *
      * The requirement's whole point: pausing is allowed forever, and coming back from a pause is
@@ -125,6 +131,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-001: a missing rule is an error, never the "sealed" answer.
+     *
      * A missing rule is an error, never "locked".
      *
      * Both round-2 judges: get_field() returns false for a missing row and false !== null, so
@@ -141,6 +149,72 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-011: the activation moment is handed out as the stamp itself, typed.
+     *
+     * activation_time() is the fact behind is_locked(), exposed as the timestamp for the one
+     * consumer that measures time from it - the inactivity condition's "from now" anchor. The
+     * stored column is a string coming out of the DML layer; the anchor arithmetic needs an int.
+     *
+     * @covers ::activation_time
+     */
+    public function test_activation_time_returns_the_stamp_as_an_int(): void {
+        $ruleid = $this->rule(1, 1700000000);
+
+        $this->assertSame(1700000000, rule_lock::activation_time($ruleid));
+    }
+
+    /**
+     * MDL-UNIT-011: a rule that was never activated has no activation moment - null, not zero.
+     *
+     * Null is what lets the consumer fail closed on its own terms; a zero here would be
+     * indistinguishable from a real stamp of the unix epoch.
+     *
+     * @covers ::activation_time
+     */
+    public function test_activation_time_is_null_for_a_rule_never_activated(): void {
+        $ruleid = $this->rule(0);
+
+        $this->assertNull(rule_lock::activation_time($ruleid));
+    }
+
+    /**
+     * MDL-UNIT-011: a missing rule is an error, never "never activated".
+     *
+     * Same stance as is_locked(): answering null for an id that does not exist would turn a data
+     * error into a condition that quietly evaluates false forever.
+     *
+     * @covers ::activation_time
+     */
+    public function test_activation_time_of_a_missing_rule_is_an_error(): void {
+        $this->expectException(\dml_missing_record_exception::class);
+        rule_lock::activation_time(999999);
+    }
+
+    /**
+     * MDL-UNIT-011: the one read path that measures time from the stamp consults the lock - wiring half.
+     *
+     * Same shape and reason as test_every_mutation_path_consults_the_lock(): the anchor's
+     * behaviour is proven by course_inactivity_basedate_now_test with real rules, but no effect
+     * test can see whether the condition still asks rule_lock or grew a second reading of
+     * timeactivated. Delete the call and this names the file.
+     *
+     * @coversNothing
+     */
+    public function test_the_from_now_anchor_consults_the_lock(): void {
+        global $CFG;
+
+        $file = $CFG->dirroot . '/local/coursedynamicrules/classes/condition/course_inactivity/course_inactivity_condition.php';
+
+        $this->assertStringContainsString(
+            'rule_lock::activation_time(',
+            file_get_contents($file),
+            'The "from now" anchor stopped reading the activation stamp through rule_lock.'
+        );
+    }
+
+    /**
+     * MDL-UNIT-001: single "sealed" predicate; row and id agree; zero stamp fails closed.
+     *
      * The row predicate is THE predicate: one implementation of "sealed", fed the fetched row.
      *
      * Both round-2 judges: the listing decided "sealed" with empty($rule->timeactivated) while
@@ -174,6 +248,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-001: the sealed predicate enforced - locked refused, unlocked passes.
+     *
      * require_unlocked() refuses a locked rule and passes an unlocked one.
      *
      * @covers ::require_unlocked
@@ -188,6 +264,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-003: locked write keeps only id/active/timemodified by addition.
+     *
      * On a locked rule, only the pause/reactivate write survives sanitisation.
      *
      * Freezing form fields is cosmetics: a stale tab, opened before the rule locked, still submits
@@ -242,6 +320,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-003: the discard detector reports drops and stays quiet on toggle-only saves.
+     *
      * The discard detector tells a stale-tab edit apart from a legitimate locked save.
      *
      * Judge finding: sanitising a locked write is correct, but reporting "updated successfully"
@@ -280,6 +360,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-001: the sealed predicate is enforced at the write, not just the URL.
+     *
      * A tampered hidden ruleid cannot attach a new component to a sealed rule.
      *
      * Round-2 judge CRITICAL, and the same seam as the editrule capability bug: conditions.php
@@ -340,6 +422,8 @@ final class rule_lock_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-001: every mutation path routes through the one sealed predicate.
+     *
      * Every mutation path consults the lock - the wiring half of the coverage.
      *
      * Same shape and same reason as page_gate's wiring test: the lock's behaviour is proven above

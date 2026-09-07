@@ -64,6 +64,8 @@ final class no_course_access_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-009: an invalid stored period fails closed and never matches, even for a user who accessed recently.
+     *
      * An invalid stored period must not make the condition match a user who accessed recently.
      *
      * @covers ::evaluate
@@ -190,11 +192,7 @@ final class no_course_access_condition_test extends \advanced_testcase {
 
         // Preload uses the base default: names are flat (addGroup(..., false)); the stray
         // 'nexttimeperiod' key in $params is inert since no form field is named that way.
-        $reflection = new \ReflectionClass(condition_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::identity($storedparams);
         $this->assertSame(30, $defaults['periodvalue']);
         $this->assertSame('days', $defaults['periodunit']);
 
@@ -530,6 +528,8 @@ final class no_course_access_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-009: a never-accessed user, measured from enrolment, does not match before the period elapses.
+     *
      * A recently enrolled user who never accessed must NOT match before the period elapses.
      *
      * @covers ::evaluate
@@ -551,6 +551,8 @@ final class no_course_access_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-009: a never-accessed user matches once the enrolment-measured period has elapsed.
+     *
      * A long-enrolled user who never accessed must match once the period has elapsed.
      *
      * @covers ::evaluate
@@ -572,6 +574,8 @@ final class no_course_access_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-009: a user with no measurable enrolment does not match.
+     *
      * A user with no enrolment must not match (cannot measure the period).
      *
      * @covers ::evaluate

@@ -463,4 +463,64 @@ class behat_local_coursedynamicrules extends behat_base {
 
         return $roleids;
     }
+
+    /**
+     * Attach "activity completed" conditions to existing rules, each pointing at an activity by idnumber.
+     *
+     * Goes through the condition's own save_condition() - the production writer - so the row carries
+     * everything the listing and the evaluator expect (event name, params shape), exactly as a
+     * teacher saving the form would leave it. The activity is addressed by the idnumber the core
+     * "activities" generator accepts, so a scenario can later delete that very module.
+     *
+     * @Given /^the following local coursedynamicrules complete activity conditions exist:$/
+     * @param TableNode $table Columns: course (shortname), rule (rule name), activity (cm idnumber).
+     */
+    public function the_following_local_coursedynamicrules_complete_activity_conditions_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $rule = $DB->get_record(
+                'local_coursedynamicrules_rule',
+                ['courseid' => $course->id, 'name' => trim($row['rule'])],
+                '*',
+                MUST_EXIST
+            );
+            $cm = $DB->get_record(
+                'course_modules',
+                ['course' => $course->id, 'idnumber' => trim($row['activity'])],
+                '*',
+                MUST_EXIST
+            );
+
+            $condition = new \local_coursedynamicrules\condition\complete_activity\complete_activity_condition(
+                (object) ['ruleid' => $rule->id, 'conditiontype' => 'complete_activity', 'params' => json_encode([])],
+                $course->id
+            );
+            $condition->save_condition((object) ['ruleid' => $rule->id, 'coursemodule' => $cm->id]);
+        }
+    }
+
+    /**
+     * Delete an activity from a course, synchronously, addressed by its idnumber.
+     *
+     * The core "I delete X activity" step drives the action menu and needs JavaScript; this stack
+     * runs Behat without a browser. Deleting through course_delete_module() is what that menu ends
+     * up calling anyway, and the synchronous path leaves the module truly gone - the state a
+     * component pointing at it must survive.
+     *
+     * @Given /^the activity with idnumber "(?P<idnumber>[^"]*)" in course "(?P<shortname>[^"]*)" is deleted$/
+     * @param string $idnumber The course module idnumber.
+     * @param string $shortname The course shortname.
+     */
+    public function the_activity_with_idnumber_in_course_is_deleted(string $idnumber, string $shortname): void {
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/course/lib.php');
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $cm = $DB->get_record('course_modules', ['course' => $course->id, 'idnumber' => $idnumber], '*', MUST_EXIST);
+
+        course_delete_module($cm->id);
+        rebuild_course_cache($course->id, true);
+    }
 }

@@ -152,9 +152,7 @@ final class action_test extends \advanced_testcase {
 
         $stub = new stub_action($record, $this->courseid);
 
-        $property = new \ReflectionProperty(action::class, 'ruleid');
-        $property->setAccessible(true);
-        $this->assertNull($property->getValue($stub));
+        $this->assertNull($stub->get_ruleid());
     }
 
     /**

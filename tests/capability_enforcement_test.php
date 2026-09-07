@@ -63,6 +63,8 @@ final class capability_enforcement_test extends \advanced_testcase {
     ];
 
     /**
+     * MDL-UNIT-023: the editingteacher archetype receives every newly enforced capability by default.
+     *
      * Enforcing a capability is only safe if the role that used to do the work still holds it.
      *
      * The capabilities were declared with the archetypes of the `manage*` capabilities that
@@ -92,6 +94,8 @@ final class capability_enforcement_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-023: the student archetype receives none of the declared capabilities.
+     *
      * A student must hold none of them, so enforcement is not vacuous.
      *
      * The control case of the pair above: if everybody passed, the checks would let anyone through
@@ -115,6 +119,8 @@ final class capability_enforcement_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-E2E-004: a prohibited createrule is obeyed even when managerule is granted.
+     *
      * A denial of one of the eight is now obeyed instead of being overridden by its manage* sibling.
      *
      * This is the whole point of the fix: before it, a role granted `managerule` could create rules
@@ -170,6 +176,8 @@ final class capability_enforcement_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-023: the editingteacher archetype receives the delete capabilities (data-loss risk) by default.
+     *
      * An editing teacher can DELETE what they can create - but a SEALED rule takes the manager key.
      *
      * The three delete capabilities were manager-only, so the everyday flow was: a teacher creates

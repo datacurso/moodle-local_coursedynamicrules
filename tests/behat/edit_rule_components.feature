@@ -25,6 +25,7 @@ Feature: Manage existing rule conditions and actions
   # inside that bound. These scenarios pin the new contract on an UNSEALED rule: the pencil is
   # offered next to the trash can, and the editor opens PRELOADED and saves in place. The sealed
   # side of the bound (no pencil, URL refused) is pinned in rule_activation_lock.feature.
+  @MDL-E2E-003
   Scenario: An editing teacher sees both the edit and delete controls on a draft's condition
     Given I log in as "teacher1"
     And I am on "C1" course homepage
@@ -34,6 +35,7 @@ Feature: Manage existing rule conditions and actions
     And ".fa-trash" "css_element" should exist
     And ".fa-pencil" "css_element" should exist
 
+  @MDL-E2E-003
   Scenario: Editing a draft's condition opens preloaded and saves in place
     Given I log in as "teacher1"
     When I visit the coursedynamicrules edit page for the latest condition in course "C1"
@@ -44,6 +46,7 @@ Feature: Manage existing rule conditions and actions
     Then I should see "Users who take more than 3 days without accessing this course."
     And I should not see "Users who take more than 1 days without accessing this course."
 
+  @MDL-E2E-003
   Scenario: Editing a draft's action opens preloaded and saves in place
     Given I log in as "teacher1"
     And I am on "C1" course homepage
@@ -60,6 +63,7 @@ Feature: Manage existing rule conditions and actions
   # Since 1.8.3 the editing teacher holds deletecondition/deleteaction (RISK_DATALOSS, explicit
   # PROHIBITs respected by the upgrade): whoever may build rules may also unbuild them. These
   # delete-flow scenarios therefore run as the teacher - proving the grant works end to end.
+  @MDL-INT-010
   Scenario: Deleting a condition through the real confirmation page removes only that condition
     Given I log in as "teacher1"
     And I am on "C1" course homepage
@@ -75,6 +79,7 @@ Feature: Manage existing rule conditions and actions
     And I click on "Edit actions" "link"
     And I should see "Send notification 'Original subject' to users"
 
+  @MDL-INT-010
   Scenario: Deleting an action through the real confirmation page removes only that action
     Given I log in as "teacher1"
     And I am on "C1" course homepage

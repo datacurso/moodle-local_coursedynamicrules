@@ -32,7 +32,7 @@ class course_inactivity_form extends condition_form {
     /** @var string base date for evaluating the intervals is start date of course */
     const DATE_FROM_COURSE_START = course_inactivity_condition::DATE_FROM_COURSE_START;
 
-    /** @var string base date for evaluating the intervals is current date */
+    /** @var string base date for evaluating the intervals is the moment the rule was first activated */
     const DATE_FROM_NOW = course_inactivity_condition::DATE_FROM_NOW;
 
     /**
@@ -142,14 +142,6 @@ class course_inactivity_form extends condition_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        $defaults = (array) $params;
-
-        if (($params->intervaltype ?? null) === self::INTERVAL_CUSTOM) {
-            $defaults['customintervals'] = $params->timeintervals ?? null;
-        } else {
-            $defaults['recurringinterval'] = $params->timeintervals ?? null;
-        }
-
-        return $defaults;
+        return \local_coursedynamicrules\local\form_preload::course_inactivity($params);
     }
 }

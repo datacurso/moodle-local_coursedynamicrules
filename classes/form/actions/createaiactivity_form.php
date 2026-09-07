@@ -133,12 +133,7 @@ class createaiactivity_form extends action_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return [
-            'message' => $params->message ?? '',
-            'generateimages' => !empty($params->generateimages) ? 1 : 0,
-            'sectionnum' => (int) ($params->sectionnum ?? 0),
-            'beforemod' => (int) ($params->beforemod ?? 0),
-        ];
+        return \local_coursedynamicrules\local\form_preload::createaiactivity($params);
     }
 
     /**

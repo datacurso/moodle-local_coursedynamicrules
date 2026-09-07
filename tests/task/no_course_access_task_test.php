@@ -64,6 +64,8 @@ final class no_course_access_task_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-005: the no-course-access run notifies each still-without-access enrolee once, not per enrolment method.
+     *
      * A user enrolled through two methods must be notified only once.
      */
     public function test_dual_enrolled_user_is_notified_once(): void {
@@ -104,6 +106,8 @@ final class no_course_access_task_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-005: a suspended enrolee is excluded from the no-course-access run and receives no notification.
+     *
      * A user with a suspended enrolment must not be notified.
      */
     public function test_suspended_user_is_not_notified(): void {

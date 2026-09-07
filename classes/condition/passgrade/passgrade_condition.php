@@ -140,8 +140,12 @@ class passgrade_condition extends condition {
         $cms = $modinfo->get_cms();
         $cminfo = $cms[$cmid] ?? null;
 
-        if (!$cminfo) {
-            return '';
+        // A deleted (or being-deleted) activity leaves a ghost: it must still describe itself so the
+        // components page and the rules list keep showing it, trash can included. Deletion in
+        // progress counts as gone - the recycle bin leaves a deleted module in that state until cron
+        // runs, and evaluate() already refuses to fire on it.
+        if (!$cminfo || $cminfo->deletioninprogress) {
+            return $this->get_missing_target_description();
         }
         return get_string('passgrade_description', 'local_coursedynamicrules', ucfirst($cminfo->modname) . " - " . $cminfo->name);
     }

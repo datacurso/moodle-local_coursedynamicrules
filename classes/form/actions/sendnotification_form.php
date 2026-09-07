@@ -209,22 +209,6 @@ class sendnotification_form extends action_form {
         $courseid = $this->_customdata['courseid'];
         $roles = get_default_enrol_roles(context_course::instance($courseid));
 
-        $roleids = sendnotification_action::resolve_roleids($params);
-        $primaryroleids = $roleids['primary'];
-        $copyroleids = $roleids['copy'];
-
-        $primaryrecipients = [];
-        $copyrecipients = [];
-        foreach (array_keys($roles) as $roleid) {
-            $primaryrecipients[$roleid] = in_array($roleid, $primaryroleids) ? 1 : 0;
-            $copyrecipients[$roleid] = in_array($roleid, $copyroleids) ? 1 : 0;
-        }
-
-        return [
-            'messagesubject' => $params->messagesubject ?? '',
-            'messagebody' => ['text' => $params->messagebody ?? '', 'format' => FORMAT_HTML],
-            'primaryrecipients' => $primaryrecipients,
-            'copyrecipients' => $copyrecipients,
-        ];
+        return \local_coursedynamicrules\local\form_preload::sendnotification($params, array_keys($roles));
     }
 }

@@ -26,6 +26,8 @@ namespace local_coursedynamicrules\form\conditions;
  */
 final class no_course_access_form_test extends \advanced_testcase {
     /**
+     * MDL-UNIT-019: no-access condition rejects an unrecognised period unit even from a forged submission.
+     *
      * FIX4: the periodunit <select> only offers hours/days/weeks, but server-side validation must
      * not trust that a submission actually went through it - a tampered POST with an unrecognised
      * unit would otherwise reach strtotime() in the condition and silently misbehave.
@@ -54,6 +56,8 @@ final class no_course_access_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-019: no-access condition accepts a recognised period unit.
+     *
      * A recognised periodunit (one of hours/days/weeks) must not be rejected.
      *
      * @covers ::validation

@@ -62,6 +62,8 @@ final class upgrade_delete_grant_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-001: a legacy editing-teacher role that lacked the deletes receives all three after upgrade.
+     *
      * A role that never had the capabilities receives all three - and the sealed-rule key stays
      * out of the grant: it belongs to the manager tier only.
      */
@@ -97,6 +99,8 @@ final class upgrade_delete_grant_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-001: an explicit admin prohibition survives the upgrade while untouched caps get the new default.
+     *
      * An explicit administrator decision survives the upgrade.
      *
      * A site that prohibited deletion on some editing-teacher role decided something on purpose.

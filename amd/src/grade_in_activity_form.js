@@ -58,7 +58,7 @@ function createDynamicForm(container) {
  * (preloaded server-side via grade_in_activity_form::preload_defaults(), D5): this initial load
  * forwards them as-is so the dynamic sub-form renders the correct activity's grade items and
  * set_data_for_dynamic_submission() can pre-check/prefill them. On create both hidden fields are
- * empty, so the load falls back to the create-time default (first available activity, blank state).
+ * empty, so the load renders the picker with nothing chosen and no threshold elements.
  *
  * @param {DynamicForm} dynamicForm The dynamic form instance.
  */

@@ -56,6 +56,12 @@ class grade_in_activity_form extends condition_form {
         // Create container for dynamic form.
         $mform->addElement('html', html_writer::div('', '', ['data-region' => 'dynamicform']));
 
+        // The only visible element this form owns: validation errors are shown here. The activity
+        // picker and the thresholds live in the dynamic sub-form, and 'gradeitems'/'cmid' below are
+        // hidden - Moodle never renders an error attached to a hidden element, so a refusal keyed
+        // to them reloaded the page in silence.
+        $mform->addElement('static', 'gradeitemsfeedback', '', '');
+
         $mform->addElement('hidden', 'gradeitems', '{}');
         $mform->setType('gradeitems', PARAM_RAW);
 
@@ -78,9 +84,18 @@ class grade_in_activity_form extends condition_form {
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
 
+        // An activity of this course must be chosen - the same rule the sibling activity forms
+        // enforce. A stored activity that was deleted leaves the picker with no selection, and a
+        // ghost must never be saved onto whatever activity the browser shows first.
+        $cmid = (int) ($data['cmid'] ?? 0);
+        if ($cmid <= 0 || !isset(get_fast_modinfo($this->courseid)->cms[$cmid])) {
+            $errors['gradeitemsfeedback'] = get_string('errornocoursemodule', 'local_coursedynamicrules');
+            return $errors;
+        }
+
         $gradeitems = json_decode($data['gradeitems'] ?? '', true);
         if (!is_array($gradeitems)) {
-            $errors['gradeitems'] = get_string('errorinvalidgradeitems', 'local_coursedynamicrules');
+            $errors['gradeitemsfeedback'] = get_string('errorinvalidgradeitems', 'local_coursedynamicrules');
             return $errors;
         }
 
@@ -89,7 +104,7 @@ class grade_in_activity_form extends condition_form {
         });
 
         if (empty($enabled)) {
-            $errors['gradeitems'] = get_string('errornogradeconditions', 'local_coursedynamicrules');
+            $errors['gradeitemsfeedback'] = get_string('errornogradeconditions', 'local_coursedynamicrules');
         }
 
         return $errors;
@@ -104,9 +119,6 @@ class grade_in_activity_form extends condition_form {
      * @return array
      */
     protected function preload_defaults($params): array {
-        return [
-            'cmid' => $params->cmid ?? 0,
-            'gradeitems' => json_encode($params->gradeitemsconditions ?? new \stdClass()),
-        ];
+        return \local_coursedynamicrules\local\form_preload::grade_in_activity($params);
     }
 }

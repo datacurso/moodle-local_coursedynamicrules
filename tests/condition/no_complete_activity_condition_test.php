@@ -85,6 +85,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: the condition persists and preloads its cmid and expected date.
+     *
      * A round-trip create -> edit must persist exactly one row, same id, with the mutated cmid and
      * expectedcompletiondate, and preload_defaults() must map both stored keys onto the form fields.
      *
@@ -120,11 +122,7 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
         $this->assertSame($cm1->cmid, $storedparams->cmid);
         $this->assertSame($this->pastdate, $storedparams->expectedcompletiondate);
 
-        $reflection = new \ReflectionClass(no_complete_activity_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::no_complete_activity($storedparams);
         $this->assertSame($cm1->cmid, $defaults['coursemodule']);
         $this->assertSame($this->pastdate, $defaults['expectedcompletiondate']);
 
@@ -145,6 +143,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: before the expected date the condition fires for no one.
+     *
      * When the expected completion date is in the future the condition must not
      * fire regardless of the user's completion state.
      *
@@ -167,6 +167,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: no completion tracking yields null state and the condition fails closed.
+     *
      * Regression test: activity has completion tracking disabled.
      * get_data() returns completionstate = NULL via a RIGHT JOIN on
      * course_modules_viewed when there is no course_modules_completion row.
@@ -206,6 +208,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: after the date, an uncompleted activity makes the condition fire.
+     *
      * Activity is not completed and deadline has passed: condition fires.
      *
      * @covers ::evaluate
@@ -228,6 +232,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: after the date, a completed activity does not fire.
+     *
      * Activity is completed (COMPLETION_COMPLETE): condition must not fire.
      *
      * @covers ::evaluate
@@ -259,6 +265,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: a completed-with-pass activity does not fire.
+     *
      * Activity is completed with pass grade (COMPLETION_COMPLETE_PASS): condition must not fire.
      *
      * @covers ::evaluate
@@ -290,6 +298,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: an activity being deleted turns the condition off silently.
+     *
      * Activity module is being deleted: condition must not fire.
      *
      * @covers ::evaluate
@@ -318,6 +328,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: a missing course module is rejected at save, never stored as cmid 0.
+     *
      * A missing course module must be rejected at save time, never persisted as cmid 0.
      *
      * @covers ::save_condition
@@ -339,11 +351,15 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
-     * A stale cmid must not raise warnings in the description; it returns an empty string.
+     * MDL-UNIT-008: a deleted activity yields a warning description without PHP warnings.
+     *
+     * A stale cmid must not raise warnings in the description, and must not empty it either: an
+     * empty description drops the card from every listing (MDL-INT-014), so the ghost describes
+     * itself with the shared missing-activity warning.
      *
      * @covers ::get_description
      */
-    public function test_get_description_empty_without_warning_for_stale_cmid(): void {
+    public function test_get_description_warns_without_debugging_for_stale_cmid(): void {
         $course = $this->getDataGenerator()->create_course();
 
         $record = (object) [
@@ -355,7 +371,42 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
 
         $description = $condition->get_description();
 
-        $this->assertSame('', $description);
+        $this->assertSame(get_string('componenttargetmissing', 'local_coursedynamicrules'), $description);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * MDL-INT-014: an activity whose deletion is still in progress is a ghost too.
+     *
+     * The recycle bin makes asynchronous deletion the default: a teacher's delete leaves the module
+     * flagged deletioninprogress until cron runs, and that is the state the cards render in first.
+     * evaluate() already refuses to fire on it; the description must warn just the same.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_warns_while_the_activity_deletion_is_in_progress(): void {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $module = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC]
+        );
+        $record = (object) [
+            'ruleid' => 1,
+            'conditiontype' => 'no_complete_activity',
+            'params' => json_encode(['cmid' => $module->cmid, 'expectedcompletiondate' => time() + DAYSECS]),
+        ];
+        $condition = new no_complete_activity_condition($record, $course->id);
+        $this->assertStringContainsString($module->name, $condition->get_description(), 'Sanity: the module is live.');
+
+        $DB->set_field('course_modules', 'deletioninprogress', 1, ['id' => $module->cmid]);
+        rebuild_course_cache($course->id, true);
+
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $condition->get_description()
+        );
         $this->assertDebuggingNotCalled();
     }
 }

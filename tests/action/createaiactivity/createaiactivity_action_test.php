@@ -69,6 +69,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: the action persists and preloads its defaults (beforemod null maps to 0).
+     *
      * A round-trip create -> edit must persist exactly one row, update the mutated field, leave
      * lastexecutiontime untouched, and map an unselected beforemod (null) to 0.
      *
@@ -100,11 +102,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
         $stored = $DB->get_record(action::TABLE, ['id' => $id], '*', MUST_EXIST);
         $storedparams = json_decode($stored->params);
 
-        $reflection = new \ReflectionClass(\local_coursedynamicrules\form\actions\createaiactivity_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::createaiactivity($storedparams);
         $this->assertSame(0, $defaults['beforemod']);
 
         $editaction = new createaiactivity_action($stored, $course->id);
@@ -128,6 +126,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-013: the component page description shows the whole prompt, never the 80-char cut.
+     *
      * Test description shows image generation status and the module the activity is inserted before.
      *
      * @covers ::get_description
@@ -162,6 +162,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-013: the description omits the insert-position line when there is no beforemod.
+     *
      * Test description without image generation and without insert position.
      *
      * @covers ::get_description
@@ -194,6 +196,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-013: a deleted beforemod module renders a clean description, no stale id shown.
+     *
      * Test description does not fail when beforemod points to a deleted module.
      *
      * @covers ::get_description
@@ -329,6 +333,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-022: a well-formed AI result creates the module, restricted to the user and visible.
+     *
      * The action must create the module from the AI result envelope, restrict it to the
      * target user and leave it visible.
      *
@@ -374,6 +380,9 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-CTR-001, MDL-UNIT-015: the init payload carries the full outbound contract (anonymized,
+     * at the configured URL) including the resolved request language.
+     *
      * The /activity/init payload must carry the v2 contract (instructions, with_images,
      * userid, site_url, auto_approve, service_id), anonymize the instructions, drop the
      * legacy keys, and hit the configured service URL.
@@ -424,6 +433,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-021: an unsupported system-instruction context is ignored, instructions stay untouched.
+     *
      * The v2 service has no channel for the system instruction context: the payload
      * must not carry legacy context keys and the instructions must stay untouched.
      *
@@ -474,6 +485,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-021: a custom prompt context is prepended as a plain-text preamble to the instructions.
+     *
      * A custom prompt AI context is inlined as a preamble of the instructions,
      * the only context channel the v2 service supports.
      *
@@ -516,6 +529,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-CTR-002: an init response with no thread id fails controlled - no stream, no creation.
+     *
      * An init response without a thread id must not open the stream nor create anything.
      *
      * @covers ::execute
@@ -548,6 +563,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-CTR-002: a failed stream event propagates its localized message - no result call, no creation.
+     *
      * A failed stream event must be reported without touching the result endpoint
      * and without creating anything.
      *
@@ -590,6 +607,8 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-024: an outdated coursegen version is reported without any paid AI call.
+     *
      * An outdated coursegen install must be reported without calling the AI service.
      *
      * @covers ::execute

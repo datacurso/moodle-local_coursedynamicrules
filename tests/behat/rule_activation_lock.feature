@@ -22,6 +22,7 @@ Feature: A rule can be edited only until its first activation
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
 
+  @MDL-E2E-001
   Scenario: A rule cannot be born active
     Given I log in as "teacher1"
     And I am on "C1" course homepage
@@ -37,6 +38,7 @@ Feature: A rule can be edited only until its first activation
     Then I should see "Too eager"
     And I should see "Inactive"
 
+  @MDL-E2E-001
   Scenario: Activating a complete rule warns, confirms, and locks it for good
     Given the following local coursedynamicrules no course access rules exist:
       | course | name          | active | periodvalue | periodunit | primaryroles | copyroles | subject | body |
@@ -56,6 +58,7 @@ Feature: A rule can be edited only until its first activation
     And I should not see "Inactive"
     And I should see "Active"
 
+  @MDL-E2E-001
   Scenario: Cancelling the confirmation keeps every edit saved and the rule inactive
     Given the following local coursedynamicrules no course access rules exist:
       | course | name       | active | periodvalue | periodunit | primaryroles | copyroles | subject | body |
@@ -73,6 +76,7 @@ Feature: A rule can be edited only until its first activation
     And I should see "Inactive"
     And I should not see "Paused"
 
+  @MDL-E2E-003
   Scenario: A locked rule offers no way to modify itself, and pausing still works
     Given the following local coursedynamicrules no course access rules exist:
       | course | name        | active | periodvalue | periodunit | primaryroles | copyroles | subject | body |
@@ -108,6 +112,7 @@ Feature: A rule can be edited only until its first activation
     Then I should see "Paused"
     And I should not see "Inactive"
 
+  @MDL-E2E-001
   Scenario: Replaying the activation confirmation on a sealed rule tells the truth
     # Both judges flagged the replay lie: back button, double click or an old tab reaches the
     # confirmation of a rule that already sealed, and the page either asked the irreversible
@@ -120,6 +125,7 @@ Feature: A rule can be edited only until its first activation
     Then I should see "This rule has already been activated"
     And I should not see "You are about to activate this rule"
 
+  @MDL-E2E-003
   Scenario: A sealed rule offers viewing its components, never editing them
     # Both judges, round 2: the empty-column add links were muted for sealed rules, but a sealed
     # rule WITH components kept a pencil promising "Edit conditions"/"Edit actions" - a link into
@@ -140,6 +146,7 @@ Feature: A rule can be edited only until its first activation
     When I click on "View conditions" "link"
     Then "//body[@id='page-local-coursedynamicrules-conditions']" "xpath_element" should exist
 
+  @MDL-E2E-003
   Scenario: A sealed rule with no components is not offered the add links
     # The upgrade seals every active rule, including ones the pre-lock form allowed to be active
     # with zero components. The listing offered those "Add conditions"/"Add actions" links gated
@@ -156,6 +163,7 @@ Feature: A rule can be edited only until its first activation
     And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'conditions.php')]" "xpath_element" should not exist
     And "//tr[contains(., 'Sealed empty')]//a[contains(@href, 'actions.php')]" "xpath_element" should not exist
 
+  @MDL-E2E-002
   Scenario: The executed badge belongs to the engine, a manual pause always reads as paused
     # Fourth badge state (product directives 2026-08-31/09-01, refined 2026-09-03): "Executed"
     # marks ONLY a rule the ENGINE switched off after running it - a one-shot cron rule
