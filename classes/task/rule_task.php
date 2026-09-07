@@ -54,7 +54,13 @@ class rule_task extends \core\task\adhoc_task {
             $userid = $customdata->userid;
             $conditiontypes = $customdata->conditiontypes;
 
-            $user = $DB->get_record('user', ['id' => $userid]);
+            // A deleted user is out: this task can be drained after the site deleted the user it
+            // was queued for, and a rule must not act for them - the enable-activity action would
+            // write back the very id the deletion just removed from its restrictions.
+            $user = $DB->get_record('user', ['id' => $userid, 'deleted' => 0]);
+            if (!$user) {
+                return;
+            }
 
             // Make array to pass to rule class in second param.
             $users = [$user];

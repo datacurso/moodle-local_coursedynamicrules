@@ -264,6 +264,84 @@ class enableactivity_action extends action {
     }
 
     /**
+     * Remove a user's id from this action's OWN restriction node on every module it manages, once
+     * the site has deleted that user (MDL-E2E-011).
+     *
+     * The runtime counterpart of execute(). Core's availability_user declares itself a privacy
+     * null_provider and nothing in core reacts to a user deletion on its behalf, so the id this
+     * action wrote would stay behind for good, and the restriction would go on displaying the deleted
+     * person's name. Only the plugin's own node is touched, found by the same rule execute() applies
+     * - the marker first, then the sole unmarked user node of a managed module - so a restriction a
+     * teacher added by hand keeps whatever it lists. Like execute(), this is a runtime write and not
+     * an operator edit, so it does not go through the rule lock and works on a sealed rule too. A
+     * managed module that no longer exists, or carries no restriction, is skipped, as
+     * restore_coursemodules() does; an ambiguous module (two or more unmarked user nodes, the marker
+     * stripped - FIX3-7) is left alone and reported the same way.
+     *
+     * The caller rebuilds the course cache when this returns true: a user deletion walks every
+     * action on the site, and one rebuild per course beats one per action.
+     *
+     * @param int $userid The deleted user's id.
+     * @return bool Whether any managed module's restriction was rewritten.
+     */
+    public function revoke_user(int $userid): bool {
+        global $DB;
+
+        $cmids = [];
+        foreach ($this->params->coursemodules ?? [] as $cm) {
+            $cmids[] = (int) $cm->id;
+        }
+        if (empty($cmids)) {
+            return false;
+        }
+
+        // One read for all managed modules: a module that was deleted is simply absent.
+        $changed = false;
+        $cmrecords = $DB->get_records_list('course_modules', 'id', $cmids, '', 'id, availability');
+        foreach ($cmrecords as $cmrecord) {
+            if (empty($cmrecord->availability)) {
+                // No restriction at all: nothing to scrub.
+                continue;
+            }
+            $availability = json_decode($cmrecord->availability);
+
+            $usercondition = $this->find_user_condition($availability);
+            if ($usercondition === null) {
+                $unmarkedcount = count($this->collect_unmarked_user_conditions($availability));
+                if ($unmarkedcount > 1) {
+                    debugging(
+                        'enableactivity: course module ' . $cmrecord->id . ' has ' . $unmarkedcount
+                            . ' ambiguous unmarked user restriction node(s); the deleted user ' . $userid
+                            . ' could not be removed from this action\'s own node - manual cleanup required',
+                        DEBUG_DEVELOPER
+                    );
+                }
+                continue;
+            }
+
+            // A node whose user list is not a list is corrupt. It must not abort the site's user
+            // deletion half-way (the event manager catches exceptions, not the TypeError array_filter()
+            // would throw), so it is read as empty and left exactly as it is.
+            $userids = is_array($usercondition->userids ?? null) ? $usercondition->userids : [];
+            // The stored list can mix strings and integers (execute() keeps whatever the rule engine
+            // hands it), so compare as integers. Re-index: array_filter() keeps keys, and a gapped
+            // array would encode as a JSON object, which availability_user rejects with a TypeError.
+            $remaining = array_values(array_filter($userids, static function ($storedid) use ($userid): bool {
+                return (int) $storedid !== $userid;
+            }));
+            if (count($remaining) === count($userids)) {
+                continue;
+            }
+
+            $usercondition->userids = $remaining;
+            $DB->set_field('course_modules', 'availability', json_encode($availability), ['id' => $cmrecord->id]);
+            $changed = true;
+        }
+
+        return $changed;
+    }
+
+    /**
      * Find THIS action's own user-restriction node (FIX2-3/FIX3-3), or - as a legacy fallback for
      * pre-marker data - the sole unmarked 'user' node.
      *
