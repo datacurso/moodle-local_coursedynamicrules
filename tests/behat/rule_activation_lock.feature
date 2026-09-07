@@ -146,6 +146,22 @@ Feature: A rule can be edited only until its first activation
     When I click on "View conditions" "link"
     Then "//body[@id='page-local-coursedynamicrules-conditions']" "xpath_element" should exist
 
+  Scenario: Duplicating a sealed rule is the way to edit its ideas
+    # The lock's official escape hatch, traced from Workplace's own dynamic rules: the copy is
+    # born inactive and unsealed - the ideas travel, the seal and the runtime state do not.
+    Given the following local coursedynamicrules no course access rules exist:
+      | course | name          | active | timeactivated | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Sealed source | 1      | 1700000000    | 1           | days       | student      |           | S       | B    |
+    And I log in as "teacher1"
+    When I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    And I click on "Duplicate rule" "link"
+    Then I should see "Rule duplicated"
+    And I should see "Sealed source (copy)"
+    # The copy is a draft: inactive, unsealed, and genuinely editable.
+    When I click on "//tr[contains(., '(copy)')]//a[contains(@href, 'editrule.php')]" "xpath_element"
+    Then "//input[@name='name' and not(@disabled)]" "xpath_element" should exist
+
   @MDL-E2E-003
   Scenario: A sealed rule with no components is not offered the add links
     # The upgrade seals every active rule, including ones the pre-lock form allowed to be active
