@@ -149,4 +149,132 @@ final class rule_duplicator_test extends \advanced_testcase {
         $this->expectException(\moodle_exception::class);
         rule_duplicator::duplicate($foreignruleid, $mycourseid, \context_course::instance($mycourseid));
     }
+
+    /**
+     * A copy is never "Executed" and never sealed: the engine's auto-deactivation stamp and the
+     * activation stamp stay with the original, so the list shows the copy as a plain draft and the
+     * lock lets it be edited while the original stays sealed.
+     *
+     * @covers ::duplicate
+     */
+    public function test_the_copy_of_an_executed_rule_is_neither_executed_nor_sealed(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'Ran once and stopped',
+            'active' => 0,
+            'timeactivated' => 7777,
+            'timeautodeactivated' => 8888,
+            'lastexecutiontime' => 8000,
+            'timecreated' => 1000,
+            'timemodified' => 2000,
+        ]);
+
+        $newid = rule_duplicator::duplicate($ruleid, $courseid, \context_course::instance($courseid));
+
+        $copy = $DB->get_record('local_coursedynamicrules_rule', ['id' => $newid], '*', MUST_EXIST);
+        $this->assertNull($copy->timeautodeactivated, 'The Executed stamp belongs to the run the original made.');
+        $this->assertFalse(rule_lock::is_locked($newid), 'The copy is open to editing.');
+        $this->assertTrue(rule_lock::is_locked($ruleid), 'Duplicating does not unseal the original.');
+    }
+
+    /**
+     * A rule with no components duplicates into an equally empty draft: the ideas may still be in
+     * the teacher's head, and the copy must not fail or invent components.
+     *
+     * @covers ::duplicate
+     */
+    public function test_a_rule_without_components_duplicates_into_an_empty_draft(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'Still empty',
+            'active' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $newid = rule_duplicator::duplicate($ruleid, $courseid, \context_course::instance($courseid));
+
+        $copy = $DB->get_record('local_coursedynamicrules_rule', ['id' => $newid], '*', MUST_EXIST);
+        $this->assertSame('Still empty (copy)', $copy->name);
+        $this->assertEquals(0, $copy->active);
+        $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition', ['ruleid' => $newid]));
+        $this->assertSame(0, $DB->count_records('local_coursedynamicrules_action', ['ruleid' => $newid]));
+    }
+
+    /**
+     * Names that fill the column, in single-byte and multibyte characters, and one that ends in a
+     * language-string placeholder: the column counts characters, and so must the shortening.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function full_length_names(): array {
+        return [
+            'single-byte' => [str_repeat('N', 255)],
+            'multibyte' => [str_repeat('ñ', 255)],
+            // get_string() substitutes placeholders inside the injected name too: a name ending in the
+            // very token the numbered suffix uses must not throw the length off.
+            'placeholder lookalike' => [str_repeat('A', 248) . '{$a->n}'],
+        ];
+    }
+
+    /**
+     * A rule whose name already fills the column can still be duplicated: the copy's name must fit
+     * in the 255 characters the column holds and still be told apart from the source. Appending
+     * " (copy)" to a full-length name overflows the column, and the database refuses the row.
+     *
+     * Two sources that differ only in their last characters shorten to the same base, so the second
+     * copy must still earn a numbered name instead of colliding.
+     *
+     * @dataProvider full_length_names
+     * @covers ::duplicate
+     * @param string $name A 255-character rule name.
+     */
+    public function test_a_rule_whose_name_fills_the_column_can_still_be_duplicated(string $name): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+        $context = \context_course::instance($courseid);
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => $name,
+            'active' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        // A sibling that differs only in its last character shortens to the very same base.
+        $siblingid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => \core_text::substr($name, 0, 254) . 'X',
+            'active' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $copyid = rule_duplicator::duplicate($ruleid, $courseid, $context);
+        $siblingcopyid = rule_duplicator::duplicate($siblingid, $courseid, $context);
+
+        $copyname = (string) $DB->get_field('local_coursedynamicrules_rule', 'name', ['id' => $copyid], MUST_EXIST);
+        $this->assertLessThanOrEqual(255, \core_text::strlen($copyname), 'The copy\'s name must fit the column.');
+        $this->assertNotSame($name, $copyname, 'The copy must still be told apart from the source.');
+        $this->assertStringEndsWith(' (copy)', $copyname);
+        $this->assertStringStartsWith(\core_text::substr($name, 0, 200), $copyname, 'The start of the name survives.');
+
+        $siblingcopyname = (string) $DB->get_field('local_coursedynamicrules_rule', 'name', ['id' => $siblingcopyid], MUST_EXIST);
+        $this->assertLessThanOrEqual(255, \core_text::strlen($siblingcopyname));
+        $this->assertNotSame($copyname, $siblingcopyname, 'Two sources shortened to one base must not collide.');
+        $this->assertStringEndsWith(' (copy 2)', $siblingcopyname);
+    }
+
 }

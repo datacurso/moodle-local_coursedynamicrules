@@ -36,6 +36,9 @@ namespace local_coursedynamicrules\helper;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class rule_duplicator {
+    /** @var int Length of the rule name column (db/install.xml, local_coursedynamicrules_rule.name). */
+    private const NAME_LENGTH = 255;
+
     /**
      * Copy a rule and its components into a new inactive, unsealed rule of the same course.
      *
@@ -80,7 +83,8 @@ class rule_duplicator {
     }
 
     /**
-     * "{name} (copy)", numbered upward until it is unique within the course.
+     * "{name} (copy)", numbered upward until it is unique within the course, and never longer than
+     * the name column.
      *
      * @param string $name The source rule's name.
      * @param int $courseid
@@ -89,16 +93,43 @@ class rule_duplicator {
     protected static function unique_copy_name(string $name, int $courseid): string {
         global $DB;
 
-        $candidate = get_string('rulecopyname', 'local_coursedynamicrules', $name);
         $n = 1;
+        $candidate = self::copy_name($name, $n);
         while ($DB->record_exists('local_coursedynamicrules_rule', ['courseid' => $courseid, 'name' => $candidate])) {
             $n++;
-            $candidate = get_string('rulecopynamenumbered', 'local_coursedynamicrules', (object) [
-                'name' => $name,
-                'n' => $n,
-            ]);
+            $candidate = self::copy_name($name, $n);
         }
 
         return $candidate;
+    }
+
+    /**
+     * The copy's name for attempt $n, shortened at the END of the source name when name and suffix
+     * together would overflow the column. The suffix is what tells the copy apart from its source, so
+     * it takes its room first and the name gets what is left; a long source name loses its last
+     * characters instead of making the database refuse the copy.
+     *
+     * Measured in characters, as the column is: the name may well be multibyte. The suffix's room is
+     * measured on the string built around an empty name, not guessed from a full build: get_string()
+     * substitutes placeholders sequentially, so a "{$a->n}" sitting inside the name itself would be
+     * replaced too and throw a length guess off. The final clamp is for a customised language string
+     * that repeats the placeholder: the column has the last word, never the string.
+     *
+     * @param string $name The source rule's name.
+     * @param int $n 1 for "(copy)", higher for "(copy N)".
+     * @return string
+     */
+    private static function copy_name(string $name, int $n): string {
+        $build = static function (string $base) use ($n): string {
+            if ($n === 1) {
+                return get_string('rulecopyname', 'local_coursedynamicrules', $base);
+            }
+            return get_string('rulecopynamenumbered', 'local_coursedynamicrules', (object) ['name' => $base, 'n' => $n]);
+        };
+
+        $room = self::NAME_LENGTH - \core_text::strlen($build(''));
+        $candidate = $build(\core_text::substr($name, 0, max(0, $room)));
+
+        return \core_text::substr($candidate, 0, self::NAME_LENGTH);
     }
 }
