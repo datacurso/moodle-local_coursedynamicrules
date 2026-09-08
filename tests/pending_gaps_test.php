@@ -17,10 +17,10 @@
 namespace local_coursedynamicrules;
 
 /**
- * Placeholders for the non-critical [Pendiente:skip] gaps from the test-case document. Each is a
- * feature not built yet; the test is skipped with its reason so the gap stays visible in the CI
- * report until the feature lands, at which point the skip is replaced by a real assertion (or a
- * Behat scenario for the UI-facing ones).
+ * The non-critical [Pendiente:skip] gaps from the test-case document, and the guarantees promoted
+ * out of them. A gap not built yet is skipped with its reason, so it stays visible in the CI report
+ * until the feature lands; when it lands, the skip is replaced by a real assertion here (as the
+ * Spanish pack's completeness was) or by a Behat scenario for the UI-facing ones.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -74,29 +74,90 @@ final class pending_gaps_test extends \advanced_testcase {
     }
 
     /**
+     * The four destination-bearing pages send an operator who may not enter a listing to the course
+     * page instead of into a permission error (page_gate::listing_url/component_listing_url, 1.8.4).
+     * The decision is covered by effect tests with real roles, and the wiring by an occurrence scan;
+     * what nothing covers is FOLLOWING the destination through the browser.
+     *
+     * [Pendiente:skip] — one Behat scenario per page (delete a rule, delete a component, duplicate,
+     * save an edit) with a role holding only that page's own write capability, asserting it lands on
+     * the course page. A page script cannot be loaded from PHPUnit, so this is the only way in.
+     */
+    public function test_the_destination_pages_land_on_the_course_page_without_the_pair(): void {
+        $this->markTestSkipped('Behat coverage for the post-work destinations is pending; the '
+            . 'decision itself is covered by page_gate_test.');
+    }
+
+    /**
+     * The "back to the list of rules" link on the component pages keeps that label even when the
+     * destination is the course page, which is what a role without the rule pair now gets instead of
+     * a permission error (1.8.4).
+     *
+     * [Pendiente:skip] — the label must come from the same decision that picks the URL. Recorded
+     * rather than fixed because the current state is strictly better than the error it replaced.
+     */
+    public function test_the_back_link_label_matches_its_destination(): void {
+        $this->markTestSkipped('Label/destination agreement is pending; the destination is correct, '
+            . 'only the wording assumes the listing.');
+    }
+
+    /**
+     * A gate written before the ownership marker existed (pre-1.8.2) carries no owner, so the
+     * refusal that stops two actions opening one activity cannot see it: on a site upgraded from
+     * those versions the pair can still be created, and the first action's students lose the
+     * activity.
+     *
+     * [Pendiente:skip] — closing it means guessing whether an unmarked user node belongs to an old
+     * action or to a teacher, and refusing a teacher's own restriction would be worse. Documented in
+     * CHANGES.md under "Two rules opening the same activity".
+     */
+    public function test_pre_marker_gates_are_seen_by_the_shared_activity_refusal(): void {
+        $this->markTestSkipped('Pre-marker gates are invisible to the refusal by design; see '
+            . 'CHANGES.md.');
+    }
+
+    /**
+     * The refusal lives on the form, so a caller that saves an enable-activity action without it - a
+     * course restore, a script, a future web service - can still put two actions on one activity.
+     *
+     * [Pendiente:skip] — moving the check into save_action() would refuse writes that the restore
+     * legitimately performs while it rebuilds a course. Documented in CHANGES.md.
+     */
+    public function test_the_shared_activity_refusal_also_guards_non_form_writes(): void {
+        $this->markTestSkipped('Only the form refuses a shared activity; non-form writers are out '
+            . 'of the 1.8.4 scope.');
+    }
+
+    /**
      * MDL-E2E-010: the Spanish pack must be complete relative to English.
      *
-     * [Pendiente:skip] — one string (datacurso_brand_alt, the logo alt text) is still missing in
-     * Spanish; it goes in the fix batch. This test is skipped until that string is added, at which
-     * point the skip is removed and the parity assertion below stands.
+     * The last gap (datacurso_brand_alt, the logo alt text) closed in 1.8.4, so the skip this test
+     * used to take is gone: a skip could never go red, which made the guarantee unfalsifiable - the
+     * next English-only string would have been reported as a skip in CI instead of a failure.
      */
     public function test_spanish_string_pack_is_complete_relative_to_english(): void {
         $missing = array_values(array_diff($this->string_keys('en'), $this->string_keys('es')));
-
-        if ($missing !== []) {
-            $this->markTestSkipped('Spanish pack missing (fix-batch item): ' . implode(', ', $missing));
-        }
 
         $this->assertSame([], $missing, 'Every English string must exist in Spanish.');
     }
 
     /**
      * MDL-E2E-010: German, French, Indonesian, Portuguese and Russian completion.
-     * [Pendiente:skip] — 60 strings per language deferred to the roadmap; English fallback is clean.
+     * [Pendiente:skip] — the missing strings per language are deferred to the roadmap; the English
+     * fallback keeps every one of them readable. The skip message counts them rather than naming a
+     * number that goes stale on the next string added.
      */
     public function test_secondary_language_packs_are_complete(): void {
-        $this->markTestSkipped('60 strings in de/fr/id/pt/ru deferred to the roadmap; English '
-            . 'fallback keeps the interface functional.');
+        $missing = [];
+        foreach (['de', 'fr', 'id', 'pt', 'ru'] as $lang) {
+            $missing[$lang] = count(array_diff($this->string_keys('en'), $this->string_keys($lang)));
+        }
+        $counts = [];
+        foreach ($missing as $lang => $count) {
+            $counts[] = "$lang: $count";
+        }
+        $this->markTestSkipped('Strings deferred to the roadmap (' . implode(', ', $counts)
+            . '); the English fallback keeps the interface functional.');
     }
 
     /**

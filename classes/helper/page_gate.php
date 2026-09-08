@@ -62,4 +62,61 @@ class page_gate {
     public static function require_creation(string $component, \context $context): void {
         require_capability('local/coursedynamicrules:create' . $component, $context);
     }
+
+    /**
+     * The same decision for a COMPONENT listing: conditions.php or actions.php when the operator may
+     * enter it, and otherwise whatever listing_url() allows - the rules listing, or the course page.
+     *
+     * Deleting a component demands only deletecondition/deleteaction, and each component listing
+     * demands its own view+manage pair, so the two delete pages could hand the operator a Continue
+     * button - and a Cancel link - into a guaranteed refusal, after the deletion was already done.
+     * Same seam as listing_url(), one door along.
+     *
+     * @param string $component 'condition' or 'action'.
+     * @param int $courseid
+     * @param int $ruleid The rule whose components were being listed.
+     * @param \context $context The course context.
+     * @return \moodle_url
+     */
+    public static function component_listing_url(
+        string $component,
+        int $courseid,
+        int $ruleid,
+        \context $context
+    ): \moodle_url {
+        $canseelisting = has_capability('local/coursedynamicrules:view' . $component, $context)
+            && has_capability('local/coursedynamicrules:manage' . $component, $context);
+        if (!$canseelisting) {
+            return self::listing_url($courseid, $context);
+        }
+
+        return new \moodle_url(
+            '/local/coursedynamicrules/' . $component . 's.php',
+            ['courseid' => $courseid, 'ruleid' => $ruleid]
+        );
+    }
+
+    /**
+     * Where a page sends the operator when it is done: the rules listing when they may enter it,
+     * the course page otherwise.
+     *
+     * The listing demands view+manage rule (require_listing above), and several pages are reachable
+     * by a role that does NOT hold that pair - the component pages demand the CONDITION or ACTION
+     * pair, and the write endpoints demand only their own create/delete capability. Sending such a
+     * role to the listing means the work is done and then an error is shown, or a "back" link that
+     * is a live link into a guaranteed refusal. editrule.php found this first and fixed it inline;
+     * the decision lives here so no page can drift from it.
+     *
+     * @param int $courseid The course whose listing is the natural destination.
+     * @param \context $context The course context.
+     * @return \moodle_url The listing, or the course page.
+     */
+    public static function listing_url(int $courseid, \context $context): \moodle_url {
+        $canseelisting = has_capability('local/coursedynamicrules:viewrule', $context)
+            && has_capability('local/coursedynamicrules:managerule', $context);
+
+        return $canseelisting
+            ? new \moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid])
+            : new \moodle_url('/course/view.php', ['id' => $courseid]);
+    }
 }

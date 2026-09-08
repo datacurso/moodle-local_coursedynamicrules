@@ -186,6 +186,22 @@ class no_course_access_condition extends condition {
     }
 
     /**
+     * A duplicated draft starts its throttle the way a freshly saved rule does (see
+     * save_condition()), not wherever the original's window currently stands. The original may
+     * already be deep into a long period; carrying that stamp over would silently withhold the
+     * copy for as long as the original still had left, with nothing on screen saying why - the
+     * copy was never run, so there is nothing of its own to preserve.
+     *
+     * @return array
+     */
+    #[\Override]
+    public function params_for_duplicate(): array {
+        $params = parent::params_for_duplicate();
+        $params['nexttimeperiod'] = time();
+        return $params;
+    }
+
+    /**
      * Refine the blunt force-win preservation of 'nexttimeperiod' (decision v2, engram obs #1310)
      * so editing the operator-facing period still lets the throttle advance when the period is
      * SHORTENED: editing must never make the rule immediately due, so the new deadline is never

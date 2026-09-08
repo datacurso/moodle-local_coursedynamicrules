@@ -94,6 +94,23 @@ abstract class condition {
     }
 
     /**
+     * This condition's params for a DUPLICATED copy, decoded and ready to json_encode() into the
+     * copy's row. Verbatim by default - duplication promises to reproduce the rule's ideas exactly
+     * - overridden by a concrete condition that stores something a copy must not carry over
+     * unchanged (contrast with runtime_param_keys()/adjust_runtime_param(), the different, EDIT-time
+     * contract for preserving a stored value across an operator's save).
+     *
+     * A params column that does not decode to an object (a stray scalar, list or invalid JSON - the
+     * state upsert() guards against for the same reason) has no fields to copy: the copy starts empty
+     * rather than inheriting a shape no consumer can read.
+     *
+     * @return array
+     */
+    public function params_for_duplicate(): array {
+        return is_object($this->params) ? (array) $this->params : [];
+    }
+
+    /**
      * Runtime-only param keys whose stored value must survive an edit even though the operator
      * form does not submit them (e.g. a throttle timestamp maintained by the condition itself).
      *

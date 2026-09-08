@@ -86,6 +86,7 @@ final class rule_duplicator_test extends \advanced_testcase {
         $context = \context_course::instance($courseid);
         $ruleid = $this->sealed_rule($courseid);
 
+        $before = time();
         $sink = $this->redirectEvents();
         $newid = rule_duplicator::duplicate($ruleid, $courseid, $context);
         $events = $sink->get_events();
@@ -106,6 +107,12 @@ final class rule_duplicator_test extends \advanced_testcase {
         $this->assertSame('no_course_access', $condition->conditiontype);
         $this->assertEquals(3, json_decode($condition->params)->periodvalue);
         $this->assertNull($condition->lastexecutiontime);
+        // The source's throttle (123) does NOT travel: a copy was never run, so its window starts
+        // the way a freshly saved rule's does, not wherever the original's window currently stands.
+        $copynexttimeperiod = json_decode($condition->params)->nexttimeperiod;
+        $this->assertNotEquals(123, $copynexttimeperiod);
+        $this->assertGreaterThanOrEqual($before, $copynexttimeperiod, 'The copy\'s throttle starts when it was made.');
+        $this->assertLessThanOrEqual(time(), $copynexttimeperiod);
 
         $actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $newid]);
         $this->assertCount(1, $actions);
@@ -121,12 +128,23 @@ final class rule_duplicator_test extends \advanced_testcase {
         $this->assertEquals(5000, $original->lastexecutiontime);
         $this->assertCount(1, $DB->get_records('local_coursedynamicrules_condition', ['ruleid' => $ruleid]));
 
-        // Duplication is a creation, audited as one.
+        // Duplication is a creation, audited as one - the rule AND each of its components, exactly
+        // as a hand-built rule's would be (conditions.php/actions.php).
         $created = array_filter($events, static function ($event) use ($newid): bool {
             return $event instanceof \local_coursedynamicrules\event\rule_created
                 && (int) $event->objectid === $newid;
         });
         $this->assertCount(1, $created, 'The copy appears in the logs as a created rule.');
+        $conditioncreated = array_filter($events, static function ($event) use ($condition): bool {
+            return $event instanceof \local_coursedynamicrules\event\condition_created
+                && (int) $event->objectid === (int) $condition->id;
+        });
+        $this->assertCount(1, $conditioncreated, 'The copied condition appears in the logs as created.');
+        $actioncreated = array_filter($events, static function ($event) use ($action): bool {
+            return $event instanceof \local_coursedynamicrules\event\action_created
+                && (int) $event->objectid === (int) $action->id;
+        });
+        $this->assertCount(1, $actioncreated, 'The copied action appears in the logs as created.');
 
         // A second copy earns a numbered name instead of a collision.
         $secondid = rule_duplicator::duplicate($ruleid, $courseid, $context);
@@ -433,5 +451,116 @@ final class rule_duplicator_test extends \advanced_testcase {
         $this->assertSame(1, $DB->count_records('local_coursedynamicrules_action', ['ruleid' => $ruleid]));
         $this->assertSame(0, $DB->count_records('local_coursedynamicrules_rule', ['id' => $newid]));
         $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * MDL-CRIT-1: duplicating a COMPLETE rule whose action opens an activity must not produce a
+     * copy that LOOKS complete. The action's params start empty (see enableactivity_action's
+     * override), and rule_lock::is_complete() refuses to count it until the teacher re-selects
+     * activities on the draft - otherwise the copy could be activated and sealed with an action
+     * that grants nobody, and once sealed neither edited (the lock) nor deleted by that teacher
+     * (deleting a sealed rule needs the manager-only deletesealedrule capability).
+     *
+     * @covers ::duplicate
+     */
+    public function test_the_copy_of_a_complete_enableactivity_rule_is_not_complete_until_reconfigured(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->require_availability_user();
+
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $reward = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $ruleid = $this->rule_that_opens($course, (int) $reward->cmid, (int) $student->id);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+        ]);
+        $this->assertTrue(
+            \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid),
+            'Sanity: the source rule must be genuinely complete, or this test proves nothing.'
+        );
+
+        $newid = rule_duplicator::duplicate($ruleid, (int) $course->id, \context_course::instance($course->id));
+
+        $this->assertFalse(
+            \local_coursedynamicrules\helper\rule_lock::is_complete($newid),
+            'A copy whose only action manages no activity must not be activatable as-is.'
+        );
+
+        // Reconfiguring the draft's action completes it. Pointing it at a SECOND activity is the safe
+        // choice, and the one the copy exists for: a variation of the original, not a rival for it.
+        $second = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $originalgate = $this->gate_of((int) $reward->cmid);
+        $copiedaction = $DB->get_record('local_coursedynamicrules_action', ['ruleid' => $newid], '*', MUST_EXIST);
+        (new enableactivity_action($copiedaction, (int) $course->id))->save_action((object) [
+            'ruleid' => $newid,
+            'courseid' => $course->id,
+            'coursemodules' => [$second->cmid],
+        ]);
+        $this->assertTrue(\local_coursedynamicrules\helper\rule_lock::is_complete($newid));
+        $this->assertSame(
+            $originalgate,
+            $this->gate_of((int) $reward->cmid),
+            'The original\'s activity is byte for byte as it was: the copy neither added a gate nor removed one.'
+        );
+        $this->assertTrue(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
+            'The original\'s student keeps the activity the original opened.'
+        );
+        // The copy did gate an activity of its own, and grants nobody until it runs.
+        $this->assertNotEmpty($this->gate_of((int) $second->cmid)['availability']);
+        $this->assertFalse($this->module_is_available_to($course, (int) $second->cmid, (int) $student->id));
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * Why the form now refuses an activity another action already opens (see
+     * enableactivity_form::validation and modules_gated_by_another_action): saving that selection
+     * writes a SECOND gate, Moodle combines gates by AND, and the newcomer's gate is empty until its
+     * rule is activated and runs - so the original's students lose the activity at the moment the
+     * draft is saved. This pins the underlying mechanism through save_action(), which the form's
+     * refusal now stands in front of; the harm is still reachable this way by any caller that
+     * bypasses the form, which is why it stays documented as a limitation too.
+     *
+     * @covers ::duplicate
+     */
+    public function test_pointing_the_copy_at_the_originals_activity_closes_it_for_its_students(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->require_availability_user();
+
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $reward = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $ruleid = $this->rule_that_opens($course, (int) $reward->cmid, (int) $student->id);
+        $newid = rule_duplicator::duplicate($ruleid, (int) $course->id, \context_course::instance($course->id));
+        $this->assertTrue(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
+            'Sanity: the student has the activity before the copy is reconfigured, or this proves nothing.'
+        );
+        $gatesbefore = count(json_decode((string) $this->gate_of((int) $reward->cmid)['availability'])->c);
+
+        $copiedaction = $DB->get_record('local_coursedynamicrules_action', ['ruleid' => $newid], '*', MUST_EXIST);
+        (new enableactivity_action($copiedaction, (int) $course->id))->save_action((object) [
+            'ruleid' => $newid,
+            'courseid' => $course->id,
+            'coursemodules' => [$reward->cmid],
+        ]);
+
+        // A SECOND gate on the same activity, not a replacement of the original's: that is why the
+        // student is locked out - the tree ANDs both, and the copy's is empty until it runs.
+        $this->assertSame(
+            $gatesbefore + 1,
+            count(json_decode((string) $this->gate_of((int) $reward->cmid)['availability'])->c),
+            'The copy adds its own gate beside the original\'s.'
+        );
+        $this->assertFalse(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
+            'The second gate closes the activity for the original\'s students until the copy grants them too.'
+        );
     }
 }

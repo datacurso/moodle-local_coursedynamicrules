@@ -16,6 +16,11 @@
 
 namespace local_coursedynamicrules\helper;
 
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/course/lib.php');
+
 /**
  * The lock that makes a rule unmodifiable after its first activation.
  *
@@ -39,6 +44,19 @@ final class rule_lock_test extends \advanced_testcase {
         parent::setUp();
         $this->resetAfterTest(true);
         $this->courseid = (int) $this->getDataGenerator()->create_course()->id;
+    }
+
+    /**
+     * A real activity in the fixture course, as an enable-activity params entry. A made-up cmid is
+     * not a populated action: can_act() resolves the ids, because a list that does not resolve is as
+     * inert as an empty one.
+     *
+     * @return \stdClass
+     */
+    private function real_activity_entry(): \stdClass {
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $this->courseid]);
+
+        return (object) ['id' => (int) $page->cmid, 'visible' => 1, 'visibleoncoursepage' => 1];
     }
 
     /**
@@ -472,5 +490,215 @@ final class rule_lock_test extends \advanced_testcase {
         }
 
         $this->assertSame([], $missing, 'A mutation path stopped consulting the lock.');
+    }
+
+    /**
+     * MDL-CRIT-1: an enable-activity action that manages no activity must not complete a rule by
+     * its mere presence - the row exists (a legitimate state on a fresh draft, see rule_duplicator),
+     * but it grants nobody. Counting it would let a rule be sealed with an action that can never
+     * fire: sealed forever (the lock refuses edits) and undeletable by its own teacher (deleting a
+     * sealed rule needs the manager-only deletesealedrule capability).
+     *
+     * @covers ::is_complete
+     */
+    public function test_an_enableactivity_action_with_no_activities_does_not_complete_the_rule(): void {
+        global $DB;
+
+        $ruleid = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+        ]);
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => []]),
+        ]);
+
+        $this->assertFalse(
+            \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid),
+            'An action managing nothing must not count towards completeness.'
+        );
+    }
+
+    /**
+     * The same action, once it manages at least one activity, does complete the rule - the row's
+     * mere existence was never the problem, an EMPTY target list was.
+     *
+     * @covers ::is_complete
+     */
+    public function test_an_enableactivity_action_with_an_activity_completes_the_rule(): void {
+        global $DB;
+
+        $ruleid = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+        ]);
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => [$this->real_activity_entry()]]),
+        ]);
+
+        $this->assertTrue(\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid));
+    }
+
+    /**
+     * A rule with no condition is incomplete regardless of how many actions it has, enableactivity
+     * included: the action side can never make up for a missing condition.
+     *
+     * @covers ::is_complete
+     */
+    public function test_a_rule_with_no_condition_is_incomplete_even_with_a_populated_enableactivity_action(): void {
+        global $DB;
+
+        $ruleid = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => [$this->real_activity_entry()]]),
+        ]);
+
+        $this->assertFalse(\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid));
+    }
+
+    /**
+     * An action whose every activity was deleted is as inert as one with none chosen, so it must not
+     * complete a rule either. Nothing in the plugin cleans a deleted activity out of an action's
+     * params, and activation is permanent: counting it let a rule be sealed with a half that can
+     * never grant anything.
+     *
+     * @covers ::is_complete
+     */
+    public function test_an_enableactivity_action_whose_activities_were_deleted_does_not_complete_the_rule(): void {
+        global $DB;
+
+        $ruleid = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+        ]);
+        $entry = $this->real_activity_entry();
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => [$entry]]),
+        ]);
+        $this->assertTrue(
+            \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid),
+            'Sanity: while the activity exists the rule is complete.'
+        );
+
+        // The path the course page actually takes with the recycle bin on, which is the default: the
+        // row is only FLAGGED and a task is queued, so a query that merely finds the row still sees
+        // it. The operator has deleted it all the same.
+        course_delete_module((int) $entry->id, true);
+
+        $this->assertSame(
+            1,
+            (int) $DB->get_field('course_modules', 'deletioninprogress', ['id' => $entry->id]),
+            'Sanity: the row survives, flagged, until cron runs - or this proves nothing.'
+        );
+        $this->assertFalse(
+            \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid),
+            'An activity awaiting the recycle bin is already gone for the action that opened it.'
+        );
+
+        // And once the task has run and the row is gone, the answer does not change.
+        course_delete_module((int) $entry->id);
+        rebuild_course_cache($this->courseid, true);
+        $this->assertFalse(\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid));
+    }
+
+    /**
+     * The mixed case, and the one the plugin's most typical rule takes: notify the student AND open
+     * the reward. An empty enable-activity action beside a working notification must still refuse
+     * activation - counting the notification alone would seal the rule with its reward half dead
+     * forever, which is precisely the state duplication creates.
+     *
+     * @covers ::is_complete
+     */
+    public function test_an_empty_enableactivity_action_refuses_activation_even_beside_another_action(): void {
+        global $DB;
+
+        $ruleid = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+        ]);
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode(['messagesubject' => 'S', 'messagebody' => 'B', 'primaryroleids' => [5]]),
+        ]);
+
+        $this->assertTrue(
+            \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid),
+            'Sanity: the notification alone completes the rule.'
+        );
+
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => []]),
+        ]);
+
+        $this->assertFalse(
+            \local_coursedynamicrules\helper\rule_lock::is_complete($ruleid),
+            'No enable-activity action may have an empty activity list, whatever the other actions are.'
+        );
+    }
+
+    /**
+     * Two enable-activity actions, only one of them configured: the rule is refused whichever order
+     * the rows were created in, since is_complete() reads them unsorted. Nothing stops a teacher
+     * from adding two of them.
+     *
+     * @dataProvider empty_sibling_orders
+     * @covers ::is_complete
+     * @param bool $emptyfirst Whether the empty action is created before the configured one.
+     */
+    public function test_one_configured_enableactivity_action_does_not_excuse_an_empty_sibling(bool $emptyfirst): void {
+        global $DB;
+
+        $ruleid = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+        ]);
+        $configured = (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => [$this->real_activity_entry()]]),
+        ];
+        $empty = (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => []]),
+        ];
+        foreach ($emptyfirst ? [$empty, $configured] : [$configured, $empty] as $action) {
+            $DB->insert_record('local_coursedynamicrules_action', $action);
+        }
+
+        $this->assertFalse(\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid));
+    }
+
+    /**
+     * The two creation orders of an empty and a configured enable-activity action: is_complete()
+     * reads the rows unsorted, so neither order may excuse the empty one.
+     *
+     * @return array<string, array{bool}>
+     */
+    public static function empty_sibling_orders(): array {
+        return [
+            'configured first' => [false],
+            'empty first' => [true],
+        ];
     }
 }

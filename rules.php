@@ -151,8 +151,14 @@ foreach ($rules as $rule) {
     }
     // The lock's escape hatch (traced from Workplace): the copy is born inactive and unsealed,
     // so duplicating is a CREATE and takes that capability - sealed rules included, on purpose.
+    // It also creates THIS rule's components, so it takes the capability each of those halves takes
+    // when added by hand, and the icon is offered under exactly the set duplicaterule.php enforces:
+    // never offer what would be refused. Read off the rows already fetched above, no extra query.
+    $canduplicatethisrule = has_capability('local/coursedynamicrules:createrule', $context)
+        && (empty($conditions) || has_capability('local/coursedynamicrules:createcondition', $context))
+        && (empty($actions) || has_capability('local/coursedynamicrules:createaction', $context));
     $duplicaterulelink = '';
-    if (has_capability('local/coursedynamicrules:createrule', $context)) {
+    if ($canduplicatethisrule) {
         $duplicaterulelink = html_writer::link(
             new moodle_url('/local/coursedynamicrules/duplicaterule.php', [
                 'id' => $rule->id, 'courseid' => $courseid, 'sesskey' => sesskey(),

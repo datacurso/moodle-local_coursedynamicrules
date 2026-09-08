@@ -48,11 +48,7 @@ $url = new moodle_url('/local/coursedynamicrules/editrule.php', ['courseid' => $
 // may only create reaches this page by URL, saves successfully, and would then be redirected into a
 // permission error AFTER the write - work done, error shown. Such a role lands on the course page
 // instead, with the same success message.
-$canseelisting = has_capability('local/coursedynamicrules:viewrule', $context)
-    && has_capability('local/coursedynamicrules:managerule', $context);
-$rulesurl = $canseelisting
-    ? new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid])
-    : new moodle_url('/course/view.php', ['id' => $courseid]);
+$rulesurl = \local_coursedynamicrules\helper\page_gate::listing_url($courseid, $context);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);

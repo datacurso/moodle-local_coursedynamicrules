@@ -44,7 +44,9 @@ require_login($course);
 page_gate::require_listing('action', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/actions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
-$rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
+// Not necessarily the listing: this page demands the COMPONENT pair, and a role holding it
+// without the rule pair would be sent into a refusal (page_gate::listing_url).
+$rulesurl = page_gate::listing_url($courseid, $context);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);

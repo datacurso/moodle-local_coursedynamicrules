@@ -178,6 +178,39 @@ abstract class action {
     }
 
     /**
+     * Whether this action could do anything at all if the rule fired right now.
+     *
+     * The activation gate (rule_lock::is_complete()) asks every action this before letting a rule be
+     * activated, because activation is permanent: a rule sealed with an action that can never act
+     * keeps that half dead forever - the lock refuses to fix it, and deleting a sealed rule needs the
+     * manager-only key. Most actions can always act, so the default is true, and only an action whose
+     * configuration can leave it with nothing to work on overrides this.
+     *
+     * It answers about the action's own state alone. It is not a permission check, and it is not
+     * about whether the action WILL fire, which is the conditions' business.
+     *
+     * @return bool
+     */
+    public function can_act(): bool {
+        return true;
+    }
+
+    /**
+     * This action's params for a DUPLICATED copy, decoded and ready to json_encode() into the copy's
+     * row. Verbatim by default - duplication promises to reproduce the rule's ideas exactly -
+     * overridden by a concrete action that stores something a copy must not carry over unchanged.
+     *
+     * A params column that does not decode to an object (a stray scalar, list or invalid JSON - the
+     * state upsert() guards against for the same reason) has no fields to copy: the copy starts empty
+     * rather than inheriting a shape no consumer can read.
+     *
+     * @return array
+     */
+    public function params_for_duplicate(): array {
+        return is_object($this->params) ? (array) $this->params : [];
+    }
+
+    /**
      * Rule id this component belongs to, or null before it is loaded.
      *
      * @return int|null

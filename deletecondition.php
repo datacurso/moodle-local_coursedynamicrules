@@ -51,7 +51,14 @@ $url = new moodle_url(
     '/local/coursedynamicrules/deletecondition.php',
     ['id' => $id, 'delete' => $delete, 'courseid' => $courseid, 'ruleid' => $ruleid]
 );
-$conditionsurl = new moodle_url('/local/coursedynamicrules/conditions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
+// Not necessarily the conditions listing: deleting demands only deletecondition, while that
+// listing demands the condition pair, so this must not hand the operator a refusal afterwards.
+$conditionsurl = \local_coursedynamicrules\helper\page_gate::component_listing_url(
+    'condition',
+    $courseid,
+    $ruleid,
+    $context
+);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);

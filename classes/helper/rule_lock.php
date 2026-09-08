@@ -119,20 +119,30 @@ class rule_lock {
     }
 
     /**
-     * Whether the rule has what activation requires: at least one condition AND one action.
+     * Whether the rule has what activation requires: at least one condition, at least one action,
+     * and no action that could never act.
      *
      * Activation is the moment the rule locks forever, so activating an incomplete rule would
      * produce a locked rule that can never fire and can never be completed - its only exit is
-     * deletion. The check lives with the lock because they are two halves of one contract, and the
-     * form's validation and the confirm endpoint must agree on it.
+     * deletion, and on a sealed rule that exit needs the manager-only deletesealedrule capability.
+     * The check lives with the lock because they are two halves of one contract, and the form's
+     * validation and the confirm endpoint must agree on it.
      *
-     * This counts ROWS, so a "ghost" component - one whose target activity was deleted, e.g.
-     * complete_activity with a removed cm - still counts, and a rule whose only condition is a
-     * ghost can be activated and sealed although it can never fire (conditions combine with AND).
-     * Product decision, kept as it was when 1.8.4 made ghosts visible: since then a ghost
-     * describes itself with a warning in every listing, so on a never-activated rule the operator
-     * can see the dead condition - and its trash can - before activating. Whether completeness
-     * should also refuse it is a separate decision, recorded in CHANGES.md.
+     * Conditions are counted as ROWS, so a "ghost" condition - one whose target activity was
+     * deleted - still counts, and a rule whose only condition is a ghost can be activated and
+     * sealed although it can never fire (conditions combine with AND). Product decision, kept as it
+     * was when 1.8.4 made ghosts visible: a ghost describes itself with a warning in every listing,
+     * so on a never-activated rule the operator sees the dead condition - and its trash can - before
+     * activating. Whether completeness should also refuse it is a separate decision, in CHANGES.md.
+     *
+     * Actions are not merely counted: EVERY action must answer yes to action::can_act(), which asks
+     * whether it could do anything at all if the rule fired now. Only the enable-activity action can
+     * answer no, and it does so with no activity chosen - the state every duplicated copy is born in
+     * - and with every chosen activity deleted since. Counting a rule complete in either case let it
+     * be activated and sealed with that half dead forever: the lock then refuses to add the
+     * activities, and its own teacher cannot delete the rule to start again. Each action is asked
+     * through its own class rather than by reading its params here, so what "unable to act" means
+     * stays where the action's configuration lives.
      *
      * @param int $ruleid
      * @return bool
@@ -140,8 +150,32 @@ class rule_lock {
     public static function is_complete(int $ruleid): bool {
         global $DB;
 
-        return $DB->record_exists('local_coursedynamicrules_condition', ['ruleid' => $ruleid])
-            && $DB->record_exists('local_coursedynamicrules_action', ['ruleid' => $ruleid]);
+        if (!$DB->record_exists('local_coursedynamicrules_condition', ['ruleid' => $ruleid])) {
+            return false;
+        }
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], 'id, courseid', MUST_EXIST);
+        $actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $ruleid]);
+        if (!$actions) {
+            return false;
+        }
+
+        foreach ($actions as $action) {
+            try {
+                $instance = rule_component_loader::create_action_instance($action, (int) $rule->courseid);
+            } catch (\moodle_exception $e) {
+                // An action whose class this build cannot load certainly cannot act. Answering
+                // instead of throwing keeps the gate usable: it is consulted from the rule form and
+                // from the activation endpoint, and throwing there would lock the operator out of a
+                // rule they could otherwise still fix or delete.
+                return false;
+            }
+            if (!$instance->can_act()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
