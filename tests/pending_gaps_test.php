@@ -74,6 +74,61 @@ final class pending_gaps_test extends \advanced_testcase {
     }
 
     /**
+     * The four destination-bearing pages send an operator who may not enter a listing to the course
+     * page instead of into a permission error (page_gate::listing_url/component_listing_url, 1.8.4).
+     * The decision is covered by effect tests with real roles, and the wiring by an occurrence scan;
+     * what nothing covers is FOLLOWING the destination through the browser.
+     *
+     * [Pendiente:skip] — one Behat scenario per page (delete a rule, delete a component, duplicate,
+     * save an edit) with a role holding only that page's own write capability, asserting it lands on
+     * the course page. A page script cannot be loaded from PHPUnit, so this is the only way in.
+     */
+    public function test_the_destination_pages_land_on_the_course_page_without_the_pair(): void {
+        $this->markTestSkipped('Behat coverage for the post-work destinations is pending; the '
+            . 'decision itself is covered by page_gate_test.');
+    }
+
+    /**
+     * The "back to the list of rules" link on the component pages keeps that label even when the
+     * destination is the course page, which is what a role without the rule pair now gets instead of
+     * a permission error (1.8.4).
+     *
+     * [Pendiente:skip] — the label must come from the same decision that picks the URL. Recorded
+     * rather than fixed because the current state is strictly better than the error it replaced.
+     */
+    public function test_the_back_link_label_matches_its_destination(): void {
+        $this->markTestSkipped('Label/destination agreement is pending; the destination is correct, '
+            . 'only the wording assumes the listing.');
+    }
+
+    /**
+     * A gate written before the ownership marker existed (pre-1.8.2) carries no owner, so the
+     * refusal that stops two actions opening one activity cannot see it: on a site upgraded from
+     * those versions the pair can still be created, and the first action's students lose the
+     * activity.
+     *
+     * [Pendiente:skip] — closing it means guessing whether an unmarked user node belongs to an old
+     * action or to a teacher, and refusing a teacher's own restriction would be worse. Documented in
+     * CHANGES.md under "Two rules opening the same activity".
+     */
+    public function test_pre_marker_gates_are_seen_by_the_shared_activity_refusal(): void {
+        $this->markTestSkipped('Pre-marker gates are invisible to the refusal by design; see '
+            . 'CHANGES.md.');
+    }
+
+    /**
+     * The refusal lives on the form, so a caller that saves an enable-activity action without it - a
+     * course restore, a script, a future web service - can still put two actions on one activity.
+     *
+     * [Pendiente:skip] — moving the check into save_action() would refuse writes that the restore
+     * legitimately performs while it rebuilds a course. Documented in CHANGES.md.
+     */
+    public function test_the_shared_activity_refusal_also_guards_non_form_writes(): void {
+        $this->markTestSkipped('Only the form refuses a shared activity; non-form writers are out '
+            . 'of the 1.8.4 scope.');
+    }
+
+    /**
      * MDL-E2E-010: the Spanish pack must be complete relative to English.
      *
      * The last gap (datacurso_brand_alt, the logo alt text) closed in 1.8.4, so the skip this test
