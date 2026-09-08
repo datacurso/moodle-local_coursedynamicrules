@@ -647,6 +647,12 @@ final class createaiactivity_action_test extends \advanced_testcase {
     /**
      * Skip when the AI companion plugins are absent, as they are on a CI checkout of this plugin alone.
      *
+     * This guard is a stopgap, not the design. These tests build their client double by reflecting
+     * aiprovider_datacurso's own class, so they cannot run where that plugin is not installed - which is
+     * exactly where CI runs. The fix is a double this plugin owns, injected through a seam, so the
+     * boundary can also be driven into its edge cases: empty response, malformed payload, transport
+     * failure. Until that lands, CI covers none of the AI action's execution paths.
+     *
      * @return void
      */
     private function require_ai_stack(): void {
