@@ -136,7 +136,7 @@ class grade_condition_thresholds {
     /**
      * Attach one entry to its itemnumber slot under the right operator key.
      *
-     * @param array<int, \stdClass> $result Passed by reference, accumulated.
+     * @param object[] $result Passed by reference, accumulated.
      * @param int $itemnumber
      * @param \stdClass $entry
      * @return void
