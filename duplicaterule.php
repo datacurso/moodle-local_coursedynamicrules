@@ -39,10 +39,29 @@ require_login($course);
 require_capability('local/coursedynamicrules:createrule', $context);
 require_sesskey();
 
+// It also creates the source's components, so it takes the very capabilities adding them by hand
+// takes (page_gate::require_creation, enforced by conditions.php/actions.php). Without this, a role
+// allowed to create rules but not components could produce components through the copy control that
+// it cannot create at all - the "a URL is not a menu" gap page_gate exists to close, one door along.
+// Ownership speaks first, so the component counts of another course's rule never leak, and only the
+// halves the copy will actually create are demanded: an empty rule copies for a create-rule role.
+$source = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
+if ($DB->record_exists('local_coursedynamicrules_condition', ['ruleid' => $source->id])) {
+    \local_coursedynamicrules\helper\page_gate::require_creation('condition', $context);
+}
+if ($DB->record_exists('local_coursedynamicrules_action', ['ruleid' => $source->id])) {
+    \local_coursedynamicrules\helper\page_gate::require_creation('action', $context);
+}
+
+// Where to land afterwards, mirroring editrule.php: the listing needs viewrule AND managerule,
+// so a role that may only create would be redirected into a permission error AFTER the copy was
+// written - work done, error shown. Such a role lands on the course page instead, same message.
+$returnurl = \local_coursedynamicrules\helper\page_gate::listing_url($courseid, $context);
+
 \local_coursedynamicrules\helper\rule_duplicator::duplicate($id, $courseid, $context);
 
 redirect(
-    new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]),
+    $returnurl,
     get_string('ruleduplicated', 'local_coursedynamicrules'),
     null,
     \core\output\notification::NOTIFY_SUCCESS

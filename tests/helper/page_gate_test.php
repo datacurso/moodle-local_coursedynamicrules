@@ -172,6 +172,97 @@ final class page_gate_test extends \advanced_testcase {
     }
 
     /**
+     * The component destination: its own listing for a role holding that component's pair, and
+     * otherwise whatever the rules listing allows - never a link into a refusal.
+     *
+     * @covers ::component_listing_url
+     */
+    public function test_the_component_listing_is_the_destination_for_its_own_pair(): void {
+        $this->acting_with(['viewaction', 'manageaction']);
+
+        $url = page_gate::component_listing_url('action', (int) $this->context->instanceid, 42, $this->context);
+
+        $this->assertStringContainsString('/local/coursedynamicrules/actions.php', $url->out(false));
+        $this->assertSame('42', (string) $url->param('ruleid'));
+    }
+
+    /**
+     * A role that may delete a component but not enter its listing - the seam that deleted the
+     * component and then showed a permission error - lands on the course page instead.
+     *
+     * @covers ::component_listing_url
+     */
+    public function test_deleting_without_the_component_pair_lands_on_the_course_page(): void {
+        $this->acting_with(['deleteaction']);
+
+        $url = page_gate::component_listing_url('action', (int) $this->context->instanceid, 42, $this->context);
+
+        $this->assertStringContainsString('/course/view.php', $url->out(false));
+        $this->assertStringNotContainsString('coursedynamicrules', $url->out(false));
+    }
+
+    /**
+     * And it falls back to the RULES listing when the operator may enter that one, which is closer
+     * to where they were than the course page.
+     *
+     * @covers ::component_listing_url
+     */
+    public function test_the_component_fallback_prefers_the_rules_listing_when_allowed(): void {
+        $this->acting_with(['deleteaction', 'viewrule', 'managerule']);
+
+        $url = page_gate::component_listing_url('action', (int) $this->context->instanceid, 42, $this->context);
+
+        $this->assertStringContainsString('/local/coursedynamicrules/rules.php', $url->out(false));
+    }
+
+    /**
+     * Where a page sends the operator when it is done: the listing for a role that may enter it.
+     *
+     * @covers ::listing_url
+     */
+    public function test_the_listing_is_the_destination_for_a_role_that_may_enter_it(): void {
+        $this->acting_with(['viewrule', 'managerule']);
+
+        $url = page_gate::listing_url((int) $this->context->instanceid, $this->context);
+
+        $this->assertStringContainsString('/local/coursedynamicrules/rules.php', $url->out(false));
+        $this->assertSame((string) $this->context->instanceid, (string) $url->param('courseid'));
+    }
+
+    /**
+     * And the course page for a role that may not - the seam that had a page do the work and then
+     * show a permission error, or offer a "back" link into a guaranteed refusal. A role that may
+     * delete a rule, or manage its components, need not hold the rule listing's own pair.
+     *
+     * @dataProvider destinations_without_the_rule_pair
+     * @covers ::listing_url
+     * @param string[] $capabilities What the role holds instead of the rule pair.
+     */
+    public function test_the_course_page_is_the_destination_without_the_rule_pair(array $capabilities): void {
+        $this->acting_with($capabilities);
+
+        $url = page_gate::listing_url((int) $this->context->instanceid, $this->context);
+
+        $this->assertStringContainsString('/course/view.php', $url->out(false));
+        $this->assertStringNotContainsString('coursedynamicrules', $url->out(false));
+        $this->assertSame((string) $this->context->instanceid, (string) $url->param('id'));
+    }
+
+    /**
+     * Roles that reach one of these pages without holding the rules listing's pair.
+     *
+     * @return array<string, array{string[]}>
+     */
+    public static function destinations_without_the_rule_pair(): array {
+        return [
+            'may delete a rule only' => [['deleterule']],
+            'holds the condition pair, not the rule pair' => [['viewcondition', 'managecondition']],
+            'may create rules but not read the listing' => [['createrule']],
+            'half the rule pair' => [['viewrule']],
+        ];
+    }
+
+    /**
      * MDL-UNIT-023: each listing page is wired to consult the gate that requires its capabilities.
      *
      * The pages actually consult the gate - the wiring half of the coverage.
@@ -190,8 +281,26 @@ final class page_gate_test extends \advanced_testcase {
         $root = $CFG->dirroot . '/local/coursedynamicrules/';
         $expected = [
             'rules.php' => ["page_gate::require_listing('rule'"],
-            'conditions.php' => ["page_gate::require_listing('condition'", "page_gate::require_creation('condition'"],
-            'actions.php' => ["page_gate::require_listing('action'", "page_gate::require_creation('action'"],
+            'conditions.php' => [
+                "page_gate::require_listing('condition'",
+                "page_gate::require_creation('condition'",
+                'page_gate::listing_url(',
+            ],
+            'actions.php' => [
+                "page_gate::require_listing('action'",
+                "page_gate::require_creation('action'",
+                'page_gate::listing_url(',
+            ],
+            // The pages that send the operator somewhere after doing the work. Each one used to
+            // build the listing URL by hand, which is how three of them came to send a role that
+            // cannot enter the listing straight into a refusal.
+            'editrule.php' => ['page_gate::listing_url('],
+            'deleterule.php' => ['page_gate::listing_url('],
+            'duplicaterule.php' => ['page_gate::listing_url('],
+            // The component delete pages: their destination is the COMPONENT listing, which has its
+            // own pair, and they demand only their own delete capability.
+            'deletecondition.php' => ["page_gate::component_listing_url(\n    'condition'"],
+            'deleteaction.php' => ["page_gate::component_listing_url(\n    'action'"],
         ];
 
         $missing = [];

@@ -17,10 +17,10 @@
 namespace local_coursedynamicrules;
 
 /**
- * Placeholders for the non-critical [Pendiente:skip] gaps from the test-case document. Each is a
- * feature not built yet; the test is skipped with its reason so the gap stays visible in the CI
- * report until the feature lands, at which point the skip is replaced by a real assertion (or a
- * Behat scenario for the UI-facing ones).
+ * The non-critical [Pendiente:skip] gaps from the test-case document, and the guarantees promoted
+ * out of them. A gap not built yet is skipped with its reason, so it stays visible in the CI report
+ * until the feature lands; when it lands, the skip is replaced by a real assertion here (as the
+ * Spanish pack's completeness was) or by a Behat scenario for the UI-facing ones.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -76,27 +76,33 @@ final class pending_gaps_test extends \advanced_testcase {
     /**
      * MDL-E2E-010: the Spanish pack must be complete relative to English.
      *
-     * [Pendiente:skip] — one string (datacurso_brand_alt, the logo alt text) is still missing in
-     * Spanish; it goes in the fix batch. This test is skipped until that string is added, at which
-     * point the skip is removed and the parity assertion below stands.
+     * The last gap (datacurso_brand_alt, the logo alt text) closed in 1.8.4, so the skip this test
+     * used to take is gone: a skip could never go red, which made the guarantee unfalsifiable - the
+     * next English-only string would have been reported as a skip in CI instead of a failure.
      */
     public function test_spanish_string_pack_is_complete_relative_to_english(): void {
         $missing = array_values(array_diff($this->string_keys('en'), $this->string_keys('es')));
-
-        if ($missing !== []) {
-            $this->markTestSkipped('Spanish pack missing (fix-batch item): ' . implode(', ', $missing));
-        }
 
         $this->assertSame([], $missing, 'Every English string must exist in Spanish.');
     }
 
     /**
      * MDL-E2E-010: German, French, Indonesian, Portuguese and Russian completion.
-     * [Pendiente:skip] — 60 strings per language deferred to the roadmap; English fallback is clean.
+     * [Pendiente:skip] — the missing strings per language are deferred to the roadmap; the English
+     * fallback keeps every one of them readable. The skip message counts them rather than naming a
+     * number that goes stale on the next string added.
      */
     public function test_secondary_language_packs_are_complete(): void {
-        $this->markTestSkipped('60 strings in de/fr/id/pt/ru deferred to the roadmap; English '
-            . 'fallback keeps the interface functional.');
+        $missing = [];
+        foreach (['de', 'fr', 'id', 'pt', 'ru'] as $lang) {
+            $missing[$lang] = count(array_diff($this->string_keys('en'), $this->string_keys($lang)));
+        }
+        $counts = [];
+        foreach ($missing as $lang => $count) {
+            $counts[] = "$lang: $count";
+        }
+        $this->markTestSkipped('Strings deferred to the roadmap (' . implode(', ', $counts)
+            . '); the English fallback keeps the interface functional.');
     }
 
     /**

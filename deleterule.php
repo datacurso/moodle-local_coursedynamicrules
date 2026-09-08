@@ -41,7 +41,9 @@ require_login($course);
 require_capability('local/coursedynamicrules:deleterule', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/deleterule.php', ['delete' => $delete, 'courseid' => $courseid]);
-$rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
+// Not necessarily the listing: deleting demands only deleterule (plus the manager key on a
+// sealed rule), so the operator may not be allowed into the listing they would be sent to.
+$rulesurl = \local_coursedynamicrules\helper\page_gate::listing_url($courseid, $context);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);

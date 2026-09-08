@@ -18,6 +18,12 @@ namespace local_coursedynamicrules\action\enableactivity;
 
 use core_availability\tree;
 use local_coursedynamicrules\core\action;
+use local_coursedynamicrules\form\actions\enableactivity_form;
+
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/course/lib.php');
 
 /**
  * Tests for the enableactivity action robustness against deleted/changed modules.
@@ -1026,5 +1032,247 @@ final class enableactivity_action_test extends \advanced_testcase {
 
         $this->assertIsString($description);
         $this->assertDebuggingNotCalled();
+    }
+    /**
+     * An action with nothing to name says which of the two reasons applies, instead of rendering
+     * "Enable activities ''" - empty quotes that told the operator nothing. No activity chosen yet is
+     * the state every duplicated copy is born in; every chosen activity deleted since is the ghost
+     * case, which borrows the warning the activity conditions use.
+     *
+     * @covers ::get_description
+     */
+    public function test_an_action_with_nothing_to_name_says_why(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule((int) $course->id);
+
+        // Nothing chosen yet: the copy's state, and the one the teacher must fix.
+        $empty = new enableactivity_action(
+            (object) ['ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode(['coursemodules' => []])],
+            (int) $course->id
+        );
+        $this->assertSame(
+            get_string('enableactivity_noactivities', 'local_coursedynamicrules'),
+            $empty->get_description()
+        );
+
+        // Chosen and then deleted: the ghost case, named with the shared missing-activity warning.
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $ghost = new enableactivity_action(
+            (object) [
+                'ruleid' => $ruleid,
+                'actiontype' => 'enableactivity',
+                'params' => json_encode(['coursemodules' => [(object) ['id' => $page->cmid]]]),
+            ],
+            (int) $course->id
+        );
+        $this->assertStringContainsString(
+            $page->name,
+            $ghost->get_description(),
+            'Sanity: while the activity exists the action names it.'
+        );
+
+        course_delete_module((int) $page->cmid);
+        rebuild_course_cache((int) $course->id, true);
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $ghost->get_description(),
+            'An action whose every activity is gone says so, instead of showing empty quotes.'
+        );
+    }
+    /**
+     * The clash query behind the form's refusal: an activity already gated by ANOTHER action of this
+     * plugin cannot be shared, because Moodle ANDs the two gates and the newcomer's is empty until it
+     * runs - so saving it takes the activity away from the first action's students. The action's OWN
+     * gate is not a clash (that is just an edit), and a teacher's own restriction is not either.
+     *
+     * @covers ::modules_gated_by_another_action
+     */
+    public function test_a_module_gated_by_another_action_is_reported_as_a_clash(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $gated = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $free = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $manual = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        // A teacher's own user restriction: unmarked, and none of this plugin's business.
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json([(object) ['type' => 'user', 'userids' => [7]]], tree::OP_AND, false)),
+            ['id' => $manual->cmid]
+        );
+
+        $ruleid = $this->create_rule((int) $course->id);
+        $record = (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])];
+        $owner = new enableactivity_action($record, (int) $course->id);
+        $owner->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$gated->cmid],
+        ]);
+        $ownerid = (int) $owner->get_id();
+
+        // Another action asking: the gated module clashes, the untouched ones do not.
+        $this->assertSame(
+            [(int) $gated->cmid],
+            enableactivity_action::modules_gated_by_another_action(
+                [(int) $gated->cmid, (int) $free->cmid, (int) $manual->cmid],
+                (int) $course->id,
+                $ownerid + 1000
+            ),
+            'Only a module carrying another action\'s own gate clashes.'
+        );
+
+        // The owner asking about its own module: an edit, not a clash.
+        $this->assertSame(
+            [],
+            enableactivity_action::modules_gated_by_another_action([(int) $gated->cmid], (int) $course->id, $ownerid),
+            'An action editing its own selection must not be refused its own activities.'
+        );
+
+        // A brand-new action (no id yet) is told the truth: the module is taken.
+        $this->assertSame(
+            [(int) $gated->cmid],
+            enableactivity_action::modules_gated_by_another_action([(int) $gated->cmid], (int) $course->id, null)
+        );
+
+        // The state earlier versions allowed and the marker was designed for: TWO actions gating one
+        // module. Each must stay able to save its own selection - refusing it would leave the action
+        // unsavable, and its partner may be sealed and unable to release the module at all.
+        $second = new enableactivity_action(
+            (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])],
+            (int) $course->id
+        );
+        $second->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$free->cmid],
+        ]);
+        // Give the second action a gate on the SAME module, the way a pre-1.8.4 site holds one.
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json([
+                (object) ['type' => 'user', 'userids' => [], 'source' => 'local_coursedynamicrules:' . $ownerid],
+                (object) ['type' => 'user', 'userids' => [], 'source' => 'local_coursedynamicrules:' . $second->get_id()],
+            ], tree::OP_AND, false)),
+            ['id' => $gated->cmid]
+        );
+
+        $this->assertSame(
+            [],
+            enableactivity_action::modules_gated_by_another_action([(int) $gated->cmid], (int) $course->id, $ownerid),
+            'A module this action already gates is never a clash, whoever else gates it.'
+        );
+        $this->assertSame(
+            [],
+            enableactivity_action::modules_gated_by_another_action(
+                [(int) $gated->cmid],
+                (int) $course->id,
+                (int) $second->get_id()
+            ),
+            'And the same for its partner: a pre-existing pair stays editable on both sides.'
+        );
+        $this->assertSame(
+            [(int) $gated->cmid],
+            enableactivity_action::modules_gated_by_another_action([(int) $gated->cmid], (int) $course->id, $ownerid + 5000),
+            'A THIRD action is still refused: it would add a gate where it has none.'
+        );
+
+        // A gate whose owner no longer exists - what a course import leaves behind, since it brings
+        // activities without rules - is not a clash: nothing can release it, no screen reaches it,
+        // and refusing on its account would make the activity permanently unusable by the plugin.
+        $orphan = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json([
+                (object) ['type' => 'user', 'userids' => [], 'source' => 'local_coursedynamicrules:' . ($ownerid + 9999)],
+            ], tree::OP_AND, false)),
+            ['id' => $orphan->cmid]
+        );
+
+        $this->assertSame(
+            [],
+            enableactivity_action::modules_gated_by_another_action([(int) $orphan->cmid], (int) $course->id, null),
+            'A marker naming an action that no longer exists must not lock the activity forever.'
+        );
+    }
+
+    /**
+     * And the form refuses that selection, naming the activity, instead of saving it and closing the
+     * activity for the other action's students.
+     *
+     * @covers \local_coursedynamicrules\form\actions\enableactivity_form::validation
+     */
+    public function test_the_form_refuses_an_activity_another_action_already_opens(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; the action requires it.');
+        }
+
+        $course = $this->getDataGenerator()->create_course();
+        $gated = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        // The activity the owner will ADD to its own selection: untouched by anyone.
+        $free = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $ruleid = $this->create_rule((int) $course->id);
+        $record = (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])];
+        $owner = new enableactivity_action($record, (int) $course->id);
+        $owner->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$gated->cmid],
+        ]);
+
+        // A NEW action reaching for that activity is refused through the real path: the form the
+        // action builds for itself (the only place its id is injected), a submission, and get_data()
+        // answering null - exactly what actions.php does. The message names the activity, on screen.
+        $newaction = new enableactivity_action(
+            (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])],
+            (int) $course->id
+        );
+        enableactivity_form::mock_submit([
+            'coursemodules' => [(int) $gated->cmid],
+            'courseid' => (int) $course->id,
+            'ruleid' => $ruleid,
+            'type' => 'enableactivity',
+        ]);
+        $newaction->build_editform(
+            new \moodle_url('/local/coursedynamicrules/actions.php'),
+            ['courseid' => (int) $course->id, 'ruleid' => $ruleid, 'type' => 'enableactivity']
+        );
+        $this->assertNull($newaction->get_data(), 'A clashing selection must not be saveable.');
+        ob_start();
+        $newaction->show_editform();
+        $html = ob_get_clean();
+        $this->assertStringContainsString($gated->name, $html, 'The refusal names the activity.');
+
+        // And the OWNER editing its own selection is NOT refused its own activity: the everyday flow
+        // of adding a second activity to an existing action. Its id reaches the form through
+        // build_editform(), so deleting that injection makes this go red.
+        $stored = $DB->get_record('local_coursedynamicrules_action', ['id' => $owner->get_id()], '*', MUST_EXIST);
+        $editing = new enableactivity_action($stored, (int) $course->id);
+        enableactivity_form::mock_submit([
+            'coursemodules' => [(int) $gated->cmid, (int) $free->cmid],
+            'courseid' => (int) $course->id,
+            'ruleid' => $ruleid,
+            'type' => 'enableactivity',
+        ]);
+        $editing->build_editform(
+            new \moodle_url('/local/coursedynamicrules/actions.php'),
+            ['courseid' => (int) $course->id, 'ruleid' => $ruleid, 'type' => 'enableactivity']
+        );
+        $this->assertNotNull(
+            $editing->get_data(),
+            'An action editing its own selection must not be refused its own activity.'
+        );
     }
 }

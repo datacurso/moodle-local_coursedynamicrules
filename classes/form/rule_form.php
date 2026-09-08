@@ -94,8 +94,9 @@ class rule_form extends \moodleform {
      * Activation requires a complete rule - and a new rule is never complete.
      *
      * Activation is the moment the rule locks forever (see rule_lock), so activating a rule with
-     * no conditions or no actions would create a locked rule that can never fire and can never be
-     * finished: its only exit is deletion. The adversarial review of the plan found this as its
+     * no conditions, no actions, or an "enable activity" action with no activities chosen would
+     * create a locked rule that can never fire and can never be finished: its only exit is
+     * deletion, and on a sealed rule that exit is manager-only. The adversarial review of the plan found this as its
      * first critical - creating a rule with the box already ticked, then adding components, was
      * the everyday flow, and it would have become data loss. Product decision: refuse here with a
      * field error, keep the checkbox.

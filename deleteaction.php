@@ -50,7 +50,14 @@ $url = new moodle_url(
     '/local/coursedynamicrules/deleteaction.php',
     ['id' => $id, 'delete' => $delete, 'courseid' => $courseid, 'ruleid' => $ruleid]
 );
-$actionsurl = new moodle_url('/local/coursedynamicrules/actions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
+// Not necessarily the actions listing: deleting demands only deleteaction, while that listing
+// demands the action pair, so this must not hand the operator a refusal after the work is done.
+$actionsurl = \local_coursedynamicrules\helper\page_gate::component_listing_url(
+    'action',
+    $courseid,
+    $ruleid,
+    $context
+);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);

@@ -16,6 +16,9 @@
 
 namespace local_coursedynamicrules\helper;
 
+use local_coursedynamicrules\core\action;
+use local_coursedynamicrules\core\condition;
+
 /**
  * Duplicate a rule into an inactive, unsealed draft - the lock's official escape hatch.
  *
@@ -27,16 +30,10 @@ namespace local_coursedynamicrules\helper;
  *
  * Duplication is deliberately NOT gated by the lock - copying a sealed rule is the point - and
  * deliberately IS gated by ownership: the source must belong to the course the copy lands in.
- * Params travel verbatim, with one exception. Runtime throttles stored inside params (a deliberate
- * storage choice of their component classes) mirror the original's window, which for an inactive
- * draft only decides how soon it may first fire after a deliberate activation. The exception is the
- * enable-activity action, whose params are not configuration alone: each module entry carries the
- * visibility snapshot the action restores when it is deleted, and the gate it writes into the module
- * is marked with its own id. A copy pointing at the same modules would either own nothing there and
- * never grant access, or add a second gate that Moodle combines with the original's by AND, closing
- * the activity to the very students the original had opened it for. So the copy of that action
- * starts with no activities: the teacher picks them on the draft, and duplicating or discarding the
- * copy never touches what the original manages.
+ * Every component's params go through its own params_for_duplicate() (condition::/action:: base
+ * contract) rather than travelling as a raw column: verbatim by default, so most components copy
+ * exactly, and overridden by the few whose stored params are not configuration alone - see
+ * no_course_access_condition and enableactivity_action for the two that override it today, and why.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -61,36 +58,83 @@ class rule_duplicator {
 
         $source = ownership::get_rule($ruleid, $courseid);
 
-        $copy = new \stdClass();
-        $copy->courseid = $courseid;
+        // One transaction for the rule and every component: instantiating a component can throw
+        // (rule_component_loader refuses a type whose class is missing), and a copy that exists with
+        // half its components is worse than no copy - it looks like a deliberate draft.
+        $transaction = $DB->start_delegated_transaction();
+
+        // The source's row is the starting point, and what must NOT travel is named here: every
+        // other column - including any added later - copies by default, which is what "the same rule
+        // with new ids" means. Enumerating what must travel instead would silently drop the next
+        // column somebody adds, and the copy would differ from its source in a way nothing reveals.
+        $copy = clone $source;
+        unset($copy->id);
         $copy->name = self::unique_copy_name((string) $source->name, $courseid);
-        $copy->description = $source->description;
+        // Runtime and lifecycle state stays with the original: a copy was never activated (so it is
+        // unsealed and fully editable), never stopped by the engine, and never run.
         $copy->active = 0;
         $copy->timeactivated = null;
+        $copy->timeautodeactivated = null;
         $copy->lastexecutiontime = null;
         $copy->timecreated = time();
         $copy->timemodified = time();
         $newid = (int) $DB->insert_record('local_coursedynamicrules_rule', $copy);
 
-        foreach (['local_coursedynamicrules_condition', 'local_coursedynamicrules_action'] as $table) {
+        $componentevents = [];
+        foreach (self::component_tables() as $table => [$loader, $eventclass]) {
             foreach ($DB->get_records($table, ['ruleid' => $ruleid]) as $component) {
+                $instance = $loader($component, $courseid);
+
                 unset($component->id);
                 $component->ruleid = $newid;
                 $component->lastexecutiontime = null;
-                if (($component->actiontype ?? null) === 'enableactivity') {
-                    // The one component whose params are not configuration alone: see the class docblock.
-                    $component->params = json_encode(['coursemodules' => []]);
-                }
-                $DB->insert_record($table, $component);
+                // Cast to object before encoding: a component whose stored params did not decode to
+                // an object copies as an empty params SET, and an empty PHP array would be written as
+                // "[]" - a JSON array, the very shape every consumer of params cannot read.
+                $component->params = json_encode((object) $instance->params_for_duplicate());
+                $componentevents[] = [$eventclass, (int) $DB->insert_record($table, $component)];
             }
         }
 
+        $transaction->allow_commit();
+
+        // Logged after the commit, and the rule before its components: the order a hand-built rule
+        // is logged in, where the rule exists before anything can be added to it (editrule.php,
+        // then conditions/actions.php).
         \local_coursedynamicrules\event\rule_created::create([
             'context' => $context,
             'objectid' => $newid,
         ])->trigger();
+        foreach ($componentevents as [$eventclass, $componentid]) {
+            $eventclass::create([
+                'context' => $context,
+                'objectid' => $componentid,
+            ])->trigger();
+        }
 
         return $newid;
+    }
+
+    /**
+     * Component table => [the loader that turns one of its rows into a component instance, the event
+     * class fired when a copy of that row is created]. The event classes are the ones
+     * conditions.php/actions.php fire for a hand-built component, so a duplicated rule's components
+     * are as visible in the site logs as its own. Keyed off the classes' own TABLE constants: a
+     * mismatch between the key and the loader would send every row to the wrong one.
+     *
+     * @return array<string, array{callable, string}>
+     */
+    private static function component_tables(): array {
+        return [
+            condition::TABLE => [
+                [rule_component_loader::class, 'create_condition_instance'],
+                \local_coursedynamicrules\event\condition_created::class,
+            ],
+            action::TABLE => [
+                [rule_component_loader::class, 'create_action_instance'],
+                \local_coursedynamicrules\event\action_created::class,
+            ],
+        ];
     }
 
     /**
@@ -101,7 +145,7 @@ class rule_duplicator {
      * @param int $courseid
      * @return string
      */
-    protected static function unique_copy_name(string $name, int $courseid): string {
+    private static function unique_copy_name(string $name, int $courseid): string {
         global $DB;
 
         $n = 1;
