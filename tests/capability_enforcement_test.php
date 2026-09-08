@@ -159,6 +159,9 @@ final class capability_enforcement_test extends \advanced_testcase {
      * and disabled and asserts the helper's answer tracks the state.
      */
     public function test_availability_status_follows_the_plugin_being_enabled_or_disabled(): void {
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; the helper this drives requires it.');
+        }
         $this->resetAfterTest(true);
 
         \core\plugininfo\availability::enable_plugin('user', 1);

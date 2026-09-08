@@ -255,6 +255,9 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
      * stayed green. This one carries a completion sibling so core's stripping ALWAYS runs.
      */
     public function test_the_marker_survives_core_re_encoding_of_mixed_trees(): void {
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; the marker lives in one of its nodes.');
+        }
         global $DB;
 
         [$course, $sourcecmid, $ruleid, $sourceactionid] = $this->course_with_rule(

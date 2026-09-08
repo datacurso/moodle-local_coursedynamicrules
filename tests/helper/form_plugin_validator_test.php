@@ -42,10 +42,11 @@ final class form_plugin_validator_test extends \advanced_testcase {
     public function test_installed_plugin_without_enableurl_adds_no_notification(): void {
         $mform = new \MoodleQuickForm('testform', 'post', '');
 
+        // The plugin under test is always installed, so this fixture needs no companion plugin.
         $missing = form_plugin_validator::add_notifications_to_form($mform, [
             [
-                'pluginname' => 'local_coursegen',
-                'downloadurl' => 'https://moodle.org/plugins/local_coursegen',
+                'pluginname' => 'local_coursedynamicrules',
+                'downloadurl' => 'https://moodle.org/plugins/local_coursedynamicrules',
             ],
         ]);
 

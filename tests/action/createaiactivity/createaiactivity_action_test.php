@@ -341,6 +341,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_creates_module_restricted_to_user(): void {
+        $this->require_ai_stack();
         global $DB;
 
         $this->resetAfterTest(true);
@@ -390,6 +391,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_sends_expected_init_payload(): void {
+        $this->require_ai_stack();
         global $CFG;
 
         $this->resetAfterTest(true);
@@ -441,6 +443,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_ignores_system_instruction_context(): void {
+        $this->require_ai_stack();
         global $DB;
 
         $this->resetAfterTest(true);
@@ -493,6 +496,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_inlines_custom_prompt_context(): void {
+        $this->require_ai_stack();
         global $DB;
 
         $this->resetAfterTest(true);
@@ -536,6 +540,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_skips_creation_when_init_has_no_thread(): void {
+        $this->require_ai_stack();
         // The failure now reaches the task log by contract (final-review observability fix):
         // this asserts the mtrace happens - delete it and this test names the regression.
         $this->expectOutputRegex('/createaiactivity failed/');
@@ -571,6 +576,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_skips_creation_when_stream_fails(): void {
+        $this->require_ai_stack();
         // The failure now reaches the task log by contract (final-review observability fix):
         // this asserts the mtrace happens - delete it and this test names the regression.
         $this->expectOutputRegex('/createaiactivity failed/');
@@ -614,6 +620,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * @covers ::execute
      */
     public function test_execute_reports_outdated_coursegen(): void {
+        $this->require_ai_stack();
         global $DB;
 
         $this->resetAfterTest(true);
@@ -635,5 +642,18 @@ final class createaiactivity_action_test extends \advanced_testcase {
 
         $this->assertDebuggingCalledCount(1);
         $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * Skip when the AI companion plugins are absent, as they are on a CI checkout of this plugin alone.
+     *
+     * @return void
+     */
+    private function require_ai_stack(): void {
+        foreach (['aiprovider_datacurso', 'local_coursegen'] as $component) {
+            if (!\core_plugin_manager::instance()->get_plugin_info($component)) {
+                $this->markTestSkipped($component . ' is not installed; the AI activity action requires it.');
+            }
+        }
     }
 }
