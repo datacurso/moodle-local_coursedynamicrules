@@ -2,13 +2,23 @@
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
+## Added
+- **The engine switching a rule off is recorded in the log**
+  A one-shot rule deactivates itself right after it runs, and that write produced no log entry at all: the rules list carried a badge for it, but a log report asked what had happened to the rule had nothing to show, so an automatic stop could only be told from a teacher's pause by inference. The write is now recorded as its own event, `rule_autodeactivated`, distinct from the update event an edit produces. Only the stop is filed under it: reactivation is not an engine decision, and recording it here would answer "who stopped this rule?" with the opposite of the truth.
+
 ## Fixed
 - **The pass-grade condition no longer accepts an activity that is being deleted**
   Moodle keeps a module in the course while its deletion runs in the background, and this condition's own evaluation already treats such an activity as gone - so a condition saved in that window could never be met, and because a rule requires ALL of its conditions, the whole rule fell silent. Completeness counts conditions by existence, so such a rule could still be activated and sealed, after which it can neither be edited nor, by its own teacher, deleted. Of the plugin's seven activity pickers this was the only one that never filtered them out: the check was added to the others in December 2024 and this form, which predates that sweep, was missed. The picker now omits them, the server refuses one on save even when the form was opened before the deletion started, and editing a condition whose stored activity is gone or being deleted says so on the form instead of opening a blank picker.
+- **The enable-activity action no longer names or opens an activity whose deletion is in progress**
+  Moodle keeps a module in the course while its deletion runs in the background. The check that decides whether a rule may be activated already excluded such an activity, but the action's description went on naming it as a live target, and its run went on writing the student's id into that activity's restrictions - so the operator could be told the component could never take effect while the engine was still making it take effect. The description now treats it as gone, borrowing the "no longer available in this course" warning the activity conditions use, and the run skips it. The cleanup that removes a deleted user's id is deliberately left unfiltered: erasing an id from an activity on its way out is still right, while granting access on one is not.
+- **The actions page announces its own add control**
+  The control that opens the list of components to add is shared by the conditions and the actions page, and its accessible label was fixed to "Add conditions": on the actions page a screen reader announced a control for adding conditions, on a page where no condition can be added. Each page now supplies its own label.
 
 ## Known limitations
 - **Activity pickers and deletion in progress**
   The pass-grade picker no longer offers such an activity and now refuses it on save (see Fixed), but the other three condition forms only filter their picker: their server-side validation still accepts an activity whose deletion started while the form was open, so a form submitted during the recycle-bin window can still save a condition that is a ghost from birth.
+- **An action's description hides a partial loss**
+  The enable-activity action omits from its description an activity that was deleted or whose deletion is in progress, so an action with three targets of which one is gone reads as if it only ever had two; only the case where EVERY target is gone is flagged, with the shared missing-activity warning. The create-AI-activity action drops the placement clause when its anchor activity was deleted and still hands the stale id to the generator, which then appends the new activity at the end of the section.
 
 ## 1.8.4
 
