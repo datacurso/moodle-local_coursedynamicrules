@@ -81,7 +81,8 @@ class passgrade_form extends condition_form {
     }
 
     /**
-     * Server side validation: an activity of this course must be selected.
+     * Server side validation: an activity of this course must be selected, and it must not be
+     * one whose deletion is already running - the condition would be born unable to ever be met.
      *
      * @param array $data Submitted data.
      * @param array $files Submitted files.
@@ -91,8 +92,11 @@ class passgrade_form extends condition_form {
         $errors = parent::validation($data, $files);
 
         $cmid = (int) ($data['coursemodule'] ?? 0);
-        if ($cmid <= 0 || !isset(get_fast_modinfo($this->courseid)->cms[$cmid])) {
+        $cms = get_fast_modinfo($this->courseid)->cms;
+        if ($cmid <= 0 || !isset($cms[$cmid])) {
             $errors['coursemodule'] = get_string('errornocoursemodule', 'local_coursedynamicrules');
+        } else if ($cms[$cmid]->deletioninprogress) {
+            $errors['coursemodule'] = get_string('componenttargetmissing', 'local_coursedynamicrules');
         }
 
         return $errors;
