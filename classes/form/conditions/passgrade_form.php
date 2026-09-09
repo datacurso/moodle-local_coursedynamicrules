@@ -77,6 +77,20 @@ class passgrade_form extends condition_form {
         );
         $mform->setType('coursemodule', PARAM_INT);
 
+        // Only a real ghost gets the notice: the stored activity is gone or being deleted. With the
+        // picker filtering such an activity out, the form would otherwise open blank with no explanation.
+        $stored = isset($customdata['record']) ? (object) $customdata['record'] : null;
+        $storedcmid = (int) ($stored->cmid ?? 0);
+        $storedcm = $storedcmid > 0 ? ($cms[$storedcmid] ?? null) : null;
+        if ($storedcmid > 0 && ($storedcm === null || $storedcm->deletioninprogress)) {
+            $mform->addElement(
+                'static',
+                'targetmissing',
+                '',
+                get_string('componenttargetmissing', 'local_coursedynamicrules')
+            );
+        }
+
         parent::definition();
     }
 
