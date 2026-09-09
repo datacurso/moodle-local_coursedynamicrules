@@ -1,3 +1,15 @@
+## 1.8.5
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+## Fixed
+- **The pass-grade condition no longer accepts an activity that is being deleted**
+  Moodle keeps a module in the course while its deletion runs in the background, and this condition's own evaluation already treats such an activity as gone - so a condition saved in that window could never be met, and because a rule requires ALL of its conditions, the whole rule fell silent. Completeness counts conditions by existence, so such a rule could still be activated and sealed, after which it can neither be edited nor, by its own teacher, deleted. Of the plugin's seven activity pickers this was the only one that never filtered them out: the check was added to the others in December 2024 and this form, which predates that sweep, was missed. The picker now omits them, the server refuses one on save even when the form was opened before the deletion started, and editing a condition whose stored activity is gone or being deleted says so on the form instead of opening a blank picker.
+
+## Known limitations
+- **Activity pickers and deletion in progress**
+  The pass-grade picker no longer offers such an activity and now refuses it on save (see Fixed), but the other three condition forms only filter their picker: their server-side validation still accepts an activity whose deletion started while the form was open, so a form submitted during the recycle-bin window can still save a condition that is a ghost from birth.
+
 ## 1.8.4
 
 **Released on:** 2026-09-09
@@ -34,16 +46,13 @@
 - **A rule name longer than its field is refused on the form**
   The name field had no length limit, so a name over 255 characters went through to the database and came back as a write error. The field now stops at 255 characters in the browser, and the form refuses a longer name on the server with the standard message.
 
-- **The pass-grade condition no longer accepts an activity that is being deleted**
-  Moodle keeps a module in the course while its deletion runs in the background, and this condition's own evaluation already treats such an activity as gone - so a condition saved in that window could never be met, and because a rule requires ALL of its conditions, the whole rule fell silent. Completeness counts conditions by existence, so such a rule could still be activated and sealed, after which it can neither be edited nor, by its own teacher, deleted. Of the plugin's seven activity pickers this was the only one that never filtered them out: the check was added to the others in December 2024 and this form, which predates that sweep, was missed. The picker now omits them, the server refuses one on save even when the form was opened before the deletion started, and editing a condition whose stored activity is gone or being deleted says so on the form instead of opening a blank picker.
-
 ## Known limitations
 - **A ghost component still counts towards a rule's completeness**
   The activation check counts conditions by existence alone, so a condition pointing at a deleted activity still counts, and such a rule can be activated and sealed although it can never fire. It is at least visible: a ghost condition describes itself with a warning in every listing, so the operator can see it - and reach its trash can - before activating. Whether completeness should refuse it as well is a separate product decision. Actions are not counted this way: each one is asked whether it could act at all, so the same gap on the action side is closed - see the Changed section.
 - **Actions do not flag deleted activities**
   The enable-activity action silently omits deleted activities from its description, so an action with three targets of which one was deleted reads as if it only ever had two, and it still names activities whose deletion is in progress; its run does not skip an activity whose deletion is in progress either. Only the case where EVERY target is gone is flagged, with the shared missing-activity warning. The create-AI-activity action drops the placement clause when its anchor activity was deleted and still hands the stale id to the generator, which then appends the new activity at the end of the section. Both are out of the 1.8.4 scope.
 - **Activity pickers and deletion in progress**
-  The pass-grade picker no longer offers such an activity and now refuses it on save (see Fixed), but the other three condition forms only filter their picker: their server-side validation still accepts an activity whose deletion started while the form was open, so a form submitted during the recycle-bin window can still save a condition that is a ghost from birth.
+  The pass-grade activity picker still offers an activity whose deletion is in progress, and the pickers' server-side validation accepts such an activity, so a form submitted during the recycle-bin window can save a condition that is a ghost from birth.
 - **Two blank rows in the activity pickers' suggestion list**
   Moodle's autocomplete widget adds a blank option of its own to every single-choice picker, and the blank choice these pickers now start on sits next to it: the suggestion list opens with one empty row until an activity is chosen and two afterwards, and a course with no eligible activity shows a single empty row where the widget would otherwise say "No suggestions". Choosing an empty row selects nothing. Cosmetic, left as is.
 - **A condition whose activity no longer qualifies gets no notice**
