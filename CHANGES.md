@@ -1,5 +1,7 @@
 ## 1.8.4
 
+**Released on:** 2026-09-09
+
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
 ## Added
