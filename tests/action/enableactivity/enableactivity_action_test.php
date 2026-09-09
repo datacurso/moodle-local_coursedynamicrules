@@ -1378,4 +1378,87 @@ final class enableactivity_action_test extends \advanced_testcase {
             'DEFECT: the owning action no longer recognises its own gate.'
         );
     }
+    /**
+     * An activity whose deletion is already running counts as gone in the description, the way it
+     * already does everywhere else in the plugin: the four activity conditions treat it as absent
+     * (complete_activity_condition.php:155 and its three siblings) and this action's own can_act()
+     * excludes it from the query that decides whether the rule may be activated. Only the
+     * description still named it, so a rule that could no longer be activated described its target
+     * as if nothing had happened for as long as the recycle bin took to finish.
+     *
+     * @covers ::get_description
+     */
+    public function test_an_action_whose_activity_is_being_deleted_says_so(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule((int) $course->id);
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $action = new enableactivity_action(
+            (object) [
+                'ruleid' => $ruleid,
+                'actiontype' => 'enableactivity',
+                'params' => json_encode(['coursemodules' => [(object) ['id' => $page->cmid]]]),
+            ],
+            (int) $course->id
+        );
+
+        $this->assertStringContainsString(
+            $page->name,
+            $action->get_description(),
+            'Precondition: while the activity is healthy the action names it.'
+        );
+
+        // Start the deletion the way the interface does, with the recycle bin on: the module stays
+        // in the course flagged as being deleted until cron finishes.
+        course_delete_module((int) $page->cmid, true);
+        $this->assertEquals(
+            1,
+            $DB->get_field('course_modules', 'deletioninprogress', ['id' => $page->cmid]),
+            'Precondition: the deletion must be in progress, not finished.'
+        );
+        rebuild_course_cache((int) $course->id, true);
+
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $action->get_description(),
+            'An activity being deleted must read as gone, as it already does for can_act().'
+        );
+    }
+
+    /**
+     * And it must not swallow the healthy ones: an action with one activity being deleted and one
+     * intact still names the intact one, so the filter cannot pass by warning about everything.
+     *
+     * @covers ::get_description
+     */
+    public function test_an_action_keeps_naming_the_activities_that_remain(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule((int) $course->id);
+        $doomed = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $healthy = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $action = new enableactivity_action(
+            (object) [
+                'ruleid' => $ruleid,
+                'actiontype' => 'enableactivity',
+                'params' => json_encode(['coursemodules' => [
+                    (object) ['id' => $doomed->cmid],
+                    (object) ['id' => $healthy->cmid],
+                ]]),
+            ],
+            (int) $course->id
+        );
+
+        course_delete_module((int) $doomed->cmid, true);
+        rebuild_course_cache((int) $course->id, true);
+
+        $description = $action->get_description();
+        $this->assertStringContainsString($healthy->name, $description, 'The intact activity is still named.');
+        $this->assertStringNotContainsString($doomed->name, $description, 'The one being deleted is not.');
+    }
 }

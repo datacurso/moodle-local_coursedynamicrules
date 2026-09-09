@@ -1019,7 +1019,9 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
             $cminfo = get_coursemodule_from_id(null, $cmid, $this->courseid);
-            if (!$cminfo) {
+            // A deletion in progress counts as gone, as it already does for can_act() and for the
+            // four activity conditions: the recycle bin leaves the row in place until cron runs.
+            if (!$cminfo || $cminfo->deletioninprogress) {
                 continue;
             }
             $descriptionarray[] = ucfirst($cminfo->modname) . " - " . $cminfo->name;
