@@ -29,16 +29,6 @@ namespace local_coursedynamicrules;
  */
 final class pending_gaps_test extends \advanced_testcase {
     /**
-     * MDL-E2E-006: the add menu on the actions page must announce "Add actions", not
-     * "Add conditions".
-     * [Pendiente:skip] — the actions page reuses the conditions menu template; label fix pending.
-     */
-    public function test_actions_menu_announces_add_actions(): void {
-        $this->markTestSkipped('Menu label parametrisation pending; the actions page still reuses '
-            . 'the conditions menu template.');
-    }
-
-    /**
      * MDL-E2E-007: the AI action edit pencil must not be offered when a required plugin is missing.
      * [Pendiente:skip] — the pencil is currently shown and leads to a dead-end degraded form.
      */

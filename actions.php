@@ -190,7 +190,10 @@ if (!availability_user_status::is_enabled()) {
 echo html_writer::start_div('d-flex');
 
 if (has_capability('local/coursedynamicrules:createaction', $context) && !$rulelocked) {
-    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $actionoptions]);
+    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', [
+        'options' => $actionoptions,
+        'menulabel' => get_string('addactions', 'local_coursedynamicrules'),
+    ]);
 }
 echo html_writer::start_div('col-8');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $actionsfortemplate]);
