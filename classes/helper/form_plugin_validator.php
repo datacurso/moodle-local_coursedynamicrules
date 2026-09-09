@@ -70,7 +70,7 @@ class form_plugin_validator {
     public static function add_notification_to_form(array $plugin, \MoodleQuickForm $mform): bool {
         global $OUTPUT;
         $pluginname = $plugin['pluginname'];
-        $enableurl = $plugin['enableurl'];
+        $enableurl = $plugin['enableurl'] ?? null;
         // Get plugin info object from the plugin manager.
         $plugininfo = \core_plugin_manager::instance()->get_plugin_info($pluginname);
 

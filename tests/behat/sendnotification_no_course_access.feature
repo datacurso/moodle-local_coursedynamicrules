@@ -36,6 +36,7 @@ Feature: No course access with send notification action
       | student2 |
       | teacher1 |
 
+  @MDL-INT-007
   Scenario: Inactive primary recipients notify both primary and copy users
     Given the following local coursedynamicrules no course access rules exist:
       | course | periodvalue | periodunit | primaryroles | copyroles      | subject                | body                                                           |
@@ -64,6 +65,7 @@ Feature: No course access with send notification action
       <p>Observation copy: this notification was generated for Student1 User1 based on the rule conditions.</p>Student1 User1 - Student1 - User1
       """
 
+  @MDL-INT-007
   Scenario: Recently active primary recipients should not be notified
     Given the following local coursedynamicrules no course access rules exist:
       | course | periodvalue | periodunit | primaryroles | copyroles      | subject                | body                                                           |
@@ -76,6 +78,7 @@ Feature: No course access with send notification action
     Then "student1" should have 0 local coursedynamicrules notifications
     And "teacher1" should have 0 local coursedynamicrules notifications
 
+  @MDL-INT-007
   Scenario: Users outside primary recipients do not trigger notifications
     Given the following local coursedynamicrules no course access rules exist:
       | course | periodvalue | periodunit | primaryroles   | copyroles | subject                | body                                                           |
@@ -88,6 +91,7 @@ Feature: No course access with send notification action
     Then "student1" should have 0 local coursedynamicrules notifications
     And "teacher1" should have 0 local coursedynamicrules notifications
 
+  @MDL-INT-007
   Scenario: Primary recipients can be notified without copy recipients
     Given the following local coursedynamicrules no course access rules exist:
       | course | periodvalue | periodunit | primaryroles | copyroles | subject                | body                                                           |
@@ -108,6 +112,7 @@ Feature: No course access with send notification action
       Student1 User1 - Student1 - User1
       """
 
+  @MDL-INT-007
   Scenario: Only inactive users among primary recipients are notified
     Given the following local coursedynamicrules no course access rules exist:
       | course | periodvalue | periodunit | primaryroles | copyroles      | subject                | body                                                           |

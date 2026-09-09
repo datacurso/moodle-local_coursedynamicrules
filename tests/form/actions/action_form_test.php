@@ -30,26 +30,30 @@ final class action_form_test extends \advanced_testcase {
      */
     public static function setUpBeforeClass(): void {
         parent::setUpBeforeClass();
+        require_once(__DIR__ . '/../../fixtures/testable_action_form.php');
         require_once(__DIR__ . '/../../fixtures/stub_preload_action_form.php');
     }
 
     /**
+     * MDL-UNIT-020: action form preload passes stored params through as a plain array unchanged.
+     *
      * preload_defaults() passes through the given params object as a plain array unchanged.
+     *
+     * The form's preload_defaults() delegates verbatim to the pure form_preload::identity() mapper,
+     * so the base contract is exercised through that public, instantiation-free entry point instead
+     * of reaching into the form's protected method by reflection.
      *
      * @covers ::preload_defaults
      */
     public function test_preload_defaults_returns_params_as_array(): void {
-        $reflection = new \ReflectionClass(action_form::class);
-        $form = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-
-        $result = $method->invoke($form, (object) ['foo' => 'bar']);
+        $result = \local_coursedynamicrules\local\form_preload::identity((object) ['foo' => 'bar']);
 
         $this->assertSame(['foo' => 'bar'], $result);
     }
 
     /**
+     * MDL-UNIT-020: action form definition does not read the dead action customdata key.
+     *
      * The base definition() used to read the dead $this->_customdata['action'] key. Constructing
      * the form without that key must not error.
      *
@@ -64,6 +68,8 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: action form definition preloads a stored record into the field defaults.
+     *
      * definition() preloads a stored record's values into the form's field defaults.
      *
      * @covers ::definition
@@ -80,6 +86,8 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: action form leaves fields empty when no stored record is supplied.
+     *
      * definition() leaves the field empty when no stored record is supplied.
      *
      * @covers ::definition
@@ -96,6 +104,8 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: action form definition does not error when constructed with null customdata.
+     *
      * definition() used to call array_key_exists('record', $this->_customdata) unconditionally - a
      * TypeError under PHP 8 when a caller constructs the form without passing any customdata at all
      * (moodleform defaults $_customdata to null, not an empty array) (micro-sweep).
@@ -111,6 +121,8 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-020: action form still preloads when the record key is present but an empty array.
+     *
      * `!empty($this->_customdata['record'])` treated an edit row whose stored params decode to an
      * empty PHP array (json_decode('[]')) as "no record", since empty() is true for [] - silently
      * skipping preload_defaults() even though the 'record' key IS present (FIX2-12).
@@ -123,7 +135,7 @@ final class action_form_test extends \advanced_testcase {
         $form = new class (
             new \moodle_url('/local/coursedynamicrules/actions.php'),
             ['record' => []]
-        ) extends action_form {
+        ) extends testable_action_form {
             /**
              * Adds the 'foo' field so preload_defaults() has something to populate.
              */
@@ -148,14 +160,13 @@ final class action_form_test extends \advanced_testcase {
     }
 
     /**
-     * Reach the protected MoodleQuickForm instance held by a moodleform.
+     * Reach the protected MoodleQuickForm instance held by a moodleform, via the testable subclass'
+     * public accessor (inheritance, not reflection).
      *
-     * @param \moodleform $form
+     * @param testable_action_form $form
      * @return \MoodleQuickForm
      */
-    private function get_mform(\moodleform $form) {
-        $property = new \ReflectionProperty(\moodleform::class, '_form');
-        $property->setAccessible(true);
-        return $property->getValue($form);
+    private function get_mform(testable_action_form $form): \MoodleQuickForm {
+        return $form->get_mform_for_test();
     }
 }

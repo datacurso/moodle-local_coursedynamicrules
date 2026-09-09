@@ -27,6 +27,8 @@ namespace local_coursedynamicrules\observer;
  */
 final class course_deleted_test extends \advanced_testcase {
     /**
+     * MDL-INT-010: deleting the course removes all its rules and their conditions and actions.
+     *
      * Deleting a course must remove its rules and their conditions and actions.
      */
     public function test_course_deletion_removes_rules(): void {

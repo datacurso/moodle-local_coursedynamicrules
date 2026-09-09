@@ -47,6 +47,7 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
             'description',
             'active',
             'lastexecutiontime',
+            'timeactivated',
             'timecreated',
             'timemodified',
         ]);
@@ -75,11 +76,84 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         ]);
         $actions->add_child($action);
 
+        // Notification recipients are role ids buried inside the action's `params` JSON, where
+        // annotate_ids() cannot reach them. Emitting them as their own element does two things a
+        // verbatim copy of the JSON cannot: it annotates the roles so core builds a role mapping for
+        // the restore, and it records each role's shortname, which IS stable across sites. Without
+        // this a restore elsewhere keeps a raw id that either no longer exists or - worse - now
+        // belongs to a different role, silently addressing notifications carrying learner data to
+        // the wrong people.
+        $notificationroles = new backup_nested_element('notificationroles');
+        $pluginwrapper->add_child($notificationroles);
+        $notificationrole = new backup_nested_element('notificationrole', ['id'], [
+            'roleid',
+            'shortname',
+        ]);
+        $notificationroles->add_child($notificationrole);
+
         // Sources.
         $rule->set_source_table('local_coursedynamicrules_rule', ['courseid' => backup::VAR_COURSEID]);
         $condition->set_source_table('local_coursedynamicrules_condition', ['ruleid' => backup::VAR_PARENTID]);
         $action->set_source_table('local_coursedynamicrules_action', ['ruleid' => backup::VAR_PARENTID]);
+        $notificationrole->set_source_array($this->collect_notification_roles());
+
+        // Annotations.
+        $notificationrole->annotate_ids('role', 'roleid');
 
         return $plugin;
+    }
+
+    /**
+     * Every role referenced by a notification action of the course being backed up.
+     *
+     * Read straight from the actions' `params` JSON, because that is the only place these role
+     * references exist. Roles missing from the site are skipped rather than exported with an empty
+     * shortname: an id nobody can resolve is exactly what this element exists to avoid.
+     *
+     * @return array List of ['id' => int, 'roleid' => int, 'shortname' => string].
+     */
+    protected function collect_notification_roles(): array {
+        global $DB;
+
+        $sql = 'SELECT a.id, a.params
+                  FROM {local_coursedynamicrules_action} a
+                  JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
+                 WHERE r.courseid = :courseid';
+        $actions = $DB->get_records_sql($sql, ['courseid' => $this->task->get_courseid()]);
+
+        $roleids = [];
+        foreach ($actions as $action) {
+            $params = json_decode((string) $action->params);
+            if (!is_object($params)) {
+                continue;
+            }
+            foreach (\local_coursedynamicrules\action\sendnotification\sendnotification_action::ROLE_PARAM_KEYS as $key) {
+                foreach ((array) ($params->{$key} ?? []) as $roleid) {
+                    $roleid = (int) $roleid;
+                    if ($roleid > 0) {
+                        $roleids[$roleid] = $roleid;
+                    }
+                }
+            }
+        }
+
+        if (empty($roleids)) {
+            return [];
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($roleids, SQL_PARAMS_NAMED, 'role');
+        $roles = $DB->get_records_select('role', "id $insql", $inparams, 'id', 'id, shortname');
+
+        $rows = [];
+        $sequence = 0;
+        foreach ($roles as $role) {
+            $rows[] = [
+                'id' => ++$sequence,
+                'roleid' => (int) $role->id,
+                'shortname' => (string) $role->shortname,
+            ];
+        }
+
+        return $rows;
     }
 }

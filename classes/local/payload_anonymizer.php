@@ -28,6 +28,9 @@ namespace local_coursedynamicrules\local;
  * Handles anonymization/de-anonymization for AI payloads.
  */
 class payload_anonymizer {
+    /** @var string[] Payload keys carrying free text that may name the student. */
+    private const TEXT_KEYS = ['message', 'instructions'];
+
     /**
      * Build replacement map for student-related user fields.
      *
@@ -63,18 +66,45 @@ class payload_anonymizer {
     public static function anonymize(array $payload, \stdClass $user): array {
         $replacements = self::build_replacements($user);
 
-        if (!empty($replacements) && isset($payload['message']) && is_string($payload['message'])) {
-            $payload['message'] = str_replace(
-                array_values($replacements),
-                array_keys($replacements),
-                $payload['message']
-            );
+        if (!empty($replacements)) {
+            // Longest values first, so the full name is replaced as a unit before its parts.
+            $ordered = $replacements;
+            uasort($ordered, fn(string $a, string $b): int => \core_text::strlen($b) <=> \core_text::strlen($a));
+
+            foreach (self::TEXT_KEYS as $key) {
+                if (!isset($payload[$key]) || !is_string($payload[$key])) {
+                    continue;
+                }
+                foreach ($ordered as $placeholder => $value) {
+                    $payload[$key] = self::replace_whole_word($value, $placeholder, $payload[$key]);
+                }
+            }
         }
 
         return [
             'payload' => $payload,
             'replacements' => $replacements,
         ];
+    }
+
+    /**
+     * Replace every standalone occurrence of a name with its placeholder.
+     *
+     * A match must not be glued to another letter or digit on either side (Unicode-aware), so
+     * "Eva" is replaced in "para Eva," but left alone inside "Evaluación" or "Eva2". Punctuation
+     * (including apostrophes) and whitespace count as boundaries.
+     *
+     * @param string $needle Original value to hide.
+     * @param string $placeholder Placeholder token to insert.
+     * @param string $subject Text to process.
+     * @return string
+     */
+    private static function replace_whole_word(string $needle, string $placeholder, string $subject): string {
+        $pattern = '/(?<![\pL\pN])' . preg_quote($needle, '/') . '(?![\pL\pN])/u';
+        $result = preg_replace($pattern, $placeholder, $subject);
+
+        // preg_replace() yields null on invalid UTF-8: keep the text rather than dropping it.
+        return $result ?? $subject;
     }
 
     /**

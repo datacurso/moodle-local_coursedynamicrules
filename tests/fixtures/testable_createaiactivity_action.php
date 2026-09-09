@@ -1,0 +1,94 @@
+<?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+namespace local_coursedynamicrules\action\createaiactivity;
+
+use aiprovider_datacurso\httpclient\ai_course_api;
+
+/**
+ * Testable subclass exposing injection seams for the AI HTTP client and the coursegen version lookup.
+ *
+ * @package    local_coursedynamicrules
+ * @copyright  2026 Industria Elearning <info@industriaelearning.com>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+final class testable_createaiactivity_action extends createaiactivity_action {
+    /** @var ai_course_api|null Client double returned by get_api_client() when set. */
+    public static $client = null;
+
+    /** @var array|null Base URLs captured on the last get_api_client() call. */
+    public static $lasturls = null;
+
+    /** @var int|null|false Coursegen version override; false keeps the real plugin manager lookup. */
+    public static $coursegenversiondb = false;
+
+    /** @var array Terminal stream event returned by read_activity_stream(). */
+    public static $streamevent = [];
+
+    /** @var string|null Stream URL captured on the last read_activity_stream() call. */
+    public static $laststreamurl = null;
+
+    /**
+     * Reset all static seams between tests.
+     *
+     * @return void
+     */
+    public static function reset(): void {
+        self::$client = null;
+        self::$lasturls = null;
+        self::$coursegenversiondb = false;
+        self::$streamevent = [];
+        self::$laststreamurl = null;
+    }
+
+    /**
+     * Return the injected client double when set, recording the URLs it was built with.
+     *
+     * @param string|null $baseurl Base URL override for the AI service.
+     * @param string|null $baseurleu Base URL override for the EU AI service.
+     * @return ai_course_api
+     */
+    protected function get_api_client(?string $baseurl, ?string $baseurleu): ai_course_api {
+        self::$lasturls = ['baseurl' => $baseurl, 'baseurleu' => $baseurleu];
+        if (self::$client !== null) {
+            return self::$client;
+        }
+        return parent::get_api_client($baseurl, $baseurleu);
+    }
+
+    /**
+     * Return the overridden coursegen version when set.
+     *
+     * @return int|null
+     */
+    protected function get_coursegen_versiondb(): ?int {
+        if (self::$coursegenversiondb !== false) {
+            return self::$coursegenversiondb;
+        }
+        return parent::get_coursegen_versiondb();
+    }
+
+    /**
+     * Return the canned terminal stream event, recording the requested URL.
+     *
+     * @param string $streamurl Stream URL the action would consume.
+     * @return array
+     */
+    protected function read_activity_stream(string $streamurl): array {
+        self::$laststreamurl = $streamurl;
+        return self::$streamevent;
+    }
+}

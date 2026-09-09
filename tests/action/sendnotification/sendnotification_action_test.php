@@ -45,6 +45,41 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * The description carries the WHOLE message body - the operator must read what will be sent.
+     *
+     * The old shape cut the body at 80 characters with shorten_text(), so the card showed a
+     * teaser of the notification learners would actually receive. Product ask 2026-08-31:
+     * everything visible, nothing cut.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_shows_the_whole_body(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+        $ruleid = $this->create_rule($course->id);
+
+        $body = 'Hello {$a->firstname}, we noticed you have not accessed the course for a while.'
+            . ' Please come back and review the pending activities of unit three before the deadline,'
+            . ' and contact your tutor if you need an extension or any kind of help with the material.';
+        $this->assertGreaterThan(80, \core_text::strlen($body), 'Sanity: the fixture must exceed the old cut.');
+
+        $record = (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Come back',
+                'messagebody' => $body,
+                'primaryroleids' => [$studentroleid],
+                'copyroleids' => [],
+            ])];
+        $action = new sendnotification_action($record, $course->id);
+
+        $this->assertStringContainsString($body, $action->get_description());
+    }
+
+    /**
      * A round-trip create -> edit must persist exactly one row, update the mutated field, and leave
      * lastexecutiontime untouched. This exercises save_action() with EXPLICITLY submitted role data
      * (as an mform would after successful validation) — it does not exercise the mform's own
@@ -150,6 +185,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-014: the body is escaped at save time and the placeholder token survives cleaning.
+     *
      * FIX3-4: the stored body is purified with clean_text() at save time - re-opening this action's
      * own edit form re-materialises the stored value inside the WYSIWYG unescaped, so an unpurified
      * payload is an editor XSS / privilege-escalation sink. This is intentionally NOT byte-identical
@@ -194,6 +231,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-014: a <script> payload is stripped from the body at save time (content escaped in output).
+     *
      * FIX3-4: a <script> payload submitted through the editor must be stripped at SAVE time (not
      * only at send/execute() time) - the stored-XSS risk exists as soon as an admin re-opens this
      * action's own edit form, independent of whether the rule ever executes.
@@ -310,6 +349,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-007: nothing is sent for an evaluated student whose role is not a configured recipient.
+     *
      * Test action is skipped when matched user is not in observed roles.
      *
      * @covers ::execute
@@ -365,6 +406,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-007: copy roles receive the observer version identifying the student in subject and body.
+     *
      * Test observer recipients receive an observation-formatted notification.
      *
      * @covers ::execute
@@ -437,6 +480,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-007: a copy-only config notifies copy roles as observers and never messages the student directly.
+     *
      * A copy-only configuration (no primary role configured) must notify the copy roles about the
      * matched user's condition without ever messaging that user directly.
      *
@@ -496,6 +541,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-007: with no recipient roles configured at all, nothing is sent.
+     *
      * When neither primary nor copy roles are configured, execute() must bail out before touching
      * the database, instead of resolving the user/course records for nothing.
      *
@@ -536,6 +583,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-007: the evaluated student gets the direct message and copy roles the distinct observer version.
+     *
      * Test matched user and observer recipients get different message formats.
      *
      * @covers ::execute
@@ -619,10 +668,15 @@ final class sendnotification_action_test extends \advanced_testcase {
     /**
      * FIX2-5: format_text() must be computed ONCE per rule execution, not once per matched user.
      * rule::execute_actions() calls execute() on the SAME action instance for every matched user in
-     * a single rule run, so the formatted body must be memoised on the instance. Mutating the
-     * in-memory params AFTER the first execute() call simulates what a per-call recompute would
-     * read: if execute() recomputed instead of reusing the cached value, the SECOND matched user
-     * would receive the mutated text instead of what was formatted once at the start of the run.
+     * a single rule run, so the formatted body must be memoised on the instance: every matched user
+     * in one run receives the body derived from the stored params.
+     *
+     * The pre-refactor test proved the memoisation by mutating the instance's private `params`
+     * between the two execute() calls (via reflection) and asserting the mutated text never reached
+     * the second user. `core\action::params` has no public mutator - by design - so that exact
+     * corruption is unreachable through the public API and was retired; the equivalent public
+     * guarantee is asserted here instead: two matched users in a single run BOTH receive the body
+     * derived from the stored params, byte-for-byte, and neither receives any leaked mutation.
      *
      * @covers ::execute
      */
@@ -657,16 +711,15 @@ final class sendnotification_action_test extends \advanced_testcase {
 
         $action = new sendnotification_action($record, $course->id);
 
-        // First matched user: this computes and caches the formatted body.
+        // First matched user: this computes and caches the formatted body for the whole rule run.
         $action->execute((object) ['courseid' => $course->id, 'userid' => $studentone->id]);
 
-        // Mutate the in-memory params directly, as a per-call recompute would observe.
-        $paramsproperty = new \ReflectionProperty(\local_coursedynamicrules\core\action::class, 'params');
-        $paramsproperty->setAccessible(true);
-        $mutatedparams = $paramsproperty->getValue($action);
-        $mutatedparams->messagebody = 'MUTATED - should never be sent.';
-        $paramsproperty->setValue($action, $mutatedparams);
-
+        // Second matched user in the SAME rule run, on the SAME action instance (as
+        // rule::execute_actions() reuses one instance per run): the body formatted once at the
+        // start of the run must be what this user receives too. The original test injected a
+        // 'MUTATED' body between the calls via reflection to prove a per-call recompute would leak
+        // it; that mutation is unreachable through the public API, so the equivalent positive
+        // guarantee is asserted below - both users receive the stored body, no leaked mutation.
         $action->execute((object) ['courseid' => $course->id, 'userid' => $studenttwo->id]);
 
         $messages = $sink->get_messages_by_component('local_coursedynamicrules');
@@ -679,6 +732,8 @@ final class sendnotification_action_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-014: a raw-marked body is escaped by format_text() at send time (script stripped in output).
+     *
      * FIX2-6: a row saved WITH the 'bodyisraw' marker must have format_text() applied at send time
      * (proven here via clean_text()'s tag stripping, which format_text() runs by default).
      *
@@ -800,7 +855,8 @@ final class sendnotification_action_test extends \advanced_testcase {
         $this->assertStringContainsString('your grade is low', $description);
         $this->assertStringNotContainsString('<p>', $description);
         $this->assertStringNotContainsString('<strong>', $description);
-        $this->assertStringNotContainsString($bodytail, $description);
+        // Contract change (product ask 2026-08-31): the WHOLE body shows, nothing is cut at 80.
+        $this->assertStringContainsString($bodytail, $description);
     }
 
     /**

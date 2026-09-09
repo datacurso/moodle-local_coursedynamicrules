@@ -26,7 +26,7 @@ namespace local_coursedynamicrules\form\conditions;
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-final class stub_preload_condition_form extends condition_form {
+final class stub_preload_condition_form extends testable_condition_form {
     /** @var string type of condition */
     protected $type = 'stub';
 

@@ -94,6 +94,23 @@ abstract class condition {
     }
 
     /**
+     * This condition's params for a DUPLICATED copy, decoded and ready to json_encode() into the
+     * copy's row. Verbatim by default - duplication promises to reproduce the rule's ideas exactly
+     * - overridden by a concrete condition that stores something a copy must not carry over
+     * unchanged (contrast with runtime_param_keys()/adjust_runtime_param(), the different, EDIT-time
+     * contract for preserving a stored value across an operator's save).
+     *
+     * A params column that does not decode to an object (a stray scalar, list or invalid JSON - the
+     * state upsert() guards against for the same reason) has no fields to copy: the copy starts empty
+     * rather than inheriting a shape no consumer can read.
+     *
+     * @return array
+     */
+    public function params_for_duplicate(): array {
+        return is_object($this->params) ? (array) $this->params : [];
+    }
+
+    /**
      * Runtime-only param keys whose stored value must survive an edit even though the operator
      * form does not submit them (e.g. a throttle timestamp maintained by the condition itself).
      *
@@ -138,6 +155,17 @@ abstract class condition {
         $existingid = $this->get_id();
         $record = new stdClass();
 
+        // The lock is enforced AT THE WRITE, not only at the endpoint: conditions.php checked the
+        // URL's ruleid, but the insert below targets the form's hidden ruleid - the same
+        // decided-here-written-there seam as the editrule capability bug. Resolve the rule this
+        // write actually lands on (the stored component's rule on update, the ownership-validated
+        // form ruleid on insert) and refuse if it is sealed. Rule deletion is NOT gated here:
+        // deleting a whole rule deletes its components and stays allowed by contract.
+        $targetruleid = !empty($existingid)
+            ? (int) $this->ruleid
+            : (int) ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+        \local_coursedynamicrules\helper\rule_lock::require_unlocked($targetruleid);
+
         if (!empty($existingid)) {
             foreach ($this->runtime_param_keys() as $key) {
                 // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
@@ -160,7 +188,8 @@ abstract class condition {
             $record->conditiontype = $this->type;
             $record->lastexecutiontime = $this->lastexecutiontime;
         } else {
-            $record->ruleid = ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+            // The very id the lock was decided on - one resolution, one write target.
+            $record->ruleid = $targetruleid;
             $record->conditiontype = $this->type;
             $record->params = json_encode($params);
             $record->id = $DB->insert_record(static::TABLE, $record);
@@ -245,6 +274,15 @@ abstract class condition {
     }
 
     /**
+     * Rule id this component belongs to, or null before it is loaded.
+     *
+     * @return int|null
+     */
+    public function get_ruleid() {
+        return $this->ruleid;
+    }
+
+    /**
      * Deletes a condition record from the 'local_coursedynamicrules_condition' table. and related information with it.
      *
      * @return bool True on success, false on failure.
@@ -289,6 +327,50 @@ abstract class condition {
      * @return string
      */
     abstract public function get_description();
+
+    /**
+     * The description as the RULES LIST should show it: free text cut, everything else whole.
+     *
+     * Two screens read a component's description and they need different things. The conditions
+     * and actions pages, reached through a rule's magnifier, show what the component will really
+     * do - the whole notification body, the whole AI prompt - and get get_description(). The rules
+     * list summarises one row per rule and needs bounded height, so it gets this.
+     *
+     * The default is get_description(), unchanged, because most components have nothing unbounded
+     * to cut: a condition's description is 83-126 characters of fixed text plus an activity name.
+     * Only the components carrying free text a teacher types without limit override this, and each
+     * cuts ITS OWN part.
+     *
+     * That is the whole point, and the reason the previous attempt failed. Cutting the COMPOSED
+     * sentence at a fixed length cannot work: a notification's description opens with "Enviar
+     * notificacion '<asunto>' a los usuarios Destinatarios: <roles>. Con copia a: <roles>.
+     * Mensaje: " - measured at 120 characters with one role and 196 with five, in Spanish with
+     * default role names - so the budget was spent before the message began and the list showed no
+     * body at all. Neither the subject (CHAR 255) nor the role list has an upper bound, so no
+     * single number over the composed string can both bound the row and guarantee visible text.
+     *
+     * @return string
+     */
+    public function get_listing_description() {
+        return $this->get_description();
+    }
+
+    /**
+     * The description of a component whose target activity no longer exists in the course.
+     *
+     * A component is rendered only while it has a description: conditions.php, actions.php and
+     * component_renderer::descriptions_html() all skip an empty one. Returning '' for a deleted
+     * activity therefore made the component vanish from every listing while its row stayed in the
+     * database - evaluating false forever, still counting towards the rule's completeness, and
+     * unreachable by the only trash can the operator has. A ghost must describe itself, with a
+     * warning, so it can be seen and removed. One string for every component type, so the listing
+     * reads the same whichever condition lost its activity.
+     *
+     * @return string
+     */
+    protected function get_missing_target_description(): string {
+        return get_string('componenttargetmissing', 'local_coursedynamicrules');
+    }
 
     /**
      * Creates and returns an instance of the form for editing the item

@@ -58,7 +58,7 @@ function createDynamicForm(container) {
  * (preloaded server-side via grade_in_activity_form::preload_defaults(), D5): this initial load
  * forwards them as-is so the dynamic sub-form renders the correct activity's grade items and
  * set_data_for_dynamic_submission() can pre-check/prefill them. On create both hidden fields are
- * empty, so the load falls back to the create-time default (first available activity, blank state).
+ * empty, so the load renders the picker with nothing chosen and no threshold elements.
  *
  * @param {DynamicForm} dynamicForm The dynamic form instance.
  */
@@ -210,8 +210,12 @@ function rebuildGradeItems() {
 
     const gradeItemsObject = {};
     document.querySelectorAll(`[data-cmid='${cmId}']`).forEach((input) => {
-        const gradeItemKey = `${input.dataset.condition}_${input.dataset.gradeitem}`;
+        // Key by the STABLE itemnumber, not the grade item's database id: Moodle recreates that id
+        // when the activity's grade settings change or the course is restored, which orphaned the
+        // stored condition (card blank, rule silently dead). gradeitem is kept for diagnostics only.
+        const gradeItemKey = `${input.dataset.condition}_${input.dataset.itemnumber}`;
         gradeItemsObject[gradeItemKey] = {
+            itemnumber: input.dataset.itemnumber,
             gradeitem: input.dataset.gradeitem,
             condition: input.dataset.condition,
             value: input.value,

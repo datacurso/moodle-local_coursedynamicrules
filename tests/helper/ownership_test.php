@@ -84,6 +84,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a rule is returned when it belongs to the requested course.
+     *
      * A rule is returned when it belongs to the requested course.
      *
      * @covers ::get_rule
@@ -94,6 +96,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: loading a rule that belongs to another course is rejected.
+     *
      * Loading a rule that belongs to another course is rejected.
      *
      * @covers ::get_rule
@@ -104,6 +108,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: reports whether a rule belongs to the given course.
+     *
      * Reports whether a rule belongs to the given course.
      *
      * @covers ::rule_belongs_to_course
@@ -114,6 +120,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a condition is returned when its rule belongs to the course.
+     *
      * A condition is returned when its rule belongs to the course.
      *
      * @covers ::get_condition
@@ -124,6 +132,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: loading a condition whose rule belongs to another course is rejected.
+     *
      * Loading a condition whose rule belongs to another course is rejected.
      *
      * @covers ::get_condition
@@ -134,6 +144,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a condition under a different rule in the same course is rejected.
+     *
      * A condition belonging to a DIFFERENT rule in the SAME course must be rejected: the request's
      * ruleid is part of the ownership contract, not just the course id (G8).
      *
@@ -145,6 +157,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: an action is returned when its rule belongs to the course.
+     *
      * An action is returned when its rule belongs to the course.
      *
      * @covers ::get_action
@@ -155,6 +169,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: loading an action whose rule belongs to another course is rejected.
+     *
      * Loading an action whose rule belongs to another course is rejected.
      *
      * @covers ::get_action
@@ -165,6 +181,8 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: an action under a different rule in the same course is rejected.
+     *
      * An action belonging to a DIFFERENT rule in the SAME course must be rejected: the request's
      * ruleid is part of the ownership contract, not just the course id (G8).
      *
@@ -176,31 +194,128 @@ final class ownership_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-015: a create (no submitted id) resolves to 0 so the caller inserts a new rule.
+     *
      * A create (no submitted id) resolves to 0 so the caller inserts a new rule.
      *
      * @covers ::resolve_writable_ruleid
      */
     public function test_resolve_writable_ruleid_returns_zero_for_create(): void {
-        $this->assertSame(0, ownership::resolve_writable_ruleid(0, $this->coursea));
-        $this->assertSame(0, ownership::resolve_writable_ruleid('', $this->coursea));
+        $this->setAdminUser();
+        $context = \context_course::instance($this->coursea);
+        $this->assertSame(0, ownership::resolve_writable_ruleid(0, $this->coursea, $context));
+        $this->assertSame(0, ownership::resolve_writable_ruleid('', $this->coursea, $context));
     }
 
     /**
+     * MDL-INT-015: an update targeting an owned rule resolves to that rule id.
+     *
      * An update targeting an owned rule resolves to that rule id.
      *
      * @covers ::resolve_writable_ruleid
      */
     public function test_resolve_writable_ruleid_returns_owned_id(): void {
-        $this->assertSame($this->ruleid, ownership::resolve_writable_ruleid($this->ruleid, $this->coursea));
+        $this->setAdminUser();
+        $this->assertSame(
+            $this->ruleid,
+            ownership::resolve_writable_ruleid($this->ruleid, $this->coursea, \context_course::instance($this->coursea))
+        );
     }
 
     /**
+     * MDL-INT-015: an update targeting a foreign course's rule (tampered hidden id) is rejected.
+     *
      * An update targeting a foreign course's rule (tampered hidden id) is rejected.
      *
      * @covers ::resolve_writable_ruleid
      */
     public function test_resolve_writable_ruleid_rejects_foreign_course(): void {
         $this->expectException(\dml_missing_record_exception::class);
-        ownership::resolve_writable_ruleid($this->ruleid, $this->courseb);
+        $this->setAdminUser();
+        ownership::resolve_writable_ruleid($this->ruleid, $this->courseb, \context_course::instance($this->courseb));
+    }
+
+    /**
+     * Grant a user exactly one of this plugin's capabilities in the course, nothing else.
+     *
+     * A non-editing teacher is the vehicle because that archetype holds none of them, so whatever
+     * the test adds is the whole story.
+     *
+     * @param string $capability Frankenstyle capability name.
+     * @return \context_course The course context the tests decide against.
+     */
+    private function user_holding_only(string $capability): \context_course {
+        global $DB;
+
+        $context = \context_course::instance($this->coursea);
+        $user = $this->getDataGenerator()->create_and_enrol(
+            $DB->get_record('course', ['id' => $this->coursea]),
+            'teacher'
+        );
+        $teacherrole = $DB->get_field('role', 'id', ['shortname' => 'teacher'], MUST_EXIST);
+        assign_capability($capability, CAP_ALLOW, $teacherrole, $context->id, true);
+        $this->setUser($user);
+
+        return $context;
+    }
+
+    /**
+     * MDL-INT-015: a create-only role cannot smuggle an update through the hidden form id.
+     *
+     * A role allowed only to CREATE cannot smuggle an update through the hidden form id.
+     *
+     * The page decides its capability from the URL: no ?id means creating, so createrule is
+     * checked. But the write target is the FORM's hidden id, a client-controlled field, and course
+     * ownership alone used to be the only validation on it. A user allowed to create but denied
+     * updaterule could GET the page without an id - passing the create check - and POST the id of
+     * an existing rule in the same course. The denied update went through.
+     *
+     * The capability therefore has to be decided HERE, on the id that will actually be written,
+     * not on the id the URL advertised. Deciding it at the page reads one value and acts on
+     * another - the exact seam this suite exists to close.
+     *
+     * @covers ::resolve_writable_ruleid
+     */
+    public function test_a_create_only_role_cannot_update_through_the_hidden_id(): void {
+        $context = $this->user_holding_only('local/coursedynamicrules:createrule');
+
+        $this->expectException(\required_capability_exception::class);
+        ownership::resolve_writable_ruleid($this->ruleid, $this->coursea, $context);
+    }
+
+    /**
+     * MDL-INT-015: an update-only role cannot create by posting a zero id.
+     *
+     * The mirror: a role allowed only to UPDATE cannot create by posting id=0.
+     *
+     * @covers ::resolve_writable_ruleid
+     */
+    public function test_an_update_only_role_cannot_create_through_a_zero_id(): void {
+        $context = $this->user_holding_only('local/coursedynamicrules:updaterule');
+
+        $this->expectException(\required_capability_exception::class);
+        ownership::resolve_writable_ruleid(0, $this->coursea, $context);
+    }
+
+    /**
+     * MDL-INT-015: omitting the context fails loudly rather than skipping the capability check.
+     *
+     * Omitting the context is a fatal error, not a silent skip of the capability check.
+     *
+     * The first version of this method made the context optional, with a comment claiming that was
+     * "so old call sites fail loudly in review rather than silently". Two independent reviewers
+     * caught that the mechanism does the exact opposite: an optional parameter is what lets a
+     * caller omit the argument and run the write path with NO capability check at all - silently,
+     * guided by prose asserting the reverse. A required parameter is what fails loudly: PHP refuses
+     * the call before any query runs.
+     *
+     * This test is the executable form of that argument. If somebody makes the parameter optional
+     * again, the two-argument call below stops throwing and this goes red.
+     */
+    public function test_omitting_the_context_is_refused_not_skipped(): void {
+        $this->setAdminUser();
+
+        $this->expectException(\ArgumentCountError::class);
+        ownership::resolve_writable_ruleid($this->ruleid, $this->coursea);
     }
 }

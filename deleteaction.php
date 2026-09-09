@@ -38,12 +38,26 @@ $context = context_course::instance($courseid);
 
 require_login($course);
 require_capability('local/coursedynamicrules:deleteaction', $context);
+// Ownership resolves the target BEFORE the lock speaks about it: lock-first let anyone holding
+// the capability in their own course probe foreign rule ids and read the lock state off the
+// differing error (round-2 judges). Foreign or missing ids now get the ownership error, always.
+$action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid, $ruleid);
+// Removing a component IS modifying the rule: a locked rule keeps what it was activated
+// with. The listing hides the control; this is for the URL the control no longer offers.
+\local_coursedynamicrules\helper\rule_lock::require_unlocked($ruleid);
 
 $url = new moodle_url(
     '/local/coursedynamicrules/deleteaction.php',
     ['id' => $id, 'delete' => $delete, 'courseid' => $courseid, 'ruleid' => $ruleid]
 );
-$actionsurl = new moodle_url('/local/coursedynamicrules/actions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
+// Not necessarily the actions listing: deleting demands only deleteaction, while that listing
+// demands the action pair, so this must not hand the operator a refusal after the work is done.
+$actionsurl = \local_coursedynamicrules\helper\page_gate::component_listing_url(
+    'action',
+    $courseid,
+    $ruleid,
+    $context
+);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);
@@ -53,9 +67,6 @@ $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
-
-// Ensure the action's rule belongs to this course before loading it.
-$action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid, $ruleid);
 
 $config = get_config('local_coursedynamicrules');
 

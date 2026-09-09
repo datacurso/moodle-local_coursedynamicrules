@@ -221,11 +221,7 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
         $storedparams = json_decode($stored->params);
         $this->assertCount(2, (array) $storedparams->gradeitemsconditions);
 
-        $reflection = new \ReflectionClass(grade_in_activity_form::class);
-        $forminstance = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('preload_defaults');
-        $method->setAccessible(true);
-        $defaults = $method->invoke($forminstance, $storedparams);
+        $defaults = \local_coursedynamicrules\local\form_preload::grade_in_activity($storedparams);
         $this->assertSame((int) $cm->id, $defaults['cmid']);
         $this->assertSame(
             json_decode(json_encode($storedparams->gradeitemsconditions), true),
@@ -311,6 +307,8 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-012: without a final grade (no grade row) the condition does not fire.
+     *
      * A user with no grade row must NOT satisfy a "grade less than" condition.
      *
      * @covers ::evaluate
@@ -328,6 +326,8 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-012: a null final grade does not fire the condition.
+     *
      * A grade row with a null final grade must NOT satisfy a "grade less than" condition.
      *
      * @covers ::evaluate
@@ -350,11 +350,14 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
-     * The description of a condition whose activity was deleted returns empty without a PHP warning.
+     * The description of a condition whose activity was deleted warns, without a PHP warning.
+     *
+     * An empty description would drop the card from every listing (MDL-INT-014), so the ghost
+     * describes itself with the shared missing-activity warning instead.
      *
      * @covers ::get_description
      */
-    public function test_get_description_empty_when_activity_deleted(): void {
+    public function test_get_description_warns_when_activity_deleted(): void {
         $this->resetAfterTest(true);
 
         $course = $this->getDataGenerator()->create_course();
@@ -367,7 +370,10 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
         ]);
         $condition = new grade_in_activity_condition($record, $course->id);
 
-        $this->assertSame('', $condition->get_description());
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $condition->get_description()
+        );
         $this->assertDebuggingNotCalled();
     }
 
@@ -395,6 +401,8 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-012: a final grade that enters an enabled threshold (grade < value) fires the condition.
+     *
      * A user graded below the threshold satisfies the condition, without warnings.
      *
      * @covers ::evaluate
@@ -412,6 +420,42 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
         $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $student->id]);
 
         $this->assertTrue($result);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * MDL-INT-014: an activity whose deletion is still in progress is a ghost too.
+     *
+     * The recycle bin makes asynchronous deletion the default: a teacher's delete leaves the module
+     * flagged deletioninprogress until cron runs, and that is the state the cards render in first.
+     * evaluate() already refuses to fire on it; the description must warn just the same.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_warns_while_the_activity_deletion_is_in_progress(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $module = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC, 'completionusegrade' => 1]
+        );
+        $record = (object) [
+            'ruleid' => 1,
+            'conditiontype' => 'grade_in_activity',
+            'params' => json_encode(['cmid' => $module->cmid, 'gradeitemsconditions' => []]),
+        ];
+        $condition = new grade_in_activity_condition($record, $course->id);
+        $this->assertStringContainsString($module->name, $condition->get_description(), 'Sanity: the module is live.');
+
+        $DB->set_field('course_modules', 'deletioninprogress', 1, ['id' => $module->cmid]);
+        rebuild_course_cache($course->id, true);
+
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $condition->get_description()
+        );
         $this->assertDebuggingNotCalled();
     }
 }

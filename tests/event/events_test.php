@@ -57,6 +57,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: deleting a rule fires a single rule_deleted event carrying the course context and correct object.
+     *
      * Deleting a rule with no children fires a single rule_deleted event carrying its id.
      */
     public function test_rule_deleted_event(): void {
@@ -79,6 +81,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: deleting a condition fires the condition_deleted event carrying its object id.
+     *
      * Deleting a condition fires a condition_deleted event.
      */
     public function test_condition_deleted_event(): void {
@@ -106,6 +110,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: deleting an action fires the action_deleted event carrying its object id.
+     *
      * Deleting an action fires an action_deleted event.
      */
     public function test_action_deleted_event(): void {
@@ -133,6 +139,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: editing an existing condition in place fires condition_updated (not create), carrying its id and course context.
+     *
      * Editing an existing condition through its real save path (save_condition() -> upsert())
      * fires condition_updated exactly once, carrying the edited condition's own id and course
      * context - mirroring what conditions.php does right after a successful save_condition() call.
@@ -174,6 +182,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: creating a new condition fires condition_created and not condition_updated.
+     *
      * Creating a new condition through save_condition() still fires condition_created, and NOT
      * condition_updated (there is nothing to "update" on a brand-new row).
      */
@@ -208,6 +218,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: editing an existing action in place fires action_updated (not create), carrying its id and course context.
+     *
      * Editing an existing action through its real save path (save_action() -> upsert()) fires
      * action_updated exactly once, carrying the edited action's own id and course context -
      * mirroring what actions.php does right after a successful save_action() call.
@@ -258,6 +270,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: creating a new action fires action_created and not action_updated.
+     *
      * Creating a new action through save_action() still fires action_created, and NOT
      * action_updated (there is nothing to "update" on a brand-new row).
      */
@@ -296,6 +310,8 @@ final class events_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-INT-011: the rule create/update events (and condition/action create) build, carry the course context, and describe themselves.
+     *
      * The rule create and update events can be built and describe themselves.
      */
     public function test_rule_created_and_updated_events(): void {

@@ -23,6 +23,7 @@
  */
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\component_renderer;
 
 require('../../config.php');
 
@@ -40,7 +41,9 @@ require_login($course);
 require_capability('local/coursedynamicrules:deleterule', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/deleterule.php', ['delete' => $delete, 'courseid' => $courseid]);
-$rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
+// Not necessarily the listing: deleting demands only deleterule (plus the manager key on a
+// sealed rule), so the operator may not be allowed into the listing they would be sent to.
+$rulesurl = \local_coursedynamicrules\helper\page_gate::listing_url($courseid, $context);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);
@@ -49,10 +52,29 @@ $PAGE->set_url($url);
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 
+// A SEALED rule (activated at least once - it has run against students) demands the manager-tier
+// key on top of deleterule (product decision 2026-09-01). Decided BEFORE any output on the id
+// that will actually be deleted, after ownership pins it to this course; the listing hides the
+// control under the same pair, but a URL is not a listing.
+$rulerecord = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
+if (\local_coursedynamicrules\helper\rule_lock::is_locked_row($rulerecord)) {
+    require_capability('local/coursedynamicrules:deletesealedrule', $context);
+}
+
 echo $OUTPUT->header();
 
-// Ensure the rule belongs to this course before loading it (prevents cross-course deletion).
-$rule = \local_coursedynamicrules\helper\ownership::get_rule($id, $courseid);
+$rule = $rulerecord;
+
+// Escaped once, here, because both outputs below put this name into HTML and neither escapes it
+// for us: core_renderer::confirm() emits its message through html_writer::tag('p', ...) untouched
+// (lib/classes/output/core_renderer.php:1768). The name is user text and the form is not its only
+// writer - course restore inserts it with no cleaning at all
+// (restore_local_coursedynamicrules_plugin.class.php:95) - so a rule restored from a crafted
+// backup carries whatever its author put in the name. This page was the one member of the delete
+// family left unescaped: deletecondition.php and deleteaction.php go through
+// component_renderer::escaped_description(), the listing through descriptions_html(), and the
+// component pages through Mustache's {{description}}.
+$rulename = component_renderer::escaped_name($rule->name, $context);
 
 $config = get_config('local_coursedynamicrules');
 
@@ -64,7 +86,7 @@ if ($delete === md5($config->confirmdeleterule ?? '')) {
     $ruleinstance->delete();
 
     echo $OUTPUT->notification(
-        get_string("deletedrule", "local_coursedynamicrules", $rule->name),
+        get_string("deletedrule", "local_coursedynamicrules", $rulename),
         'notifysuccess',
         false
     );
@@ -75,7 +97,7 @@ if ($delete === md5($config->confirmdeleterule ?? '')) {
 }
 
 $strdeleterulecheck = get_string("deleterulecheck", "local_coursedynamicrules");
-$message = "{$strdeleterulecheck}<br /><br />{$rule->name}";
+$message = "{$strdeleterulecheck}<br /><br />{$rulename}";
 
 // Generate ramdom token for validation delete action.
 $confirmdeleterule = time() . md5(mt_rand(100000000, mt_getrandmax()));
