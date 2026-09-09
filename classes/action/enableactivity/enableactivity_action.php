@@ -231,6 +231,17 @@ class enableactivity_action extends action {
                 continue;
             }
 
+            // The runtime half of what can_act() and build_description() already decide: the recycle
+            // bin leaves the row in place until cron runs, so without this the engine kept opening an
+            // activity the operator is being told is gone. can_act() cannot cover it - is_complete()
+            // consults it from the form and the activation endpoint only, never on a sealed rule's run.
+            // The privacy counterpart deliberately does NOT filter this way: erasing a user's id from a
+            // module on its way out is still right, while granting on one is not.
+            if ($cmrecord->deletioninprogress) {
+                debugging('enableactivity: course module ' . $cmid . ' is being deleted; skipped', DEBUG_DEVELOPER);
+                continue;
+            }
+
             $availability = $cmrecord->availability ? json_decode($cmrecord->availability) : null;
 
             // Locate the action's OWN node: prefer the marker (FIX2-3), falling back to the sole

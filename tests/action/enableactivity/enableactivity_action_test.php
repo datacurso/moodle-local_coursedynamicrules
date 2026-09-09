@@ -962,6 +962,65 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * The runtime half of the same decision: an activity being deleted must not be written to.
+     *
+     * can_act() is consulted only by rule_lock::is_complete(), i.e. from the rule form and the
+     * activation endpoint, so a rule that was already active when the teacher sent an activity to
+     * the recycle bin keeps running. execute() is the only thing standing between the engine and a
+     * module its own description already reports as gone.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_does_not_write_to_an_activity_being_deleted(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $doomed = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $healthy = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $user = $this->getDataGenerator()->create_user();
+        $this->set_user_restriction($doomed->cmid);
+        $this->set_user_restriction($healthy->cmid);
+
+        $action = $this->create_action(
+            [
+                ['id' => $doomed->cmid, 'visible' => 1, 'visibleoncoursepage' => 1],
+                ['id' => $healthy->cmid, 'visible' => 1, 'visibleoncoursepage' => 1],
+            ],
+            $course->id
+        );
+
+        course_delete_module((int) $doomed->cmid, true);
+        $this->assertEquals(
+            1,
+            $DB->get_field('course_modules', 'deletioninprogress', ['id' => $doomed->cmid]),
+            'Precondition: the deletion must be in progress, not finished.'
+        );
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $doomedjson = $DB->get_field('course_modules', 'availability', ['id' => $doomed->cmid]);
+        $this->assertNotEmpty($doomedjson, 'Precondition: the recycle bin leaves the restriction in place.');
+        $doomedtree = json_decode($doomedjson);
+        $this->assertNotContains(
+            $user->id,
+            $doomedtree->c[0]->userids,
+            'The engine must not open an activity its own description reports as gone.'
+        );
+
+        $healthytree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $healthy->cmid]));
+        $this->assertContains(
+            $user->id,
+            $healthytree->c[0]->userids,
+            'And the intact activity is still opened, so the filter cannot pass by skipping everything.'
+        );
+
+        $this->assertDebuggingCalled();
+    }
+
+    /**
      * MDL-INT-008: an activity whose availability was cleared is skipped on execute without corrupting it.
      *
      * A module whose availability was cleared must be skipped without corrupting it.
