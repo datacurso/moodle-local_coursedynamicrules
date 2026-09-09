@@ -1275,4 +1275,107 @@ final class enableactivity_action_test extends \advanced_testcase {
             'An action editing its own selection must not be refused its own activity.'
         );
     }
+    /**
+     * DOCUMENTED DEFECT: a live action's gate becomes invisible to the shared-activity refusal as
+     * soon as anybody saves the activity's settings form, because core rebuilds the availability
+     * tree from scratch and drops any key its own condition plugin does not write.
+     *
+     * This test asserts the CURRENT, defective behaviour so the hole is codified instead of
+     * assumed. Whoever closes it will see this test go red and must state the new contract here.
+     * The correct behaviour is that the pair cannot be created; today it can, and the first
+     * action's students lose the activity the moment the second one is saved.
+     *
+     * Why the marker cannot survive, in core:
+     *  - availability/yui/src/form/js/form.js:1023 - Item.getValue() builds the node as
+     *    {'type': pluginType} and lets only the plugin add its own keys.
+     *  - availability/condition/user/yui/src/form/js/form.js:50 - fillValue() writes 'userids' and
+     *    nothing else, so 'source' is not carried over.
+     *  - availability/yui/src/form/js/form.js:119 - update() runs on initialisation, so merely
+     *    opening the module settings form rewrites the hidden field.
+     *
+     * The reach is therefore ORDINARY USE, not only sites upgraded from before the marker existed:
+     * changing a due date on a managed activity is enough.
+     *
+     * @covers ::modules_gated_by_another_action
+     */
+    public function test_a_gate_whose_marker_core_stripped_is_invisible_to_the_refusal(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; the action requires it to gate anything.');
+        }
+
+        $course = $this->getDataGenerator()->create_course();
+        $gated = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        $ruleid = $this->create_rule((int) $course->id);
+        $record = (object) [
+            'id' => null,
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode([]),
+        ];
+        $owner = new enableactivity_action($record, (int) $course->id);
+        $owner->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$gated->cmid],
+        ]);
+        $ownerid = (int) $owner->get_id();
+
+        // Preconditions, asserted rather than assumed: the marker is written and the refusal works.
+        $this->assertSame(
+            [(int) $gated->cmid],
+            enableactivity_action::modules_gated_by_another_action(
+                [(int) $gated->cmid],
+                (int) $course->id,
+                $ownerid + 1000
+            ),
+            'Precondition: a marked gate belonging to another action must be reported as a clash.'
+        );
+        $before = json_decode($DB->get_field('course_modules', 'availability', ['id' => $gated->cmid]));
+        $this->assertStringContainsString(
+            'local_coursedynamicrules:',
+            json_encode($before),
+            'Precondition: the action must have written its ownership marker.'
+        );
+
+        // What core does when the activity's settings form is saved: the user node is rebuilt with
+        // only the keys availability_user writes. Same userids, no marker. Nothing else is touched.
+        $stripped = [];
+        foreach ($before->c as $node) {
+            $stripped[] = $node->type === 'user'
+                ? (object) ['type' => 'user', 'userids' => $node->userids ?? []]
+                : $node;
+        }
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json($stripped, tree::OP_AND, false)),
+            ['id' => $gated->cmid]
+        );
+        rebuild_course_cache((int) $course->id, true);
+
+        // The defect: the gate is still there, still empty until its rule runs, and now invisible.
+        $this->assertSame(
+            [],
+            enableactivity_action::modules_gated_by_another_action(
+                [(int) $gated->cmid],
+                (int) $course->id,
+                $ownerid + 1000
+            ),
+            'DEFECT: a gate that lost its marker is not reported, so a second action can be saved '
+            . 'onto the same activity and close it for the first action\'s students.'
+        );
+
+        // And the owner cannot recognise its own gate either, which is what leaves a deleted
+        // user\'s id behind: the cleanup looks for a marker that is gone.
+        $this->assertSame(
+            [],
+            enableactivity_action::modules_gated_by_another_action([(int) $gated->cmid], (int) $course->id, $ownerid),
+            'DEFECT: the owning action no longer recognises its own gate.'
+        );
+    }
 }
