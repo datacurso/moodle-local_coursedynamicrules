@@ -152,6 +152,7 @@ $string['event:action_updated'] = 'Acción de regla dinámica actualizada';
 $string['event:condition_created'] = 'Condición de regla dinámica creada';
 $string['event:condition_deleted'] = 'Condición de regla dinámica eliminada';
 $string['event:condition_updated'] = 'Condición de regla dinámica actualizada';
+$string['event:rule_autodeactivated'] = 'Regla dinámica desactivada por el motor';
 $string['event:rule_created'] = 'Regla dinámica creada';
 $string['event:rule_deleted'] = 'Regla dinámica eliminada';
 $string['event:rule_updated'] = 'Regla dinámica actualizada';

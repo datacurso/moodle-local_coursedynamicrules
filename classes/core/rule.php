@@ -216,6 +216,15 @@ class rule {
         // After the write, never before: the stamp is conditional on what the ROW says, and it is
         // idempotent, so every path that touches 'active' calls it unconditionally.
         \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $this->id);
+
+        // Only the stop is audited: reactivation is not an engine decision, and recording it under
+        // this type would answer "who stopped this rule?" with the opposite of the truth.
+        if (!$this->active) {
+            \local_coursedynamicrules\event\rule_autodeactivated::create([
+                'context' => \context_course::instance((int) $this->courseid),
+                'objectid' => (int) $this->id,
+            ])->trigger();
+        }
     }
 
     /**

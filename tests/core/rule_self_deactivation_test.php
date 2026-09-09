@@ -83,4 +83,63 @@ final class rule_self_deactivation_test extends \advanced_testcase {
         $this->assertEquals(1, $row->active);
         $this->assertNull($row->timeautodeactivated, 'Reactivation must clear the engine self-deactivation stamp.');
     }
+    /**
+     * The engine switching a rule off is the one state change no event covered: the nine audit
+     * events are all fired from human actions (editrule.php, conditions.php, actions.php and the
+     * duplicator), so an administrator asking the logs "who stopped this rule?" found nothing at
+     * all. It gets its own event type rather than reusing rule_updated, because the whole point of
+     * the question is telling an engine write apart from a person's edit.
+     *
+     * @covers \local_coursedynamicrules\event\rule_autodeactivated
+     */
+    public function test_engine_deactivation_is_audited(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$rule, $ruleid] = $this->active_rule();
+        $courseid = (int) $DB->get_field('local_coursedynamicrules_rule', 'courseid', ['id' => $ruleid]);
+
+        $sink = $this->redirectEvents();
+        $rule->set_active(false);
+        $events = $sink->get_events();
+        $sink->close();
+
+        $stops = array_values(array_filter(
+            $events,
+            fn($e) => $e instanceof \local_coursedynamicrules\event\rule_autodeactivated
+        ));
+        $this->assertCount(1, $stops, 'The engine stopping a rule must leave exactly one trace.');
+        $this->assertSame($ruleid, (int) $stops[0]->objectid);
+        $this->assertSame($courseid, (int) $stops[0]->courseid);
+        $this->assertNotEmpty($stops[0]->get_description());
+    }
+
+    /**
+     * Reactivation is not a deactivation: it must not leave the trace that means "the engine
+     * stopped this", or the log would answer the auditor's question with the opposite of the truth.
+     *
+     * @covers \local_coursedynamicrules\core\rule::set_active
+     */
+    public function test_reactivation_is_not_audited_as_a_stop(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$rule] = $this->active_rule();
+        $rule->set_active(false);
+
+        $sink = $this->redirectEvents();
+        $rule->set_active(true);
+        $events = $sink->get_events();
+        $sink->close();
+
+        $this->assertCount(
+            0,
+            array_filter(
+                $events,
+                fn($e) => $e instanceof \local_coursedynamicrules\event\rule_autodeactivated
+            ),
+            'Switching a rule back on must not be recorded as an engine stop.'
+        );
+    }
 }

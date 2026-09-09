@@ -152,6 +152,7 @@ $string['event:action_updated'] = 'Dynamic rule action updated';
 $string['event:condition_created'] = 'Dynamic rule condition created';
 $string['event:condition_deleted'] = 'Dynamic rule condition deleted';
 $string['event:condition_updated'] = 'Dynamic rule condition updated';
+$string['event:rule_autodeactivated'] = 'Dynamic rule deactivated by the engine';
 $string['event:rule_created'] = 'Dynamic rule created';
 $string['event:rule_deleted'] = 'Dynamic rule deleted';
 $string['event:rule_updated'] = 'Dynamic rule updated';
