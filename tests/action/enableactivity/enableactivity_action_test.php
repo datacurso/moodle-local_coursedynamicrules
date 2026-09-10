@@ -1365,7 +1365,7 @@ final class enableactivity_action_test extends \advanced_testcase {
      *
      * @covers ::modules_gated_by_another_action
      */
-    public function test_a_gate_whose_marker_core_stripped_is_invisible_to_the_refusal(): void {
+    public function test_a_gate_whose_marker_core_stripped_is_still_seen_by_the_refusal(): void {
         global $DB;
         $this->resetAfterTest(true);
         $this->setAdminUser();
@@ -1425,24 +1425,25 @@ final class enableactivity_action_test extends \advanced_testcase {
         );
         rebuild_course_cache((int) $course->id, true);
 
-        // The defect: the gate is still there, still empty until its rule runs, and now invisible.
+        // The refusal must still see it: it asks the actions what they manage, not the activity's
+        // restrictions, so a marker core erased changes nothing.
         $this->assertSame(
-            [],
+            [(int) $gated->cmid],
             enableactivity_action::modules_gated_by_another_action(
                 [(int) $gated->cmid],
                 (int) $course->id,
                 $ownerid + 1000
             ),
-            'DEFECT: a gate that lost its marker is not reported, so a second action can be saved '
+            'A gate whose marker core erased must still be reported, or a second action can be saved '
             . 'onto the same activity and close it for the first action\'s students.'
         );
 
-        // And the owner cannot recognise its own gate either, which is what leaves a deleted
-        // user\'s id behind: the cleanup looks for a marker that is gone.
+        // And the owner is still not in conflict with itself: a module this action already gates is
+        // never a clash, whatever else gates it.
         $this->assertSame(
             [],
             enableactivity_action::modules_gated_by_another_action([(int) $gated->cmid], (int) $course->id, $ownerid),
-            'DEFECT: the owning action no longer recognises its own gate.'
+            'The owning action must not be told it clashes with its own gate.'
         );
     }
 
@@ -1828,5 +1829,101 @@ final class enableactivity_action_test extends \advanced_testcase {
             $after,
             'And it kept what availability_user itself writes, which is why the gate survives unowned.'
         );
+    }
+
+    /**
+     * The refusal does not read the activity's restrictions at all any more.
+     *
+     * Core erases the ownership marker from a gate that has students in it - proven, by opening the
+     * activity's settings and saving. Anything that asked the restrictions "who owns this gate?" was
+     * therefore answering from data core is free to rewrite. The actions' own params are the record
+     * every other operation already works from: execute(), revoke_user() and restore_coursemodules()
+     * all iterate exactly that list. So the refusal asks them.
+     *
+     * This wipes the availability entirely - no marker, no node, nothing - and the clash is still
+     * reported, which is the point: the answer no longer depends on what core left behind.
+     *
+     * @covers ::modules_gated_by_another_action
+     */
+    public function test_the_refusal_does_not_depend_on_the_activitys_restrictions(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $ruleid = $this->create_rule((int) $course->id);
+
+        $owner = new enableactivity_action(
+            (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])],
+            (int) $course->id
+        );
+        $owner->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$page->cmid],
+        ]);
+        $ownerid = (int) $owner->get_id();
+
+        // Not merely unmarked: gone. Whatever core does to that column, the action still says it
+        // manages this activity.
+        $DB->set_field('course_modules', 'availability', null, ['id' => $page->cmid]);
+        rebuild_course_cache((int) $course->id, true);
+
+        $this->assertSame(
+            [(int) $page->cmid],
+            enableactivity_action::modules_gated_by_another_action(
+                [(int) $page->cmid],
+                (int) $course->id,
+                $ownerid + 1000
+            ),
+            'The clash comes from what the action manages, not from what the activity happens to hold.'
+        );
+    }
+
+    /**
+     * And an action belonging to another course is not a clash: the question is about this course.
+     *
+     * @covers ::modules_gated_by_another_action
+     */
+    public function test_an_action_in_another_course_is_not_a_clash(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        // A rule in a DIFFERENT course whose action claims this course's module - the state a restore
+        // that kept an unmapped cmid leaves behind.
+        $othercourse = $this->getDataGenerator()->create_course();
+        $otherruleid = $this->create_rule((int) $othercourse->id);
+        $this->persisted_action_on_rule(
+            $otherruleid,
+            [['id' => $page->cmid, 'visible' => 1, 'visibleoncoursepage' => 1]]
+        );
+
+        $this->assertSame(
+            [],
+            enableactivity_action::modules_gated_by_another_action([(int) $page->cmid], (int) $course->id, null),
+            'An action in another course does not gate this course\'s activity.'
+        );
+    }
+
+    /**
+     * Store an action on a given rule, without going through save_action().
+     *
+     * @param int $ruleid Rule the action belongs to.
+     * @param array $coursemodules Stored coursemodules params.
+     * @return int The new action id.
+     */
+    private function persisted_action_on_rule(int $ruleid, array $coursemodules): int {
+        global $DB;
+
+        return (int) $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => $coursemodules]),
+        ]);
     }
 }

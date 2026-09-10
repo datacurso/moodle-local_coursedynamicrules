@@ -408,53 +408,96 @@ class enableactivity_action extends action {
             return [];
         }
 
+        // TWO sources, deliberately, because each catches what the other misses.
+        //
+        // The marker inside course_modules.availability was the only source, and core erases it:
+        // opening an activity's settings and saving is enough once the gate has students in it,
+        // which is measured rather than inferred. A refusal that reads erasable data stops refusing,
+        // and the harm is the worst this action can do - a second gate is empty until its own rule
+        // runs, Moodle requires every gate to pass, so the activity closes for the very students the
+        // first gate had already opened it for.
+        //
+        // So the actions' own params are consulted as well: that is the record every other operation
+        // here works from - execute(), revoke_user() and restore_coursemodules() all iterate exactly
+        // this list - and nothing outside the plugin rewrites it.
+        //
+        // The marker is NOT dropped, because it catches a case params cannot: a gate whose action no
+        // longer lists that cmid, left behind when a removal backed off on an ambiguous tree. Neither
+        // source alone is enough; the union is.
+        $owners = [];
+
+        // Source 1: what each action of this course says it manages.
+        $rows = $DB->get_records_sql(
+            "SELECT a.id, a.params
+               FROM {" . action::TABLE . "} a
+               JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
+              WHERE a.actiontype = :actiontype AND r.courseid = :courseid",
+            ['actiontype' => 'enableactivity', 'courseid' => $courseid]
+        );
+        foreach ($rows as $row) {
+            $decoded = json_decode((string) $row->params);
+            foreach ((array) ($decoded->coursemodules ?? []) as $cm) {
+                $cmid = (int) (is_object($cm) ? ($cm->id ?? 0) : $cm);
+                if ($cmid > 0) {
+                    $owners[$cmid][(int) $row->id] = true;
+                }
+            }
+        }
+
+        // Source 2: markers still present on the activities themselves. A marker belonging to an
+        // action that no longer exists is ignored, as it was before: it gates nothing.
         [$insql, $params] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
         $params['courseid'] = $courseid;
-        $rows = $DB->get_records_select(
+        $cmrows = $DB->get_records_select(
             'course_modules',
             "id $insql AND course = :courseid",
             $params,
             '',
             'id, availability'
         );
-
-        $ownmarker = $excludeactionid ? self::MARKER_PREFIX . $excludeactionid : null;
         $liveactions = $DB->get_fieldset_select(
             action::TABLE,
             'id',
             'actiontype = :actiontype',
             ['actiontype' => 'enableactivity']
         );
-        $livemarkers = [];
+        $byliveid = [];
         foreach ($liveactions as $liveid) {
-            $livemarkers[self::MARKER_PREFIX . $liveid] = true;
+            $byliveid[self::MARKER_PREFIX . $liveid] = (int) $liveid;
         }
-
-        $clashing = [];
-        foreach ($cmids as $cmid) {
-            $availability = $rows[$cmid]->availability ?? null;
-            if (empty($availability)) {
+        foreach ($cmrows as $cmid => $cmrow) {
+            if (empty($cmrow->availability)) {
                 continue;
             }
-            $tree = json_decode($availability);
+            $tree = json_decode($cmrow->availability);
             if (!is_object($tree)) {
                 continue;
             }
             $marked = [];
             $unmarked = [];
             self::collect_user_nodes($tree, $marked, $unmarked);
-
-            $mine = false;
-            $others = false;
             foreach ($marked as $node) {
-                $marker = $node->{self::MARKER_KEY};
-                if ($ownmarker !== null && $marker === $ownmarker) {
-                    $mine = true;
-                } else if (isset($livemarkers[$marker])) {
-                    $others = true;
+                $actionid = $byliveid[$node->{self::MARKER_KEY}] ?? null;
+                if ($actionid !== null) {
+                    $owners[(int) $cmid][$actionid] = true;
                 }
             }
-            if ($others && !$mine) {
+        }
+
+        $exclude = $excludeactionid !== null ? (int) $excludeactionid : null;
+        $clashing = [];
+        foreach ($cmids as $cmid) {
+            $gatedby = $owners[$cmid] ?? [];
+
+            // A module this action ALREADY gates is never a clash, whatever else gates it: the harm
+            // is in adding a second gate where this action has none. A pair inherited from an earlier
+            // version therefore stays editable on both sides.
+            if ($exclude !== null && isset($gatedby[$exclude])) {
+                continue;
+            }
+            unset($gatedby[$exclude]);
+
+            if (!empty($gatedby)) {
                 $clashing[] = $cmid;
             }
         }
