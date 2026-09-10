@@ -1097,6 +1097,7 @@ final class enableactivity_action_test extends \advanced_testcase {
         $this->assertIsString($description);
         $this->assertDebuggingNotCalled();
     }
+
     /**
      * An action with nothing to name says which of the two reasons applies, instead of rendering
      * "Enable activities ''" - empty quotes that told the operator nothing. No activity chosen yet is
@@ -1146,6 +1147,7 @@ final class enableactivity_action_test extends \advanced_testcase {
             'An action whose every activity is gone says so, instead of showing empty quotes.'
         );
     }
+
     /**
      * The clash query behind the form's refusal: an activity already gated by ANOTHER action of this
      * plugin cannot be shared, because Moodle ANDs the two gates and the newcomer's is empty until it
@@ -1339,6 +1341,7 @@ final class enableactivity_action_test extends \advanced_testcase {
             'An action editing its own selection must not be refused its own activity.'
         );
     }
+
     /**
      * DOCUMENTED DEFECT: a live action's gate becomes invisible to the shared-activity refusal as
      * soon as anybody saves the activity's settings form, because core rebuilds the availability
@@ -1442,6 +1445,7 @@ final class enableactivity_action_test extends \advanced_testcase {
             'DEFECT: the owning action no longer recognises its own gate.'
         );
     }
+
     /**
      * An activity whose deletion is already running counts as gone in the description, the way it
      * already does everywhere else in the plugin: the four activity conditions treat it as absent

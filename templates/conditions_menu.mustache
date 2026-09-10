@@ -34,6 +34,14 @@
       carries its own visible text loses nothing, while role="img" with an empty label does not
       describe anything.
 
+    The label is repeated on every option's icon on purpose, and a review has already questioned it.
+    Each link's accessible name comes out as "<component name> <menulabel>" - "Complete activity Add
+    conditions" - so the phrase does recur once per option. It is not redundancy: the visible text
+    names the component, the label names what clicking does, and dropping it leaves a screen reader
+    with "Complete activity, link" and no way to tell that the link adds anything. Verbosity was
+    chosen over ambiguity. Labelling the surrounding list instead would remove the repetition and is
+    the change to make if this is ever revisited.
+
     Example context (json):
     {
         "menulabel": "Add conditions",

@@ -83,6 +83,7 @@ final class rule_self_deactivation_test extends \advanced_testcase {
         $this->assertEquals(1, $row->active);
         $this->assertNull($row->timeautodeactivated, 'Reactivation must clear the engine self-deactivation stamp.');
     }
+
     /**
      * The engine switching a rule off is the one state change no event covered: the nine audit
      * events are all fired from human actions (editrule.php, conditions.php, actions.php and the
