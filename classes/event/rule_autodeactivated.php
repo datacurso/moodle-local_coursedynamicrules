@@ -53,8 +53,11 @@ class rule_autodeactivated extends \core\event\base {
      * @return string
      */
     public function get_description() {
-        return "The scheduled task deactivated the dynamic rule with id '{$this->objectid}' " .
-            "in the course with id '{$this->courseid}' after executing it.";
+        // Says what the write knows: the row went from active to inactive and no editing screen
+        // did it. Naming the scheduled task, or claiming the rule had just run, would assert two
+        // things set_active() never checks.
+        return "The dynamic rule with id '{$this->objectid}' in the course with id " .
+            "'{$this->courseid}' was switched off automatically.";
     }
 
     /**

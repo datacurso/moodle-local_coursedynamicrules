@@ -161,6 +161,35 @@ final class rule_self_deactivation_test extends \advanced_testcase {
     }
 
     /**
+     * Neither is stopping a rule that was already stopped. Nobody stopped anything, so the log must
+     * not claim someone did: the entry means "the engine switched this off", and an engine that
+     * wrote 0 over a 0 changed nothing.
+     *
+     * @covers \local_coursedynamicrules\core\rule::set_active
+     */
+    public function test_stopping_an_already_stopped_rule_is_not_audited(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$rule] = $this->active_rule();
+        $rule->set_active(false);
+
+        $sink = $this->redirectEvents();
+        $rule->set_active(false);
+        $events = $sink->get_events();
+        $sink->close();
+
+        $this->assertCount(
+            0,
+            array_filter(
+                $events,
+                fn($e) => $e instanceof \local_coursedynamicrules\event\rule_autodeactivated
+            ),
+            'A rule that was already off was not stopped again; the log must not say it was.'
+        );
+    }
+
+    /**
      * Reactivation is not a deactivation: it must not leave the trace that means "the engine
      * stopped this", or the log would answer the auditor's question with the opposite of the truth.
      *
