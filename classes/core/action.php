@@ -19,6 +19,7 @@ namespace local_coursedynamicrules\core;
 use local_coursedynamicrules\form\actions\action_form;
 use local_coursedynamicrules\helper\form_plugin_validator;
 use local_coursedynamicrules\helper\ownership;
+use local_coursedynamicrules\helper\rule_component_loader;
 use stdClass;
 
 /**
@@ -358,6 +359,74 @@ abstract class action {
      */
     public function has_its_required_plugins(): bool {
         return empty(form_plugin_validator::missing_plugins(static::required_plugins()));
+    }
+
+    /**
+     * Whether the rule this action belongs to is currently in force.
+     *
+     * Asked by an action whose effect reaches outside the plugin, so that effect is applied when the
+     * rule comes into force rather than when the operator configures it. Read from the stored
+     * 'active' column and NOT from the activation lock: the lock is 'was ever activated'
+     * (rule_lock::is_locked_row() reads timeactivated), and db/upgrade.php back-filled that stamp
+     * only for rules active at upgrade time - so a site can hold a rule that is active, and
+     * therefore run by the task, while still unlocked and editable. Such a rule must get the effect.
+     *
+     * @return bool False for an action not yet attached to a rule.
+     */
+    protected function rule_is_active(): bool {
+        global $DB;
+
+        $ruleid = (int) $this->get_ruleid();
+        if (empty($ruleid)) {
+            return false;
+        }
+
+        return !empty($DB->get_field('local_coursedynamicrules_rule', 'active', ['id' => $ruleid]));
+    }
+
+    /**
+     * Called on each of a rule's actions right after the rule is activated.
+     *
+     * An action whose effect touches data owned by another component - the enable-activity action
+     * writes a gate into the activity's own access restrictions - must apply that effect when the
+     * rule comes INTO FORCE, not when the operator configures it: a rule nobody activated has to
+     * change nothing. The default is a no-op, because most actions only ever touch a student while
+     * the rule runs and have nothing to prepare beforehand.
+     *
+     * @return void
+     */
+    public function on_rule_activated(): void {
+    }
+
+    /**
+     * Tell every action of a rule that the rule has just been activated.
+     *
+     * Called from the single endpoint that activates a rule (editrule.php's sesskey-protected
+     * doactivate step; the save path deliberately holds 'active' back and sends the operator there).
+     * An action whose class this build cannot load is skipped instead of allowed to throw: the row
+     * is already active by the time this runs, and a fatal here would leave the operator with an
+     * active rule and no page to go back to.
+     *
+     * @param int $ruleid Rule that was just activated.
+     * @param int $courseid Course the rule belongs to.
+     * @return void
+     */
+    public static function notify_rule_activated(int $ruleid, int $courseid): void {
+        global $DB;
+
+        foreach ($DB->get_records(self::TABLE, ['ruleid' => $ruleid]) as $record) {
+            try {
+                $instance = rule_component_loader::create_action_instance($record, $courseid);
+            } catch (\moodle_exception $e) {
+                debugging(
+                    'notify_rule_activated: action ' . $record->id . ' of rule ' . $ruleid
+                        . ' could not be loaded; its activation effect was skipped',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+            $instance->on_rule_activated();
+        }
     }
 
     /**

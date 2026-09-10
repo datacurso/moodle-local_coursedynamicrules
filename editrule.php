@@ -92,6 +92,12 @@ if ($ruleid && optional_param('doactivate', 0, PARAM_INT)) {
     $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
     $DB->set_field('local_coursedynamicrules_rule', 'timemodified', time(), ['id' => $ruleid]);
     \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
+
+    // The rule is in force from this line on, so this is where an action whose effect reaches
+    // outside the plugin applies it. The enable-activity action writes its gate into the activity's
+    // access restrictions here instead of when the operator configured it: doing it at configuration
+    // time closed the activity for every student, invisibly, for a rule nobody had activated.
+    \local_coursedynamicrules\core\action::notify_rule_activated($ruleid, $courseid);
     \local_coursedynamicrules\event\rule_updated::create([
         'context' => $context,
         'objectid' => $ruleid,

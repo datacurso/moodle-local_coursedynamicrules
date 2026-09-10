@@ -733,8 +733,22 @@ class enableactivity_action extends action {
             // already being set for both the create and the edit path.
             $actionid = $this->upsert($params, $formdata);
 
-            foreach ($tomanage as $cmid) {
-                $this->apply_availability($cmid, false);
+            // The gate belongs to a rule IN FORCE, never to a merely configured one. Writing it here
+            // unconditionally closed the named activity for every student - invisibly, since the
+            // gate's showc slot is false - for a rule the operator had not activated and that had
+            // never run, while the listing reported it as inactive. Present since the action was
+            // introduced (2024-12-02, release 1.1.1); no version ever consulted 'active' here. The
+            // activation endpoint applies the gates instead, through on_rule_activated().
+            //
+            // upsert() ran first, so get_ruleid() is the write's own validated rule. The check is on
+            // the stored 'active' value, not on the lock: an already-activated rule is sealed and
+            // cannot reach this method at all, but an active rule left UNLOCKED by the upgrade's
+            // partial back-fill of timeactivated can - and that one is genuinely in force, so its
+            // newly added activity must be gated now.
+            if ($this->rule_is_active()) {
+                foreach ($tomanage as $cmid) {
+                    $this->apply_availability($cmid, false);
+                }
             }
 
             if (!empty($toremove)) {
@@ -754,6 +768,57 @@ class enableactivity_action extends action {
         rebuild_course_cache($this->courseid, true);
 
         return $actionid;
+    }
+
+    /**
+     * Apply this action's gate to every activity it manages, because its rule just came into force.
+     *
+     * The counterpart of the check in save_action(): the gate is written HERE, once the operator has
+     * activated the rule, instead of when they configured it. Idempotent - apply_availability()
+     * looks for this action's own marked node anywhere in the tree first and leaves an activity that
+     * already carries the gate untouched - so a replayed activation adds nothing.
+     *
+     * Each cmid is filtered exactly as execute() filters it: scoped to the rule's own course,
+     * because a restore that kept an unmapped cmid leaves this action holding an id belonging to
+     * another course's live module, and skipped while its deletion is in progress, because the
+     * recycle bin leaves the row in place until cron runs and the operator has already deleted it.
+     * Without the course scope apply_availability() would fatal on a MUST_EXIST miss and take the
+     * whole activation with it.
+     *
+     * @return void
+     */
+    public function on_rule_activated(): void {
+        global $DB;
+
+        $applied = false;
+        foreach ((array) ($this->params->coursemodules ?? []) as $cm) {
+            $cmid = (int) $cm->id;
+
+            if (!$DB->record_exists('course_modules', ['id' => $cmid, 'course' => $this->courseid])) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is not an activity of course '
+                        . $this->courseid . ' (gone, or never belonged to it); not gated on activation',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+
+            if ($DB->get_field('course_modules', 'deletioninprogress', ['id' => $cmid])) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is being deleted; not gated on activation',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+
+            $this->apply_availability($cmid, false);
+            $applied = true;
+        }
+
+        // One rebuild after the loop rather than one per module, the way save_action() does it.
+        if ($applied) {
+            rebuild_course_cache($this->courseid, true);
+        }
     }
 
     /**

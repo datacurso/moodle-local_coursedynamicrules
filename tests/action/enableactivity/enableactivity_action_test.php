@@ -1911,6 +1911,232 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * A rule the teacher never activated must not seal the activity its action names.
+     *
+     * The gate is an empty user restriction ANDed at the root with its showc slot false, so an
+     * activity carrying it is not merely locked but hidden from every student. Until 1.8.5
+     * save_action() applied it to every newly added cmid, which bound the gate's lifetime to the
+     * SAVE rather than to the rule being switched on: configuring an action and never activating
+     * its rule made the activity vanish for everyone while the listing reported the rule as
+     * inactive and nothing had ever executed. Present since the action was introduced (5de1824,
+     * release 1.1.1, 2024-12-02); no version before 1.8.5 read the rule's 'active' flag here. The
+     * gate is now applied by on_rule_activated(), from the one endpoint that activates a rule.
+     *
+     * @covers ::save_action
+     */
+    public function test_a_rule_that_was_never_activated_does_not_seal_the_activity(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        // A rule the teacher configured and left switched off - create_rule() would activate it.
+        $ruleid = $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $course->id,
+            'name' => 'A rule never activated',
+            'active' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $action = new enableactivity_action(
+            (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])],
+            (int) $course->id
+        );
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$page->cmid],
+        ]);
+
+        $this->assertNull(
+            $DB->get_field('course_modules', 'availability', ['id' => $page->cmid]),
+            'Saving the action of a rule that is switched off wrote a gate: an empty user list ANDed '
+                . 'at the root closes the activity for every student, and showc false hides it '
+                . 'entirely, for a rule that has never run.'
+        );
+    }
+
+    /**
+     * The asymmetric lifecycle: activation writes the gate, and pausing does NOT take it away.
+     *
+     * Walks the whole life of one gate. Activation is the moment the rule comes into force, so it is
+     * where the gate appears. Switching the rule off afterwards deliberately leaves it: the userids
+     * the runs accumulated live INSIDE that gate and nowhere else, so removing it on a pause would
+     * silently revoke every student the rule had already let in, and would also throw the activity
+     * open to students who never met the condition. Pausing therefore freezes the gate as it stands
+     * - nobody new gets in, nobody already in loses access.
+     *
+     * @covers ::on_rule_activated
+     * @covers ::save_action
+     */
+    public function test_activation_writes_the_gate_and_pausing_leaves_it_and_its_grants_alone(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $course->id,
+            'name' => 'A rule about to be activated',
+            'active' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $action = new enableactivity_action(
+            (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])],
+            (int) $course->id
+        );
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$page->cmid],
+        ]);
+
+        $this->assertNull(
+            $DB->get_field('course_modules', 'availability', ['id' => $page->cmid]),
+            'Configuring the action must not gate anything while the rule is off.'
+        );
+
+        // Activation, as editrule.php performs it: the row goes active, then the actions are told.
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
+        action::notify_rule_activated($ruleid, (int) $course->id);
+
+        $gate = json_decode($DB->get_field('course_modules', 'availability', ['id' => $page->cmid]));
+        $this->assertNotNull($gate, 'Activating the rule must write the gate.');
+        $this->assertCount(1, $gate->c);
+        $this->assertSame('user', $gate->c[0]->type);
+        $this->assertSame([], $gate->c[0]->userids, 'The gate starts empty; the runs fill it.');
+        $this->assertSame(
+            'local_coursedynamicrules:' . $action->get_id(),
+            $gate->c[0]->source,
+            'And it carries this action\'s own ownership marker.'
+        );
+
+        // A run lets one student in.
+        $stored = $DB->get_record(action::TABLE, ['id' => $action->get_id()], '*', MUST_EXIST);
+        (new enableactivity_action($stored, (int) $course->id))->execute(
+            (object) ['courseid' => $course->id, 'userid' => $student->id]
+        );
+        $granted = json_decode($DB->get_field('course_modules', 'availability', ['id' => $page->cmid]));
+        $this->assertContains(
+            (int) $student->id,
+            array_map('intval', (array) ($granted->c[0]->userids ?? [])),
+            'The run must add the student to the gate it found. Gate now: ' . json_encode($granted)
+        );
+
+        // The operator pauses the rule. The gate and the granted id both stay exactly as they were.
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 0, ['id' => $ruleid]);
+
+        $afterpause = $DB->get_field('course_modules', 'availability', ['id' => $page->cmid]);
+        $this->assertSame(
+            json_encode($granted),
+            $afterpause,
+            'Pausing a rule must neither drop the gate - which would open the activity to everyone - '
+                . 'nor lose the ids of the students it had already let in.'
+        );
+    }
+
+    /**
+     * An active rule left UNLOCKED by the upgrade's partial back-fill still gates on save.
+     *
+     * The activation lock is 'was ever activated' (rule_lock::is_locked_row() reads timeactivated),
+     * and db/upgrade.php back-filled that stamp only for rules that were active at upgrade time. A
+     * site can therefore hold a rule that is active - and so run by the task - while still unlocked
+     * and editable, which is the one way save_action() can be reached with the rule in force. That
+     * rule's newly chosen activity must be gated immediately: waiting for an activation that already
+     * happened would let the task grant access on an ungated activity, which grants nothing.
+     *
+     * @covers ::save_action
+     */
+    public function test_an_active_but_unlocked_rule_still_gates_on_save(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        // Active, but with no activation stamp - exactly what the partial back-fill leaves behind.
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $course->id,
+            'name' => 'Active yet unlocked',
+            'active' => 1,
+            'timeactivated' => null,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+
+        $action = new enableactivity_action(
+            (object) ['id' => null, 'ruleid' => $ruleid, 'actiontype' => 'enableactivity', 'params' => json_encode([])],
+            (int) $course->id
+        );
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$page->cmid],
+        ]);
+
+        $gate = json_decode($DB->get_field('course_modules', 'availability', ['id' => $page->cmid]));
+        $this->assertNotNull($gate, 'A rule that is genuinely in force gates its activity at save.');
+        $this->assertSame('local_coursedynamicrules:' . $action->get_id(), $gate->c[0]->source);
+    }
+
+    /**
+     * Activation is idempotent, and an activity it can no longer reach is skipped instead of fatal.
+     *
+     * A replayed activation (double click, back button, an old tab) must not add a second gate:
+     * apply_availability() looks for this action's own marked node anywhere in the tree first. And a
+     * cmid belonging to another course - what a restore that kept an unmapped id leaves behind - is
+     * skipped with an explanation, because apply_availability() fetches MUST_EXIST and would
+     * otherwise take the whole activation down with it.
+     *
+     * @covers ::on_rule_activated
+     */
+    public function test_activation_is_idempotent_and_skips_an_activity_of_another_course(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $othercourse = $this->getDataGenerator()->create_course();
+        $foreign = $this->getDataGenerator()->create_module('page', ['course' => $othercourse->id]);
+
+        $ruleid = $this->create_rule((int) $course->id);
+        $actionid = $this->persisted_action_on_rule($ruleid, [
+            ['id' => (int) $page->cmid, 'visible' => 1, 'visibleoncoursepage' => 1],
+            ['id' => (int) $foreign->cmid, 'visible' => 1, 'visibleoncoursepage' => 1],
+        ]);
+
+        $stored = $DB->get_record(action::TABLE, ['id' => $actionid], '*', MUST_EXIST);
+        (new enableactivity_action($stored, (int) $course->id))->on_rule_activated();
+        $this->assertDebuggingCalled();
+
+        $first = $DB->get_field('course_modules', 'availability', ['id' => $page->cmid]);
+        $this->assertNotNull($first, 'Its own course\'s activity is gated.');
+        $this->assertNull(
+            $DB->get_field('course_modules', 'availability', ['id' => $foreign->cmid]),
+            'The other course\'s activity is left completely alone.'
+        );
+
+        // Replay: still exactly one gate, byte for byte the same.
+        (new enableactivity_action($stored, (int) $course->id))->on_rule_activated();
+        $this->assertDebuggingCalled();
+        $this->assertSame(
+            $first,
+            $DB->get_field('course_modules', 'availability', ['id' => $page->cmid]),
+            'A replayed activation must not append a second gate.'
+        );
+    }
+
+    /**
      * Store an action on a given rule, without going through save_action().
      *
      * @param int $ruleid Rule the action belongs to.
