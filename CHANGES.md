@@ -19,6 +19,8 @@
   The pass-grade picker no longer offers such an activity and now refuses it on save (see Fixed), but the other three condition forms only filter their picker: their server-side validation still accepts an activity whose deletion started while the form was open, so a form submitted during the recycle-bin window can still save a condition that is a ghost from birth.
 - **An action's description hides a partial loss**
   The enable-activity action omits from its description an activity that was deleted or whose deletion is in progress, so an action with three targets of which one is gone reads as if it only ever had two; only the case where EVERY target is gone is flagged, with the shared missing-activity warning. The create-AI-activity action drops the placement clause when its anchor activity was deleted and still hands the stale id to the generator, which then appends the new activity at the end of the section.
+- **The engine's own stop is not carried into a restored course**
+  Every event this plugin raises now tells the restore how to translate the rule, condition or action it points at, so a restored course's log entries refer to its own components instead of the source site's. The one exception is the entry recording that the engine switched a rule off: it is attributed to the system rather than to a person, and Moodle drops a log record whose actor it cannot match to a user in the destination site before it ever looks at what the record points at. So that single entry does not survive a course copy. Making it survive would mean putting a person's name on a decision no person took, which is what the entry exists to avoid; Moodle's own grade engine accepts the same trade for the same reason.
 
 ## 1.8.4
 

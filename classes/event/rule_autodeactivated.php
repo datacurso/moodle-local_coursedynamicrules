@@ -74,6 +74,15 @@ class rule_autodeactivated extends \core\event\base {
      * plugin's restore step registers this mapping when it recreates the rule, so the id can be
      * translated rather than given up on with NOT_MAPPED.
      *
+     * NOTE, for this event only: in practice a restore never reaches that code for these rows. The
+     * same class remaps the actor first and drops the whole record when it cannot (same file, lines
+     * 65-70), and this event's actor is USER_OTHER (-1), which no restore step maps. So an
+     * autodeactivation entry does not survive a course copy. That is core's behaviour for any
+     * system-attributed event - core's own grade engine pays the same price at
+     * lib/grade/grade_item.php:885 - and the alternative is worse: the only way to make the row
+     * survive is to name a person, and no person did this. The audit trail is worth more accurate
+     * than durable. The mapping stays declared so the answer is right if that path ever changes.
+     *
      * @return array
      */
     public static function get_objectid_mapping() {
