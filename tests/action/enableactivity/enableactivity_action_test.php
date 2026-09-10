@@ -1758,4 +1758,75 @@ final class enableactivity_action_test extends \advanced_testcase {
             'A rule must not rewrite restrictions in a course it does not belong to.'
         );
     }
+
+    /**
+     * Core really does erase the ownership marker, through a path a teacher takes every term.
+     *
+     * The sibling test above SIMULATES the loss: it writes the stripped node itself. That proves what
+     * an unmarked gate costs, and nothing about whether anything unmarks it. This one proves the
+     * unmarking, by calling core's own code.
+     *
+     * availability_date\condition::update_all_dates() is the course reset feature
+     * (availability/condition/date/classes/condition.php:240-271). For every module whose
+     * availability holds a date condition it shifts the dates and writes the WHOLE tree back with
+     * json_encode($tree->save()) - and tree::save() (availability/classes/tree.php:618-633) builds a
+     * fresh object from op, showc and each child's own save(), so availability_user's save()
+     * (availability/condition/user/classes/condition.php:60-62) contributes only type and userids.
+     * Every other key in that node is gone, ours included.
+     *
+     * Note what this does and does not establish. The loss is real and reachable without a browser,
+     * but through this path it needs the activity to ALSO carry a date restriction, and it needs the
+     * course to be reset. The wider claim - that merely opening the activity settings form loses the
+     * marker via the form JavaScript - remains unproven here: the server stores the posted JSON
+     * verbatim (course/modlib.php:624-652 builds a tree only to ask is_empty()), so that path can
+     * only be settled in a browser, and this stack has no Selenium.
+     *
+     * @covers ::modules_gated_by_another_action
+     */
+    public function test_core_erases_the_ownership_marker_when_a_course_is_reset(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        // A gate carrying our marker, beside a date condition - the pair the reset walks over.
+        $marked = (object) [
+            'type' => 'user',
+            'userids' => ['7'],
+            'source' => 'local_coursedynamicrules:12345',
+        ];
+        $date = (object) ['type' => 'date', 'd' => '>=', 't' => 1700000000];
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json([$marked, $date], tree::OP_AND, false)),
+            ['id' => $page->cmid]
+        );
+        rebuild_course_cache((int) $course->id, true);
+
+        $before = $DB->get_field('course_modules', 'availability', ['id' => $page->cmid]);
+        $this->assertStringContainsString(
+            'local_coursedynamicrules:12345',
+            $before,
+            'Precondition: the marker is stored before the reset.'
+        );
+
+        // What the course reset feature does: shift every date condition by an offset.
+        \availability_date\condition::update_all_dates((int) $course->id, 3600);
+
+        $after = $DB->get_field('course_modules', 'availability', ['id' => $page->cmid]);
+        $this->assertStringNotContainsString(
+            'local_coursedynamicrules:12345',
+            $after,
+            'Core rebuilt the tree from each condition\'s own save(), so the marker is gone.'
+        );
+        $this->assertStringContainsString(
+            '"userids"',
+            $after,
+            'And it kept what availability_user itself writes, which is why the gate survives unowned.'
+        );
+    }
 }
