@@ -324,8 +324,12 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
                 if ($cmid <= 0) {
                     continue;
                 }
-                // Params were remapped first (after_restore_course order), so this cmid is a module
-                // THIS restore created - never a live module of a pre-existing target course.
+                // The course filter below is load-bearing, not defensive decoration. Params were
+                // remapped first (after_restore_course order), but remap_coursemodules() KEEPS the old
+                // id when there is no mapping - which is exactly what happens when the operator
+                // deselects an activity at the Schema stage - so this cmid CAN be a live module of a
+                // pre-existing course. Removing the filter would read, and later write, another
+                // course's activity.
                 $availability = $DB->get_field(
                     'course_modules',
                     'availability',

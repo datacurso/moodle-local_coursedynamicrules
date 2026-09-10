@@ -1542,4 +1542,220 @@ final class enableactivity_action_test extends \advanced_testcase {
         $this->assertStringContainsString($healthy->name, $description, 'The intact activity is still named.');
         $this->assertStringNotContainsString($doomed->name, $description, 'The one being deleted is not.');
     }
+
+    /**
+     * Build the state a course restore leaves behind when the operator deselected the activity.
+     *
+     * Deselecting an activity skips its whole restore task
+     * (backup/moodle2/restore_activity_task.class.php:225-234), so no course_module mapping is
+     * registered for it, and the plugin then keeps the OLD cmid on purpose
+     * (backup/moodle2/restore_local_coursedynamicrules_plugin.class.php:256-257). On a same-site
+     * restore that old id is a LIVE module of the SOURCE course, and the rule comes back with its
+     * active flag intact (same file, line 97), so nothing ever asks can_act() again.
+     *
+     * The restore machinery is not driven here: this reproduces its OUTCOME, which is an action that
+     * belongs to one course while its stored cmid points at a module in another.
+     *
+     * @return array{0: \stdClass, 1: \stdClass, 2: \stdClass} Owning course, foreign module, a user.
+     */
+    private function action_pointing_at_another_course(): array {
+        $othercourse = $this->getDataGenerator()->create_course();
+        $foreign = $this->getDataGenerator()->create_module('page', ['course' => $othercourse->id]);
+
+        // An UNMARKED user node, which is what the other course's teacher would have created by hand
+        // and also what core leaves behind after it strips this plugin's marker on a settings save.
+        $this->set_user_restriction($foreign->cmid);
+
+        return [$this->getDataGenerator()->create_course(), $foreign, $this->getDataGenerator()->create_user()];
+    }
+
+    /**
+     * Same shape, but stored, so delete() fires its event with an objectid as it does in production.
+     *
+     * @param array $coursemodules Stored coursemodules params.
+     * @param int $courseid The course the action believes it belongs to.
+     * @return enableactivity_action
+     */
+    private function persisted_action(array $coursemodules, int $courseid): enableactivity_action {
+        global $DB;
+
+        $record = (object) [
+            'ruleid' => $this->create_rule($courseid),
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => $coursemodules]),
+        ];
+        $record->id = $DB->insert_record('local_coursedynamicrules_action', $record);
+
+        return new enableactivity_action($record, $courseid);
+    }
+
+    /**
+     * The engine must not grant access inside a course this rule does not belong to.
+     *
+     * can_act() scopes its lookup to the rule's course and build_description() does too, but
+     * execute() resolved the module by id alone, so a student's id was written into another course's
+     * activity restriction - and writing widens the gate, because the user condition is an in_array
+     * over userids (availability/condition/user/classes/condition.php:74).
+     *
+     * @covers ::execute
+     */
+    public function test_execute_does_not_reach_into_another_course(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        [$course, $foreign, $user] = $this->action_pointing_at_another_course();
+
+        $action = $this->create_action(
+            [['id' => $foreign->cmid, 'visible' => 1, 'visibleoncoursepage' => 1]],
+            (int) $course->id
+        );
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $tree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $foreign->cmid]));
+        $this->assertNotContains(
+            $user->id,
+            $tree->c[0]->userids,
+            'A rule must not open an activity that belongs to a different course.'
+        );
+
+        // The skip says why, naming the module and the course it does not belong to.
+        $this->assertDebuggingCalled(
+            'enableactivity: course module ' . $foreign->cmid . ' is not an activity of course '
+                . $course->id . ' (gone, or never belonged to it); skipped'
+        );
+    }
+
+    /**
+     * And deleting the action must not strip a restriction from a course it does not belong to.
+     *
+     * restore_coursemodules() hands each stored cmid to find_user_condition(), which falls back to
+     * the sole unmarked user node when the marker does not match. On a module in another course that
+     * node is somebody else's restriction, and removing it makes that activity MORE open than its
+     * own teacher left it.
+     *
+     * @covers ::delete
+     */
+    public function test_deleting_an_action_leaves_another_courses_restriction_alone(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        [$course, $foreign] = $this->action_pointing_at_another_course();
+        $before = $DB->get_field('course_modules', 'availability', ['id' => $foreign->cmid]);
+        $this->assertNotEmpty($before, 'Precondition: the other course has a restriction to lose.');
+
+        $action = $this->persisted_action(
+            [['id' => $foreign->cmid, 'visible' => 1, 'visibleoncoursepage' => 1]],
+            (int) $course->id
+        );
+
+        $action->delete();
+
+        $this->assertSame(
+            $before,
+            $DB->get_field('course_modules', 'availability', ['id' => $foreign->cmid]),
+            'Deleting a rule component must not touch another course activity restrictions.'
+        );
+    }
+
+    /**
+     * And the damage that needs no preconditions at all: the visibility write.
+     *
+     * restore_coursemodules() calls set_coursemodule_visible() OUTSIDE the branch that removes the
+     * node (line 946), so it runs for every stored cmid whose row exists - whether or not this
+     * action found anything of its own there. core resolves the course from the module's own context
+     * (course/lib.php:658-660), so the snapshot this action carries is applied to whatever course
+     * that module lives in.
+     *
+     * The node here carries ANOTHER action's marker on purpose: this action's lookup misses it, the
+     * removal is refused, and what remains is the visibility write on its own.
+     *
+     * @covers ::delete
+     */
+    public function test_deleting_an_action_does_not_rewrite_another_courses_visibility(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $othercourse = $this->getDataGenerator()->create_course();
+        $foreign = $this->getDataGenerator()->create_module(
+            'page',
+            ['course' => $othercourse->id, 'visible' => 1]
+        );
+
+        $tree = tree::get_root_json(
+            [(object) [
+                'type' => 'user',
+                'userids' => [],
+                'source' => 'local_coursedynamicrules:999999',
+            ]],
+            tree::OP_AND,
+            false
+        );
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $foreign->cmid]);
+        $this->assertEquals(
+            1,
+            $DB->get_field('course_modules', 'visible', ['id' => $foreign->cmid]),
+            'Precondition: the other course activity is visible.'
+        );
+
+        $course = $this->getDataGenerator()->create_course();
+
+        // The snapshot this action carries claims the module was hidden before it gated it.
+        $action = $this->persisted_action(
+            [['id' => $foreign->cmid, 'visible' => 0, 'visibleoncoursepage' => 0]],
+            (int) $course->id
+        );
+
+        $action->delete();
+
+        $this->assertEquals(
+            1,
+            $DB->get_field('course_modules', 'visible', ['id' => $foreign->cmid]),
+            'Deleting a component must not hide an activity that belongs to a different course.'
+        );
+    }
+
+    /**
+     * The privacy cleanup must not scrub an id out of another course's restriction either.
+     *
+     * revoke_user() reads its modules with get_records_list() on the id column alone
+     * (line 311), so the same foreign pointer reaches it. Here the other course's own restriction
+     * already lists the user - as that course's teacher would have left it - and erasing them from it
+     * is not this rule's business.
+     *
+     * @covers ::revoke_user
+     */
+    public function test_revoking_a_user_does_not_scrub_another_courses_restriction(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        [$course, $foreign, $user] = $this->action_pointing_at_another_course();
+
+        // The other course's teacher had granted this person access by hand.
+        $tree = tree::get_root_json(
+            [(object) ['type' => 'user', 'userids' => [(int) $user->id]]],
+            tree::OP_AND,
+            false
+        );
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $foreign->cmid]);
+
+        $action = $this->create_action(
+            [['id' => $foreign->cmid, 'visible' => 1, 'visibleoncoursepage' => 1]],
+            (int) $course->id
+        );
+
+        $action->revoke_user((int) $user->id);
+
+        $remaining = json_decode($DB->get_field('course_modules', 'availability', ['id' => $foreign->cmid]));
+        $this->assertContains(
+            (int) $user->id,
+            $remaining->c[0]->userids,
+            'A rule must not rewrite restrictions in a course it does not belong to.'
+        );
+    }
 }

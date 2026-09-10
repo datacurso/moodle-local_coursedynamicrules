@@ -225,9 +225,17 @@ class enableactivity_action extends action {
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
-            $cmrecord = $DB->get_record('course_modules', ['id' => $cmid]);
+            // Scoped to the rule's own course, as can_act() and build_description() already are. A
+            // restore that keeps an unmapped cmid (see the restore plugin) leaves this action holding
+            // an id that belongs to a LIVE module of another course, and resolving it by id alone made
+            // the engine write into that course's activity.
+            $cmrecord = $DB->get_record('course_modules', ['id' => $cmid, 'course' => $this->courseid]);
             if (!$cmrecord) {
-                debugging('enableactivity: course module ' . $cmid . ' no longer exists; skipped', DEBUG_DEVELOPER);
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is not an activity of course '
+                        . $this->courseid . ' (gone, or never belonged to it); skipped',
+                    DEBUG_DEVELOPER
+                );
                 continue;
             }
 
@@ -306,9 +314,18 @@ class enableactivity_action extends action {
             return false;
         }
 
-        // One read for all managed modules: a module that was deleted is simply absent.
+        // One read for all managed modules, scoped to this rule's course: a module that was
+        // deleted - or that never belonged here, which a restore can leave behind - is simply absent.
         $changed = false;
-        $cmrecords = $DB->get_records_list('course_modules', 'id', $cmids, '', 'id, availability');
+        [$insql, $inparams] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
+        $inparams['courseid'] = $this->courseid;
+        $cmrecords = $DB->get_records_select(
+            'course_modules',
+            "id $insql AND course = :courseid",
+            $inparams,
+            '',
+            'id, availability'
+        );
         foreach ($cmrecords as $cmrecord) {
             if (empty($cmrecord->availability)) {
                 // No restriction at all: nothing to scrub.
@@ -911,10 +928,13 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
 
-            // If the module no longer exists there is nothing to restore; keep going so the rule
-            // stays deletable/editable (set_coursemodule_visible() would otherwise fatal on a
-            // missing context).
-            if (!$DB->record_exists('course_modules', ['id' => $cmid])) {
+            // If the module is not an activity of this course there is nothing to restore; keep
+            // going so the rule stays deletable/editable (set_coursemodule_visible() would otherwise
+            // fatal on a missing context). The course check guards EVERYTHING below it, the
+            // set_coursemodule_visible() call included - that one runs outside the removal branch, so
+            // without this it rewrote a foreign course's module visibility whether or not this action
+            // found anything of its own to remove.
+            if (!$DB->record_exists('course_modules', ['id' => $cmid, 'course' => $this->courseid])) {
                 continue;
             }
 
