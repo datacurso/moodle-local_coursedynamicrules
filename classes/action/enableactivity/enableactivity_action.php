@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\action\enableactivity;
 
 use core_availability\tree;
+use moodle_url;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\enableactivity_form;
@@ -993,6 +994,21 @@ class enableactivity_action extends action {
      *
      * @return bool
      */
+    /**
+     * The plugin this action needs: the user restriction it writes its gate into.
+     *
+     * @return array
+     */
+    public static function required_plugins(): array {
+        return [
+            [
+                'pluginname' => 'availability_user',
+                'enableurl' => new moodle_url('/admin/tool/availabilityconditions/'),
+                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
+            ],
+        ];
+    }
+
     #[\Override]
     public function can_act(): bool {
         global $DB;

@@ -18,7 +18,6 @@ namespace local_coursedynamicrules\form\actions;
 
 use local_coursedynamicrules\action\createaiactivity\createaiactivity_action;
 use local_coursedynamicrules\helper\form_plugin_validator;
-use moodle_url;
 
 /**
  * Class createaiactivity_form
@@ -153,22 +152,8 @@ class createaiactivity_form extends action_form {
      * @return array
      */
     private function get_required_plugins() {
-        $plugins = [
-            [
-                'pluginname' => 'availability_user',
-                'enableurl' => new moodle_url('/admin/tool/availabilityconditions/'),
-                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
-            ],
-            [
-                'pluginname' => 'local_coursegen',
-                'downloadurl' => 'https://moodle.org/plugins/local_coursegen/versions',
-            ],
-            [
-                'pluginname' => 'aiprovider_datacurso',
-                'downloadurl' => 'https://moodle.org/plugins/aiprovider_datacurso/versions',
-            ],
-        ];
-
-        return $plugins;
+        // Asked of the action, so the pencil in the listing and the notifications on this form can
+        // never disagree about what is needed.
+        return createaiactivity_action::required_plugins();
     }
 }

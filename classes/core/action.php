@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\core;
 
 use local_coursedynamicrules\form\actions\action_form;
+use local_coursedynamicrules\helper\form_plugin_validator;
 use local_coursedynamicrules\helper\ownership;
 use stdClass;
 
@@ -329,6 +330,34 @@ abstract class action {
         $event->trigger();
 
         return $result;
+    }
+
+    /**
+     * Plugins this action's edit form needs before it can offer anything.
+     *
+     * Both forms that have dependencies return from definition() as soon as one is absent, leaving a
+     * page of notifications and no fields. Declaring the list here, next to the action rather than
+     * inside its form, lets a listing ask before it offers the pencil.
+     *
+     * @return array Plugin definitions as form_plugin_validator takes them; empty when the action
+     *               depends on nothing.
+     */
+    public static function required_plugins(): array {
+        return [];
+    }
+
+    /**
+     * Whether every plugin this action's form needs is installed and enabled.
+     *
+     * The listings already refuse to offer what the endpoint would refuse - the trash can without the
+     * capability, the pencil on a locked rule. A pencil that opens an empty form is the same broken
+     * promise, so it is gated the same way. Deletion is deliberately NOT gated on this: an action
+     * whose dependency is gone must still be removable, or it is stuck in the rule forever.
+     *
+     * @return bool
+     */
+    public function has_its_required_plugins(): bool {
+        return empty(form_plugin_validator::missing_plugins(static::required_plugins()));
     }
 
     /**

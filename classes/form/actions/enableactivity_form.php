@@ -19,7 +19,6 @@ namespace local_coursedynamicrules\form\actions;
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\form_plugin_validator;
-use moodle_url;
 
 /**
  * Class enableactivity_form
@@ -172,14 +171,8 @@ class enableactivity_form extends action_form {
      * @return array
      */
     private function get_required_plugins() {
-        $plugins = [
-            [
-                'pluginname' => 'availability_user',
-                'enableurl' => new moodle_url('/admin/tool/availabilityconditions/'),
-                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
-            ],
-        ];
-
-        return $plugins;
+        // Asked of the action, so the pencil in the listing and the notifications on this form can
+        // never disagree about what is needed.
+        return enableactivity_action::required_plugins();
     }
 }

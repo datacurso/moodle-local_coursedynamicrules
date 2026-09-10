@@ -29,14 +29,6 @@ namespace local_coursedynamicrules;
  */
 final class pending_gaps_test extends \advanced_testcase {
     /**
-     * MDL-E2E-007: the AI action edit pencil must not be offered when a required plugin is missing.
-     * [Pendiente:skip] — the pencil is currently shown and leads to a dead-end degraded form.
-     */
-    public function test_ai_action_pencil_hidden_when_required_plugin_missing(): void {
-        $this->markTestSkipped('Pencil hiding via the plugin validator is pending.');
-    }
-
-    /**
      * SYS-EVAL-001: the generated AI content matches the prompt, language and anonymisation golden set.
      * [Pendiente:skip] — requires the live AI service and a golden dataset; evaluated manually.
      */

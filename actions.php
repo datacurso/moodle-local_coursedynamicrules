@@ -141,9 +141,17 @@ foreach ($actions as $action) {
             'description' => $description,
         ];
 
-        // Bounded editing: the pencil appears only while the rule was never activated and the
-        // role holds updateaction - the same pair of gates the edit endpoint enforces.
-        if (has_capability('local/coursedynamicrules:updateaction', $context) && !$rulelocked) {
+        // Bounded editing: the pencil appears only while the rule was never activated, the role
+        // holds updateaction - the same pair of gates the edit endpoint enforces - and every plugin
+        // the action's form needs is present. Without that last one the pencil opened a form that
+        // returns from definition() at the first missing dependency: notifications and no fields, a
+        // control promising an edit it cannot deliver. The trash can below is deliberately NOT gated
+        // this way, or an action whose dependency is gone could never be removed.
+        if (
+            has_capability('local/coursedynamicrules:updateaction', $context)
+            && !$rulelocked
+            && $listedactioninstance->has_its_required_plugins()
+        ) {
             $editurl = new moodle_url(
                 '/local/coursedynamicrules/actions.php',
                 ['edit' => $action->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
