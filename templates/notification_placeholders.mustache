@@ -24,8 +24,9 @@
     {$a->courseurl} with a bare URL. The list used to be written here, so one of the two forms always
     advertised a marker its action did not know, and the teacher who copied it got the literal text.
 
-    The label arrives already translated: Mustache cannot resolve {{#str}} with a key held in a
-    variable, so the caller looks it up.
+    The label arrives already translated: Mustache cannot resolve a string helper whose key is held
+    in a variable, so the caller looks it up. NOTE - a Mustache comment ends at the first closing
+    double brace, so no example here may ever be written with the braces a real tag carries.
 
     Context variables required for this template:
     * markers - array, one entry per marker offered, in the order to display them
