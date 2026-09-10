@@ -17,7 +17,10 @@
 namespace local_coursedynamicrules\event;
 
 /**
- * Every event this plugin fires must be able to say what its objectid points at.
+ * What every event this plugin fires owes core, checked over all of them at once.
+ *
+ * The class list is read from disk, so a new event class joins these checks by existing rather than
+ * by somebody remembering to add it - which is how all ten came to share the same gap twice.
  *
  * Course logs are backed up and restored with the course. On restore, tool_log asks the event class
  * how to translate the stored objectid into the destination course's own id
@@ -37,7 +40,7 @@ namespace local_coursedynamicrules\event;
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-final class objectid_mapping_test extends \advanced_testcase {
+final class event_contract_test extends \advanced_testcase {
     /**
      * Every event class the plugin ships, read from disk so a new one joins this test by existing.
      *
@@ -103,6 +106,32 @@ final class objectid_mapping_test extends \advanced_testcase {
                 "set_mapping('{$table}'",
                 $restore,
                 "The restore step registers no mapping named '{$table}', which {$class} points at."
+            );
+        }
+    }
+
+    /**
+     * Each event resolves its own name, so the log report never shows a raw string key.
+     *
+     * A missing key is not an empty string: get_string() returns "[[the.key]]" and warns
+     * (lib/classes/string_manager_standard.php:355-358). Asserting the name is merely non-empty
+     * therefore proves nothing on its own - it is the warning that fails such a test, incidentally.
+     * This asserts the thing itself.
+     *
+     * get_url() is not checked here: it needs a triggered instance, and the events that have one
+     * assert it in their own tests.
+     */
+    public function test_every_event_resolves_its_name(): void {
+        $this->resetAfterTest(true);
+
+        foreach ($this->event_classes() as $class) {
+            $name = $class::get_name();
+            $this->assertDebuggingNotCalled("{$class}::get_name() must resolve a real language string.");
+            $this->assertNotEmpty($name, "{$class} must have a name.");
+            $this->assertStringNotContainsString(
+                '[[',
+                $name,
+                "{$class} names itself with a language key that does not exist."
             );
         }
     }
