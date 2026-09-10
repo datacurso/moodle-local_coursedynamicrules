@@ -79,6 +79,7 @@ $string['courselink'] = 'Enlace del curso';
 $string['coursemoduleelementnotfound'] = 'No se encontró el elemento de selección de módulo de actividad del curso.';
 $string['coursename'] = 'Nombre del curso';
 $string['coursestartdate'] = 'Fecha de inicio del curso';
+$string['courseurl'] = 'URL del curso';
 $string['createaiactivity'] = 'Crear actividad de refuerzo con IA';
 $string['createaiactivity_action_info'] = 'Esta acción solicitará al servicio Datacurso AI que genere una actividad de refuerzo personalizada para los usuarios que cumplan las condiciones de la regla.';
 $string['createaiactivity_beforemod'] = 'Colocar antes de la actividad';

@@ -17,65 +17,51 @@
 {{!
     @template local_coursedynamicrules/notification_placeholders
 
-    TODO describe template notification_placeholders
+    The list of markers a message or prompt may contain, with a copy-to-clipboard control each.
+
+    Both action forms render this template, and each passes the markers ITS OWN action substitutes -
+    the notification action replaces {$a->courselink} with an HTML anchor, the AI action replaces
+    {$a->courseurl} with a bare URL. The list used to be written here, so one of the two forms always
+    advertised a marker its action did not know, and the teacher who copied it got the literal text.
+
+    The label arrives already translated: Mustache cannot resolve {{#str}} with a key held in a
+    variable, so the caller looks it up.
+
+    Context variables required for this template:
+    * markers - array, one entry per marker offered, in the order to display them
+        * name - string, the marker's name without the {$a->...} wrapper
+        * label - string, its translated description
+
+    Classes required for JS:
+    * none
+
+    Data attributes required for JS:
+    * data-action="copytoclipboard" - core/copy_to_clipboard, per marker
+    * data-clipboard-target - id of the code element holding the marker text
 
     Example context (json):
     {
+        "markers": [
+            { "name": "coursename", "label": "Course name" },
+            { "name": "courseurl", "label": "Course URL" }
+        ]
     }
 }}
 <div>
     <strong>{{#str}}availableplaceholders, local_coursedynamicrules{{/str}}:</strong>
     <ul>
+        {{#markers}}
         <li>
-            <code id="placeholder-coursename">{$a->coursename}</code> - {{#str}}coursename, local_coursedynamicrules{{/str}}
+            <code id="placeholder-{{name}}">{$a->{{name}}}</code> - {{label}}
             <span class="local_coursedynamicrules_clipboard_icon" role="button"
                   data-action="copytoclipboard"
-                  data-clipboard-target="#placeholder-coursename"
+                  data-clipboard-target="#placeholder-{{name}}"
                   data-clipboard-success-message="{{#str}}copiedtoclipboard, local_coursedynamicrules{{/str}}"
                   title="{{#str}}copytoclipboard, local_coursedynamicrules{{/str}}">
                 {{#pix}}t/clipboard, core{{/pix}}
             </span>
         </li>
-        <li>
-            <code id="placeholder-courselink">{$a->courselink}</code> - {{#str}}courselink, local_coursedynamicrules{{/str}}
-            <span class="local_coursedynamicrules_clipboard_icon" role="button"
-                  data-action="copytoclipboard"
-                  data-clipboard-target="#placeholder-courselink"
-                  data-clipboard-success-message="{{#str}}copiedtoclipboard, local_coursedynamicrules{{/str}}"
-                  title="{{#str}}copytoclipboard, local_coursedynamicrules{{/str}}">
-                {{#pix}}t/clipboard, core{{/pix}}
-            </span>
-        </li>
-        <li>
-            <code id="placeholder-fullname">{$a->fullname}</code> - {{#str}}fullname, local_coursedynamicrules{{/str}}
-            <span class="local_coursedynamicrules_clipboard_icon" role="button"
-                  data-action="copytoclipboard"
-                  data-clipboard-target="#placeholder-fullname"
-                  data-clipboard-success-message="{{#str}}copiedtoclipboard, local_coursedynamicrules{{/str}}"
-                  title="{{#str}}copytoclipboard, local_coursedynamicrules{{/str}}">
-                {{#pix}}t/clipboard, core{{/pix}}
-            </span>
-        </li>
-        <li>
-            <code id="placeholder-firstname">{$a->firstname}</code> - {{#str}}firstname, local_coursedynamicrules{{/str}}
-            <span class="local_coursedynamicrules_clipboard_icon" role="button"
-                  data-action="copytoclipboard"
-                  data-clipboard-target="#placeholder-firstname"
-                  data-clipboard-success-message="{{#str}}copiedtoclipboard, local_coursedynamicrules{{/str}}"
-                  title="{{#str}}copytoclipboard, local_coursedynamicrules{{/str}}">
-                {{#pix}}t/clipboard, core{{/pix}}
-            </span>
-        </li>
-        <li>
-            <code id="placeholder-lastname">{$a->lastname}</code> - {{#str}}lastname, local_coursedynamicrules{{/str}}
-            <span class="local_coursedynamicrules_clipboard_icon" role="button"
-                  data-action="copytoclipboard"
-                  data-clipboard-target="#placeholder-lastname"
-                  data-clipboard-success-message="{{#str}}copiedtoclipboard, local_coursedynamicrules{{/str}}"
-                  title="{{#str}}copytoclipboard, local_coursedynamicrules{{/str}}">
-                {{#pix}}t/clipboard, core{{/pix}}
-            </span>
-        </li>
+        {{/markers}}
     </ul>
 </div>
 {{#js}}

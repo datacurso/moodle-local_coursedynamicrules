@@ -79,6 +79,7 @@ $string['courselink'] = 'Course link';
 $string['coursemoduleelementnotfound'] = 'Course module select element not found.';
 $string['coursename'] = 'Course name';
 $string['coursestartdate'] = 'Course start date';
+$string['courseurl'] = 'Course URL';
 $string['createaiactivity'] = 'Create AI reinforcement activity';
 $string['createaiactivity_action_info'] = 'This action will request the Datacurso AI service to generate a personalised reinforcement activity for users who meet the rule conditions.';
 $string['createaiactivity_beforemod'] = 'Place before activity';

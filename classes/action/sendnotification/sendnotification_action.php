@@ -424,6 +424,19 @@ class sendnotification_action extends action {
     }
 
     /**
+     * The markers this action substitutes, in the order the help should list them.
+     *
+     * The form asks the action instead of repeating the list, so the help cannot drift from what is
+     * actually replaced below - which is exactly how the AI form came to offer {$a->courselink}, a
+     * marker its own action never knew, leaving the literal text in the prompt.
+     *
+     * @return string[] Marker names, without the {$a->...} wrapper.
+     */
+    public static function placeholder_markers(): array {
+        return ['coursename', 'courselink', 'fullname', 'firstname', 'lastname'];
+    }
+
+    /**
      * Replaces message body placeholders with course and user data.
      *
      * Supported placeholders:

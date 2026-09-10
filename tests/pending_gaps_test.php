@@ -37,14 +37,6 @@ final class pending_gaps_test extends \advanced_testcase {
     }
 
     /**
-     * MDL-E2E-009: the AI prompt help must list the markers that action actually substitutes.
-     * [Pendiente:skip] — the shared placeholder template is not yet parametrised per form.
-     */
-    public function test_ai_prompt_help_lists_its_own_markers(): void {
-        $this->markTestSkipped('Placeholder template parametrisation pending.');
-    }
-
-    /**
      * SYS-EVAL-001: the generated AI content matches the prompt, language and anonymisation golden set.
      * [Pendiente:skip] — requires the live AI service and a golden dataset; evaluated manually.
      */
