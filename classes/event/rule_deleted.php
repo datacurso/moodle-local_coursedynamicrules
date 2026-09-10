@@ -60,4 +60,18 @@ class rule_deleted extends \core\event\base {
     public function get_url() {
         return new \moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $this->courseid]);
     }
+
+    /**
+     * Map the objectid so a restored log entry points at this course's own rule.
+     *
+     * Without this, tool_log leaves the id pointing at a row in the SOURCE site
+     * (admin/tool/log/backup/moodle2/restore_tool_log_logstore_subplugin.class.php:97-111). The
+     * plugin's restore step registers this mapping when it recreates the rule, so the id can be
+     * translated rather than given up on with NOT_MAPPED.
+     *
+     * @return array
+     */
+    public static function get_objectid_mapping() {
+        return ['db' => 'local_coursedynamicrules_rule', 'restore' => 'local_coursedynamicrules_rule'];
+    }
 }
