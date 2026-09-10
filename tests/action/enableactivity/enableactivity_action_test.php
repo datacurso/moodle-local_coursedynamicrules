@@ -737,7 +737,8 @@ final class enableactivity_action_test extends \advanced_testcase {
     }
 
     /**
-     * MDL-UNIT-017: the own marked node is found and reused even when nested under a teacher grouping, with no duplicate gate appended.
+     * MDL-UNIT-017: the own marked node is found and reused even when nested under a teacher
+     * grouping, with no duplicate gate appended.
      *
      * FIX3-6: a teacher grouping restrictions via the core "Restrict access" UI can nest this
      * action's own (marked) node inside a child subtree instead of leaving it a direct root child.
@@ -992,6 +993,10 @@ final class enableactivity_action_test extends \advanced_testcase {
             $course->id
         );
 
+        // The flag only appears when a plugin answers course_module_background_deletion_recommended;
+        // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
+        // trusted as a site default, or this test silently measures the hard-deleted case instead.
+        set_config('coursebinenable', 1, 'tool_recyclebin');
         course_delete_module((int) $doomed->cmid, true);
         $this->assertEquals(
             1,
@@ -1470,8 +1475,10 @@ final class enableactivity_action_test extends \advanced_testcase {
             'Precondition: while the activity is healthy the action names it.'
         );
 
-        // Start the deletion the way the interface does, with the recycle bin on: the module stays
-        // in the course flagged as being deleted until cron finishes.
+        // The flag only appears when a plugin answers course_module_background_deletion_recommended;
+        // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
+        // trusted as a site default, or this test silently measures the hard-deleted case instead.
+        set_config('coursebinenable', 1, 'tool_recyclebin');
         course_delete_module((int) $page->cmid, true);
         $this->assertEquals(
             1,
@@ -1494,6 +1501,8 @@ final class enableactivity_action_test extends \advanced_testcase {
      * @covers ::get_description
      */
     public function test_an_action_keeps_naming_the_activities_that_remain(): void {
+        global $DB;
+
         $this->resetAfterTest(true);
         $this->setAdminUser();
 
@@ -1513,7 +1522,16 @@ final class enableactivity_action_test extends \advanced_testcase {
             (int) $course->id
         );
 
+        // The flag only appears when a plugin answers course_module_background_deletion_recommended;
+        // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
+        // trusted as a site default, or this test silently measures the hard-deleted case instead.
+        set_config('coursebinenable', 1, 'tool_recyclebin');
         course_delete_module((int) $doomed->cmid, true);
+        $this->assertEquals(
+            1,
+            $DB->get_field('course_modules', 'deletioninprogress', ['id' => $doomed->cmid]),
+            'Precondition: the deletion must be in progress, not finished - or this measures the deleted case.'
+        );
         rebuild_course_cache((int) $course->id, true);
 
         $description = $action->get_description();

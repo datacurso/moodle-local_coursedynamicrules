@@ -593,9 +593,10 @@ final class rule_lock_test extends \advanced_testcase {
             'Sanity: while the activity exists the rule is complete.'
         );
 
-        // The path the course page actually takes with the recycle bin on, which is the default: the
-        // row is only FLAGGED and a task is queued, so a query that merely finds the row still sees
-        // it. The operator has deleted it all the same.
+        // The path the course page actually takes with the recycle bin on: the row is only FLAGGED
+        // and a task is queued, so a query that merely finds the row still sees it. The operator has
+        // deleted it all the same. Enabled here rather than trusted as a site default.
+        set_config('coursebinenable', 1, 'tool_recyclebin');
         course_delete_module((int) $entry->id, true);
 
         $this->assertSame(

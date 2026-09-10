@@ -70,6 +70,10 @@ final class passgrade_form_test extends \advanced_testcase {
     private function start_deleting(int $cmid, int $courseid): void {
         global $DB;
 
+        // The flag only appears when a plugin answers course_module_background_deletion_recommended;
+        // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
+        // trusted as a site default, or this test silently measures the hard-deleted case instead.
+        set_config('coursebinenable', 1, 'tool_recyclebin');
         course_delete_module($cmid, true);
 
         $this->assertEquals(
