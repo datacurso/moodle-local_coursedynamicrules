@@ -219,10 +219,16 @@ class rule {
 
         // Only the stop is audited: reactivation is not an engine decision, and recording it under
         // this type would answer "who stopped this rule?" with the opposite of the truth.
+        //
+        // The actor is named explicitly. Core defaults it to $USER->id, and cron runs as a copy of
+        // the site administrator, so the default would answer that same question with the name of a
+        // person who did nothing - the very confusion this event exists to remove. USER_OTHER is
+        // core's own value for "system, cli or cron", used by the grade engine for the same reason.
         if (!$this->active) {
             \local_coursedynamicrules\event\rule_autodeactivated::create([
                 'context' => \context_course::instance((int) $this->courseid),
                 'objectid' => (int) $this->id,
+                'userid' => \core\event\base::USER_OTHER,
             ])->trigger();
         }
     }

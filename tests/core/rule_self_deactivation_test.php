@@ -116,6 +116,51 @@ final class rule_self_deactivation_test extends \advanced_testcase {
     }
 
     /**
+     * And the trace must not name a person who did nothing.
+     *
+     * The engine's only caller is a scheduled task, and cron runs as a copy of the site admin
+     * (lib/classes/cron.php:659,671), while core defaults an event's actor to $USER->id
+     * (lib/classes/event/base.php:204). Left alone, a log report asked "who stopped this rule?"
+     * answers with the administrator's name - the same answer a real administrator action would
+     * give, which is the very confusion this event exists to remove. Core reserves a value for
+     * exactly this case: USER_OTHER, "when actor is not an actual user but system, cli or cron"
+     * (base.php:93-96), used by the grade engine at lib/grade/grade_item.php:885 and
+     * lib/grade/grade_category.php:681.
+     *
+     * @covers \local_coursedynamicrules\event\rule_autodeactivated
+     */
+    public function test_the_engine_stop_is_attributed_to_the_system_not_a_person(): void {
+        global $USER;
+
+        $this->resetAfterTest(true);
+        // Stand in for cron, which runs as a copy of the site administrator.
+        $this->setAdminUser();
+
+        [$rule] = $this->active_rule();
+
+        $sink = $this->redirectEvents();
+        $rule->set_active(false);
+        $events = $sink->get_events();
+        $sink->close();
+
+        $stops = array_values(array_filter(
+            $events,
+            fn($e) => $e instanceof \local_coursedynamicrules\event\rule_autodeactivated
+        ));
+        $this->assertCount(1, $stops, 'Precondition: the stop is audited exactly once.');
+        $this->assertSame(
+            \core\event\base::USER_OTHER,
+            (int) $stops[0]->userid,
+            'An engine write must be attributed to the system, not to whoever cron happens to run as.'
+        );
+        $this->assertNotSame(
+            (int) $USER->id,
+            (int) $stops[0]->userid,
+            'The administrator did nothing: the log must not name them.'
+        );
+    }
+
+    /**
      * Reactivation is not a deactivation: it must not leave the trace that means "the engine
      * stopped this", or the log would answer the auditor's question with the opposite of the truth.
      *
