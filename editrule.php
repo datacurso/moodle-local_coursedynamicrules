@@ -78,11 +78,12 @@ if ($ruleid && optional_param('doactivate', 0, PARAM_INT)) {
     }
 
     // Re-checked server-side: the form validated completeness, but this URL is reachable on its
-    // own, and an incomplete locked rule can never fire and never be finished.
-    if (!\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+    // own, and an incomplete locked rule can never fire and never be finished. The reason is asked
+    // for, not just the verdict: "add a condition" and "choose the activities" are different jobs.
+    if ($incompletereason = \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($ruleid)) {
         redirect(
             $rulesurl,
-            get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+            get_string($incompletereason, 'local_coursedynamicrules'),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -126,10 +127,10 @@ if ($ruleid && optional_param('confirmactivate', 0, PARAM_INT)) {
             \core\output\notification::NOTIFY_INFO
         );
     }
-    if (!\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+    if ($incompletereason = \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($ruleid)) {
         redirect(
             $rulesurl,
-            get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+            get_string($incompletereason, 'local_coursedynamicrules'),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
