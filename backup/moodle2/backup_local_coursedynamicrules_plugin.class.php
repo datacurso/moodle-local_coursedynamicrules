@@ -90,9 +90,9 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         // this a restore elsewhere keeps a raw id that either no longer exists or - worse - now
         // belongs to a different role, silently addressing notifications carrying learner data to
         // the wrong people.
-        $notificationroles = new backup_nested_element('notificationroles');
+        $notificationroles = new backup_nested_element('coursedynamicrules_notificationroles');
         $pluginwrapper->add_child($notificationroles);
-        $notificationrole = new backup_nested_element('notificationrole', ['id'], [
+        $notificationrole = new backup_nested_element('coursedynamicrules_notificationrole', ['id'], [
             'roleid',
             'shortname',
         ]);

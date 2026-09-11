@@ -55,7 +55,7 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
             ),
             new restore_path_element(
                 'local_coursedynamicrules_notificationrole',
-                $this->get_pathfor('/notificationroles/notificationrole')
+                $this->get_pathfor('/coursedynamicrules_notificationroles/coursedynamicrules_notificationrole')
             ),
         ];
     }
