@@ -1,3 +1,13 @@
+## 1.8.5
+
+**Released on:** 2026-09-11
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+## Fixed
+- **Course backup no longer fails when another plugin uses the same generic element names**
+  Backing up a course could fail with a "duplicate element" error whenever another installed plugin's course data happened to use the same generic names as this plugin's (rules, conditions, actions, and so on) - Moodle requires every plugin's backup element names to be unique site-wide, not only within its own structure. Every element this plugin writes to a backup now carries a plugin-specific name, so that collision cannot happen again. Backups made before this fix continue to restore exactly as before, with no action needed from anyone holding an older archive.
+
 ## 1.8.4
 
 **Released on:** 2026-09-09
