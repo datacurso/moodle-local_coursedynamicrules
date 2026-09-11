@@ -38,10 +38,7 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
 
         $pluginwrapper = new backup_nested_element($this->get_recommended_name());
 
-        // Named with the plugin prefix, not just 'rules': Moodle's backup optigroup requires
-        // nested element names to be unique across ALL local plugins' course structures, and
-        // local_notificationsagent (third-party) also registers a bare 'rules' element.
-        $rules = new backup_nested_element('coursedynamicrules_rules');
+        $rules = new backup_nested_element('rules');
         $plugin->add_child($pluginwrapper);
         $pluginwrapper->add_child($rules);
 

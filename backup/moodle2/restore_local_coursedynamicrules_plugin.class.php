@@ -39,15 +39,15 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         return [
             new restore_path_element(
                 'local_coursedynamicrules_rule',
-                $this->get_pathfor('/coursedynamicrules_rules/rule')
+                $this->get_pathfor('/rules/rule')
             ),
             new restore_path_element(
                 'local_coursedynamicrules_condition',
-                $this->get_pathfor('/coursedynamicrules_rules/rule/conditions/condition')
+                $this->get_pathfor('/rules/rule/conditions/condition')
             ),
             new restore_path_element(
                 'local_coursedynamicrules_action',
-                $this->get_pathfor('/coursedynamicrules_rules/rule/actions/action')
+                $this->get_pathfor('/rules/rule/actions/action')
             ),
             new restore_path_element(
                 'local_coursedynamicrules_aigrade',
