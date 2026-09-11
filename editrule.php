@@ -78,11 +78,12 @@ if ($ruleid && optional_param('doactivate', 0, PARAM_INT)) {
     }
 
     // Re-checked server-side: the form validated completeness, but this URL is reachable on its
-    // own, and an incomplete locked rule can never fire and never be finished.
-    if (!\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+    // own, and an incomplete locked rule can never fire and never be finished. The reason is asked
+    // for, not just the verdict: "add a condition" and "choose the activities" are different jobs.
+    if ($incompletereason = \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($ruleid)) {
         redirect(
             $rulesurl,
-            get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+            get_string($incompletereason, 'local_coursedynamicrules'),
             null,
             \core\output\notification::NOTIFY_ERROR
         );
@@ -91,6 +92,12 @@ if ($ruleid && optional_param('doactivate', 0, PARAM_INT)) {
     $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
     $DB->set_field('local_coursedynamicrules_rule', 'timemodified', time(), ['id' => $ruleid]);
     \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
+
+    // The rule is in force from this line on, so this is where an action whose effect reaches
+    // outside the plugin applies it. The enable-activity action writes its gate into the activity's
+    // access restrictions here instead of when the operator configured it: doing it at configuration
+    // time closed the activity for every student, invisibly, for a rule nobody had activated.
+    \local_coursedynamicrules\core\action::notify_rule_activated($ruleid, $courseid);
     \local_coursedynamicrules\event\rule_updated::create([
         'context' => $context,
         'objectid' => $ruleid,
@@ -126,10 +133,10 @@ if ($ruleid && optional_param('confirmactivate', 0, PARAM_INT)) {
             \core\output\notification::NOTIFY_INFO
         );
     }
-    if (!\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+    if ($incompletereason = \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($ruleid)) {
         redirect(
             $rulesurl,
-            get_string('ruleactivationincomplete', 'local_coursedynamicrules'),
+            get_string($incompletereason, 'local_coursedynamicrules'),
             null,
             \core\output\notification::NOTIFY_ERROR
         );

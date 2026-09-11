@@ -197,6 +197,13 @@ class rule {
      */
     public function set_active($active) {
         global $DB;
+
+        // Read the stored value before writing over it. The event below means "the engine switched
+        // this off", and only a real 1 -> 0 transition is that: writing 0 over a 0 stopped nothing.
+        // The row is asked rather than $this->active because an instance can outlive the value it
+        // was built with.
+        $wasactive = (int) $DB->get_field('local_coursedynamicrules_rule', 'active', ['id' => $this->id]);
+
         $this->active = $active ? 1 : 0;
         $DB->set_field('local_coursedynamicrules_rule', 'active', $this->active, ['id' => $this->id]);
 
@@ -216,6 +223,25 @@ class rule {
         // After the write, never before: the stamp is conditional on what the ROW says, and it is
         // idempotent, so every path that touches 'active' calls it unconditionally.
         \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $this->id);
+
+        // Only a real stop is audited. Reactivation is not an engine decision, and recording it
+        // under this type would answer "who stopped this rule?" with the opposite of the truth; a
+        // stop on a rule that was already stopped would answer it about an event that never
+        // happened. The timeautodeactivated stamp above is deliberately left unguarded: its
+        // reactivation branch must stay idempotent, and production's only caller - the one-shot
+        // task - cannot reach the double-stop path.
+        //
+        // The actor is named explicitly. Core defaults it to $USER->id, and cron runs as a copy of
+        // the site administrator, so the default would answer that same question with the name of a
+        // person who did nothing - the very confusion this event exists to remove. USER_OTHER is
+        // core's own value for "system, cli or cron", used by the grade engine for the same reason.
+        if (!$this->active && $wasactive) {
+            \local_coursedynamicrules\event\rule_autodeactivated::create([
+                'context' => \context_course::instance((int) $this->courseid),
+                'objectid' => (int) $this->id,
+                'userid' => \core\event\base::USER_OTHER,
+            ])->trigger();
+        }
     }
 
     /**

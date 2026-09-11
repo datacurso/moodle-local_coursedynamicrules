@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\action\enableactivity;
 
 use core_availability\tree;
+use moodle_url;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\enableactivity_form;
@@ -225,9 +226,28 @@ class enableactivity_action extends action {
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
-            $cmrecord = $DB->get_record('course_modules', ['id' => $cmid]);
+            // Scoped to the rule's own course, as can_act() and build_description() already are. A
+            // restore that keeps an unmapped cmid (see the restore plugin) leaves this action holding
+            // an id that belongs to a LIVE module of another course, and resolving it by id alone made
+            // the engine write into that course's activity.
+            $cmrecord = $DB->get_record('course_modules', ['id' => $cmid, 'course' => $this->courseid]);
             if (!$cmrecord) {
-                debugging('enableactivity: course module ' . $cmid . ' no longer exists; skipped', DEBUG_DEVELOPER);
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is not an activity of course '
+                        . $this->courseid . ' (gone, or never belonged to it); skipped',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+
+            // The runtime half of what can_act() and build_description() already decide: the recycle
+            // bin leaves the row in place until cron runs, so without this the engine kept opening an
+            // activity the operator is being told is gone. can_act() cannot cover it - is_complete()
+            // consults it from the form and the activation endpoint only, never on a sealed rule's run.
+            // The privacy counterpart deliberately does NOT filter this way: erasing a user's id from a
+            // module on its way out is still right, while granting on one is not.
+            if ($cmrecord->deletioninprogress) {
+                debugging('enableactivity: course module ' . $cmid . ' is being deleted; skipped', DEBUG_DEVELOPER);
                 continue;
             }
 
@@ -295,9 +315,18 @@ class enableactivity_action extends action {
             return false;
         }
 
-        // One read for all managed modules: a module that was deleted is simply absent.
+        // One read for all managed modules, scoped to this rule's course: a module that was
+        // deleted - or that never belonged here, which a restore can leave behind - is simply absent.
         $changed = false;
-        $cmrecords = $DB->get_records_list('course_modules', 'id', $cmids, '', 'id, availability');
+        [$insql, $inparams] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
+        $inparams['courseid'] = $this->courseid;
+        $cmrecords = $DB->get_records_select(
+            'course_modules',
+            "id $insql AND course = :courseid",
+            $inparams,
+            '',
+            'id, availability'
+        );
         foreach ($cmrecords as $cmrecord) {
             if (empty($cmrecord->availability)) {
                 // No restriction at all: nothing to scrub.
@@ -379,53 +408,96 @@ class enableactivity_action extends action {
             return [];
         }
 
+        // TWO sources, deliberately, because each catches what the other misses.
+        //
+        // The marker inside course_modules.availability was the only source, and core erases it:
+        // opening an activity's settings and saving is enough once the gate has students in it,
+        // which is measured rather than inferred. A refusal that reads erasable data stops refusing,
+        // and the harm is the worst this action can do - a second gate is empty until its own rule
+        // runs, Moodle requires every gate to pass, so the activity closes for the very students the
+        // first gate had already opened it for.
+        //
+        // So the actions' own params are consulted as well: that is the record every other operation
+        // here works from - execute(), revoke_user() and restore_coursemodules() all iterate exactly
+        // this list - and nothing outside the plugin rewrites it.
+        //
+        // The marker is NOT dropped, because it catches a case params cannot: a gate whose action no
+        // longer lists that cmid, left behind when a removal backed off on an ambiguous tree. Neither
+        // source alone is enough; the union is.
+        $owners = [];
+
+        // Source 1: what each action of this course says it manages.
+        $rows = $DB->get_records_sql(
+            "SELECT a.id, a.params
+               FROM {" . action::TABLE . "} a
+               JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
+              WHERE a.actiontype = :actiontype AND r.courseid = :courseid",
+            ['actiontype' => 'enableactivity', 'courseid' => $courseid]
+        );
+        foreach ($rows as $row) {
+            $decoded = json_decode((string) $row->params);
+            foreach ((array) ($decoded->coursemodules ?? []) as $cm) {
+                $cmid = (int) (is_object($cm) ? ($cm->id ?? 0) : $cm);
+                if ($cmid > 0) {
+                    $owners[$cmid][(int) $row->id] = true;
+                }
+            }
+        }
+
+        // Source 2: markers still present on the activities themselves. A marker belonging to an
+        // action that no longer exists is ignored, as it was before: it gates nothing.
         [$insql, $params] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
         $params['courseid'] = $courseid;
-        $rows = $DB->get_records_select(
+        $cmrows = $DB->get_records_select(
             'course_modules',
             "id $insql AND course = :courseid",
             $params,
             '',
             'id, availability'
         );
-
-        $ownmarker = $excludeactionid ? self::MARKER_PREFIX . $excludeactionid : null;
         $liveactions = $DB->get_fieldset_select(
             action::TABLE,
             'id',
             'actiontype = :actiontype',
             ['actiontype' => 'enableactivity']
         );
-        $livemarkers = [];
+        $byliveid = [];
         foreach ($liveactions as $liveid) {
-            $livemarkers[self::MARKER_PREFIX . $liveid] = true;
+            $byliveid[self::MARKER_PREFIX . $liveid] = (int) $liveid;
         }
-
-        $clashing = [];
-        foreach ($cmids as $cmid) {
-            $availability = $rows[$cmid]->availability ?? null;
-            if (empty($availability)) {
+        foreach ($cmrows as $cmid => $cmrow) {
+            if (empty($cmrow->availability)) {
                 continue;
             }
-            $tree = json_decode($availability);
+            $tree = json_decode($cmrow->availability);
             if (!is_object($tree)) {
                 continue;
             }
             $marked = [];
             $unmarked = [];
             self::collect_user_nodes($tree, $marked, $unmarked);
-
-            $mine = false;
-            $others = false;
             foreach ($marked as $node) {
-                $marker = $node->{self::MARKER_KEY};
-                if ($ownmarker !== null && $marker === $ownmarker) {
-                    $mine = true;
-                } else if (isset($livemarkers[$marker])) {
-                    $others = true;
+                $actionid = $byliveid[$node->{self::MARKER_KEY}] ?? null;
+                if ($actionid !== null) {
+                    $owners[(int) $cmid][$actionid] = true;
                 }
             }
-            if ($others && !$mine) {
+        }
+
+        $exclude = $excludeactionid !== null ? (int) $excludeactionid : null;
+        $clashing = [];
+        foreach ($cmids as $cmid) {
+            $gatedby = $owners[$cmid] ?? [];
+
+            // A module this action ALREADY gates is never a clash, whatever else gates it: the harm
+            // is in adding a second gate where this action has none. A pair inherited from an earlier
+            // version therefore stays editable on both sides.
+            if ($exclude !== null && isset($gatedby[$exclude])) {
+                continue;
+            }
+            unset($gatedby[$exclude]);
+
+            if (!empty($gatedby)) {
                 $clashing[] = $cmid;
             }
         }
@@ -661,8 +733,22 @@ class enableactivity_action extends action {
             // already being set for both the create and the edit path.
             $actionid = $this->upsert($params, $formdata);
 
-            foreach ($tomanage as $cmid) {
-                $this->apply_availability($cmid, false);
+            // The gate belongs to a rule IN FORCE, never to a merely configured one. Writing it here
+            // unconditionally closed the named activity for every student - invisibly, since the
+            // gate's showc slot is false - for a rule the operator had not activated and that had
+            // never run, while the listing reported it as inactive. Present since the action was
+            // introduced (2024-12-02, release 1.1.1); no version ever consulted 'active' here. The
+            // activation endpoint applies the gates instead, through on_rule_activated().
+            //
+            // upsert() ran first, so get_ruleid() is the write's own validated rule. The check is on
+            // the stored 'active' value, not on the lock: an already-activated rule is sealed and
+            // cannot reach this method at all, but an active rule left UNLOCKED by the upgrade's
+            // partial back-fill of timeactivated can - and that one is genuinely in force, so its
+            // newly added activity must be gated now.
+            if ($this->rule_is_active()) {
+                foreach ($tomanage as $cmid) {
+                    $this->apply_availability($cmid, false);
+                }
             }
 
             if (!empty($toremove)) {
@@ -682,6 +768,57 @@ class enableactivity_action extends action {
         rebuild_course_cache($this->courseid, true);
 
         return $actionid;
+    }
+
+    /**
+     * Apply this action's gate to every activity it manages, because its rule just came into force.
+     *
+     * The counterpart of the check in save_action(): the gate is written HERE, once the operator has
+     * activated the rule, instead of when they configured it. Idempotent - apply_availability()
+     * looks for this action's own marked node anywhere in the tree first and leaves an activity that
+     * already carries the gate untouched - so a replayed activation adds nothing.
+     *
+     * Each cmid is filtered exactly as execute() filters it: scoped to the rule's own course,
+     * because a restore that kept an unmapped cmid leaves this action holding an id belonging to
+     * another course's live module, and skipped while its deletion is in progress, because the
+     * recycle bin leaves the row in place until cron runs and the operator has already deleted it.
+     * Without the course scope apply_availability() would fatal on a MUST_EXIST miss and take the
+     * whole activation with it.
+     *
+     * @return void
+     */
+    public function on_rule_activated(): void {
+        global $DB;
+
+        $applied = false;
+        foreach ((array) ($this->params->coursemodules ?? []) as $cm) {
+            $cmid = (int) $cm->id;
+
+            if (!$DB->record_exists('course_modules', ['id' => $cmid, 'course' => $this->courseid])) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is not an activity of course '
+                        . $this->courseid . ' (gone, or never belonged to it); not gated on activation',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+
+            if ($DB->get_field('course_modules', 'deletioninprogress', ['id' => $cmid])) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is being deleted; not gated on activation',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+
+            $this->apply_availability($cmid, false);
+            $applied = true;
+        }
+
+        // One rebuild after the loop rather than one per module, the way save_action() does it.
+        if ($applied) {
+            rebuild_course_cache($this->courseid, true);
+        }
     }
 
     /**
@@ -900,10 +1037,13 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
 
-            // If the module no longer exists there is nothing to restore; keep going so the rule
-            // stays deletable/editable (set_coursemodule_visible() would otherwise fatal on a
-            // missing context).
-            if (!$DB->record_exists('course_modules', ['id' => $cmid])) {
+            // If the module is not an activity of this course there is nothing to restore; keep
+            // going so the rule stays deletable/editable (set_coursemodule_visible() would otherwise
+            // fatal on a missing context). The course check guards EVERYTHING below it, the
+            // set_coursemodule_visible() call included - that one runs outside the removal branch, so
+            // without this it rewrote a foreign course's module visibility whether or not this action
+            // found anything of its own to remove.
+            if (!$DB->record_exists('course_modules', ['id' => $cmid, 'course' => $this->courseid])) {
                 continue;
             }
 
@@ -962,6 +1102,21 @@ class enableactivity_action extends action {
      *
      * @return bool
      */
+    /**
+     * The plugin this action needs: the user restriction it writes its gate into.
+     *
+     * @return array
+     */
+    public static function required_plugins(): array {
+        return [
+            [
+                'pluginname' => 'availability_user',
+                'enableurl' => new moodle_url('/admin/tool/availabilityconditions/'),
+                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
+            ],
+        ];
+    }
+
     #[\Override]
     public function can_act(): bool {
         global $DB;
@@ -1019,7 +1174,9 @@ class enableactivity_action extends action {
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
             $cminfo = get_coursemodule_from_id(null, $cmid, $this->courseid);
-            if (!$cminfo) {
+            // A deletion in progress counts as gone, as it already does for can_act() and for the
+            // four activity conditions: the recycle bin leaves the row in place until cron runs.
+            if (!$cminfo || $cminfo->deletioninprogress) {
                 continue;
             }
             $descriptionarray[] = ucfirst($cminfo->modname) . " - " . $cminfo->name;

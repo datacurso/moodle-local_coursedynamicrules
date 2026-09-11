@@ -72,4 +72,48 @@ final class form_plugin_validator_test extends \advanced_testcase {
 
         $this->assertSame(['local_definitelynotinstalled'], $missing);
     }
+
+    /**
+     * The same verdict must be available without a form, so a listing can ask it before offering a
+     * control that leads to a form the plugin's absence has already emptied.
+     *
+     * @covers ::missing_plugins
+     */
+    public function test_missing_plugins_reports_without_needing_a_form(): void {
+        $this->assertSame(
+            ['local_definitelynotinstalled'],
+            form_plugin_validator::missing_plugins([
+                [
+                    'pluginname' => 'local_coursedynamicrules',
+                    'downloadurl' => 'https://moodle.org/plugins/local_coursedynamicrules',
+                ],
+                [
+                    'pluginname' => 'local_definitelynotinstalled',
+                    'downloadurl' => 'https://moodle.org/plugins/local_definitelynotinstalled',
+                ],
+            ])
+        );
+    }
+
+    /**
+     * And it agrees with the form-facing method, which is the whole point: a control hidden because a
+     * plugin is missing and a form that explains why must not disagree about whether it is missing.
+     *
+     * @covers ::missing_plugins
+     */
+    public function test_the_query_and_the_notifier_agree(): void {
+        $plugins = [
+            [
+                'pluginname' => 'local_definitelynotinstalled',
+                'downloadurl' => 'https://moodle.org/plugins/local_definitelynotinstalled',
+            ],
+        ];
+
+        $mform = new \MoodleQuickForm('testform', 'post', '');
+
+        $this->assertSame(
+            form_plugin_validator::add_notifications_to_form($mform, $plugins),
+            form_plugin_validator::missing_plugins($plugins)
+        );
+    }
 }

@@ -192,7 +192,10 @@ if (!availability_user_status::is_enabled()) {
 echo html_writer::start_div('d-flex h-100');
 
 if (has_capability('local/coursedynamicrules:createcondition', $context) && !$rulelocked) {
-    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $conditionoptions]);
+    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', [
+        'options' => $conditionoptions,
+        'menulabel' => get_string('addconditions', 'local_coursedynamicrules'),
+    ]);
 }
 echo html_writer::start_div('col-8 h-100');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $conditionsfortemplate]);

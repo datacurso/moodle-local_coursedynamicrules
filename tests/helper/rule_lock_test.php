@@ -593,9 +593,10 @@ final class rule_lock_test extends \advanced_testcase {
             'Sanity: while the activity exists the rule is complete.'
         );
 
-        // The path the course page actually takes with the recycle bin on, which is the default: the
-        // row is only FLAGGED and a task is queued, so a query that merely finds the row still sees
-        // it. The operator has deleted it all the same.
+        // The path the course page actually takes with the recycle bin on: the row is only FLAGGED
+        // and a task is queued, so a query that merely finds the row still sees it. The operator has
+        // deleted it all the same. Enabled here rather than trusted as a site default.
+        set_config('coursebinenable', 1, 'tool_recyclebin');
         course_delete_module((int) $entry->id, true);
 
         $this->assertSame(
@@ -700,5 +701,116 @@ final class rule_lock_test extends \advanced_testcase {
             'configured first' => [false],
             'empty first' => [true],
         ];
+    }
+
+    /**
+     * A rule refused activation must say WHICH of the four things is missing, not read out all of
+     * them.
+     *
+     * is_complete() distinguishes four states internally - no conditions, no actions, an action whose
+     * class this build cannot load, and an action that could do nothing if the rule fired - and
+     * answered all four with one string that lists every requirement at once. The operator then has
+     * to work out which sentence applies to them.
+     *
+     * The reason is returned as a language string key rather than a sentence, so this test does not
+     * depend on wording, and null means complete.
+     *
+     * @covers ::incompleteness_reason
+     */
+    public function test_each_incomplete_state_names_itself(): void {
+        global $DB;
+
+        $condition = static function (int $ruleid): object {
+            return (object) [
+                'ruleid' => $ruleid,
+                'conditiontype' => 'no_course_access',
+                'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+            ];
+        };
+
+        // 1. Nothing at all: the condition side is reported first, because a rule without one can
+        // never fire however many actions it has.
+        $bare = $this->rule(0);
+        $this->assertSame(
+            'ruleactivationnoconditions',
+            \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($bare)
+        );
+
+        // 2. A condition, no action.
+        $noaction = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', $condition($noaction));
+        $this->assertSame(
+            'ruleactivationnoactions',
+            \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($noaction)
+        );
+
+        // 3. An action present but unable to act: the enable-activity action with nothing chosen,
+        // which is the state every duplicated draft is born in.
+        $idle = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', $condition($idle));
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $idle,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => []]),
+        ]);
+        $this->assertSame(
+            'ruleactivationactionidle',
+            \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($idle)
+        );
+
+        // 4. Complete: no reason to give.
+        $complete = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', $condition($complete));
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $complete,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => [$this->real_activity_entry()]]),
+        ]);
+        $this->assertNull(
+            \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($complete),
+            'A complete rule has nothing to explain.'
+        );
+    }
+
+    /**
+     * And every reason it can give must be a language string that exists, or the operator reads
+     * "[[ruleactivation...]]" instead of an explanation.
+     *
+     * @covers ::incompleteness_reason
+     */
+    public function test_every_reason_resolves_to_a_real_string(): void {
+        foreach (\local_coursedynamicrules\helper\rule_lock::incompleteness_reasons() as $key) {
+            $text = get_string($key, 'local_coursedynamicrules');
+            $this->assertDebuggingNotCalled("The reason '{$key}' must be a real language string.");
+            $this->assertStringNotContainsString('[[', $text);
+        }
+    }
+
+    /**
+     * is_complete() keeps answering exactly what it answered before: the reason is additional
+     * information, not a replacement, so every caller and every test above stays valid.
+     *
+     * @covers ::is_complete
+     */
+    public function test_is_complete_still_agrees_with_the_reason(): void {
+        global $DB;
+
+        $incomplete = $this->rule(0);
+        $this->assertFalse(\local_coursedynamicrules\helper\rule_lock::is_complete($incomplete));
+        $this->assertNotNull(\local_coursedynamicrules\helper\rule_lock::incompleteness_reason($incomplete));
+
+        $complete = $this->rule(0);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $complete,
+            'conditiontype' => 'no_course_access',
+            'params' => json_encode(['periodvalue' => 1, 'periodunit' => 'days', 'nexttimeperiod' => 0]),
+        ]);
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $complete,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode(['coursemodules' => [$this->real_activity_entry()]]),
+        ]);
+        $this->assertTrue(\local_coursedynamicrules\helper\rule_lock::is_complete($complete));
+        $this->assertNull(\local_coursedynamicrules\helper\rule_lock::incompleteness_reason($complete));
     }
 }

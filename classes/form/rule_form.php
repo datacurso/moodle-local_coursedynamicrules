@@ -138,8 +138,12 @@ class rule_form extends \moodleform {
             return $errors;
         }
 
-        if (!$ruleid || !\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid)) {
+        // An unsaved rule has no components to inspect yet, so it gets the general explanation; a
+        // saved one gets the sentence for the state it is actually in.
+        if (!$ruleid) {
             $errors['active'] = get_string('ruleactivationincomplete', 'local_coursedynamicrules');
+        } else if ($reason = \local_coursedynamicrules\helper\rule_lock::incompleteness_reason($ruleid)) {
+            $errors['active'] = get_string($reason, 'local_coursedynamicrules');
         }
 
         return $errors;
