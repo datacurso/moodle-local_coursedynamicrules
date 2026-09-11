@@ -44,7 +44,11 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         $plugin->add_child($pluginwrapper);
         $pluginwrapper->add_child($rules);
 
-        $rule = new backup_nested_element('rule', ['id'], [
+        // Every nested element name below is also plugin-prefixed: Moodle's backup optigroup
+        // checks name uniqueness across the WHOLE shared tree of all local plugins, at any depth,
+        // not just among direct siblings - so generic names like 'rule' or 'action' collide with
+        // another plugin's equally generic names even when nested under a uniquely-named parent.
+        $rule = new backup_nested_element('coursedynamicrules_rule', ['id'], [
             'courseid',
             'name',
             'description',
@@ -56,9 +60,9 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         ]);
         $rules->add_child($rule);
 
-        $conditions = new backup_nested_element('conditions');
+        $conditions = new backup_nested_element('coursedynamicrules_conditions');
         $rule->add_child($conditions);
-        $condition = new backup_nested_element('condition', ['id'], [
+        $condition = new backup_nested_element('coursedynamicrules_condition', ['id'], [
             'ruleid',
             'name',
             'conditiontype',
@@ -68,9 +72,9 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         ]);
         $conditions->add_child($condition);
 
-        $actions = new backup_nested_element('actions');
+        $actions = new backup_nested_element('coursedynamicrules_actions');
         $rule->add_child($actions);
-        $action = new backup_nested_element('action', ['id'], [
+        $action = new backup_nested_element('coursedynamicrules_action', ['id'], [
             'ruleid',
             'name',
             'actiontype',
