@@ -24,9 +24,25 @@ use core_privacy\local\metadata\collection;
  * The plugin stores no personal data in its own tables (rules, conditions and actions hold course
  * configuration only), so it implements no data store. It does, however, transfer course and user
  * context to an external AI service when the "create AI activity" action runs, which is declared
- * here as an external location so administrators can account for it. User-linked side effects that
- * stay inside Moodle (messages, adhoc tasks, activity availability) live in core subsystems that
- * declare their own privacy metadata.
+ * here as an external location so administrators can account for it.
+ *
+ * Two limits of this class are stated plainly rather than implied, because an earlier version of
+ * this docblock implied the opposite:
+ *
+ * 1. Messages and adhoc tasks are core subsystems that declare their own privacy metadata, so they
+ *    are correctly absent here. Activity availability is NOT: the enable-activity and create-AI-
+ *    activity actions write a user id into {course_modules}.availability, and availability_user is
+ *    a null_provider - it declares no personal data (availability/condition/user/classes/privacy/
+ *    provider.php). Those ids are therefore declared by nobody. What removes them today is an
+ *    event observer on user deletion (classes/observer/user_deleted.php), and that observer covers
+ *    the enable-activity action ONLY, so an id written by the create-AI-activity action survives
+ *    the user being deleted. CHANGES.md records this under "Privacy exports".
+ *
+ * 2. This class implements the metadata provider only: it discloses, it does not export or erase.
+ *    An approved data-deletion request runs nothing here.
+ *
+ * Both are open gaps, not decisions. They are named so that the next reader does not have to
+ * rediscover them from the code the way a blind review had to.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -40,13 +56,27 @@ class provider implements \core_privacy\local\metadata\provider {
      * @return collection The updated collection.
      */
     public static function get_metadata(collection $collection): collection {
+        // These are the KEYS of the /activity/init payload built by
+        // createaiactivity_action::execute(), not a prose description of it: a field named here
+        // that the service never receives misdescribes the transfer just as badly as an omission,
+        // and external_transfer_declaration_test.php compares both directions against the request
+        // the action really sends. The three payload keys left out carry no personal data and no
+        // data subject - with_images (the teacher's checkbox), auto_approve (always true, since
+        // cron has nobody to approve a plan) and service_id (the calling plugin's billing
+        // identity) - and that exclusion is pinned in the same test.
+        //
+        // Course name and course URL are deliberately NOT separate entries. They reach the service
+        // only inside `instructions`, and only when the teacher writes {$a->coursename} or
+        // {$a->courseurl} in the prompt (build_prompt() substitutes them), so declaring them as
+        // fields of their own would claim a channel that does not exist. Their travel is disclosed
+        // in the `instructions` string instead, which is where it is literally true.
         $collection->add_external_location_link(
             'datacurso_ai',
             [
+                'instructions' => 'privacy:metadata:datacurso_ai:instructions',
+                'lang' => 'privacy:metadata:datacurso_ai:lang',
+                'site_url' => 'privacy:metadata:datacurso_ai:site_url',
                 'userid' => 'privacy:metadata:datacurso_ai:userid',
-                'courseid' => 'privacy:metadata:datacurso_ai:courseid',
-                'courseurl' => 'privacy:metadata:datacurso_ai:courseurl',
-                'prompt' => 'privacy:metadata:datacurso_ai:prompt',
             ],
             'privacy:metadata:datacurso_ai'
         );
