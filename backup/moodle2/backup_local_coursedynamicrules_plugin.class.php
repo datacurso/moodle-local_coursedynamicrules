@@ -37,11 +37,18 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
 
         $pluginwrapper = new backup_nested_element($this->get_recommended_name());
 
-        $rules = new backup_nested_element('rules');
+        // Named with the plugin prefix, not just 'rules': Moodle's backup optigroup requires
+        // nested element names to be unique across ALL local plugins' course structures, and
+        // local_notificationsagent (third-party) also registers a bare 'rules' element.
+        $rules = new backup_nested_element('coursedynamicrules_rules');
         $plugin->add_child($pluginwrapper);
         $pluginwrapper->add_child($rules);
 
-        $rule = new backup_nested_element('rule', ['id'], [
+        // Every nested element name below is also plugin-prefixed: Moodle's backup optigroup
+        // checks name uniqueness across the WHOLE shared tree of all local plugins, at any depth,
+        // not just among direct siblings - so generic names like 'rule' or 'action' collide with
+        // another plugin's equally generic names even when nested under a uniquely-named parent.
+        $rule = new backup_nested_element('coursedynamicrules_rule', ['id'], [
             'courseid',
             'name',
             'description',
@@ -53,9 +60,9 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         ]);
         $rules->add_child($rule);
 
-        $conditions = new backup_nested_element('conditions');
+        $conditions = new backup_nested_element('coursedynamicrules_conditions');
         $rule->add_child($conditions);
-        $condition = new backup_nested_element('condition', ['id'], [
+        $condition = new backup_nested_element('coursedynamicrules_condition', ['id'], [
             'ruleid',
             'name',
             'conditiontype',
@@ -65,9 +72,9 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         ]);
         $conditions->add_child($condition);
 
-        $actions = new backup_nested_element('actions');
+        $actions = new backup_nested_element('coursedynamicrules_actions');
         $rule->add_child($actions);
-        $action = new backup_nested_element('action', ['id'], [
+        $action = new backup_nested_element('coursedynamicrules_action', ['id'], [
             'ruleid',
             'name',
             'actiontype',
@@ -83,9 +90,9 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         // this a restore elsewhere keeps a raw id that either no longer exists or - worse - now
         // belongs to a different role, silently addressing notifications carrying learner data to
         // the wrong people.
-        $notificationroles = new backup_nested_element('notificationroles');
+        $notificationroles = new backup_nested_element('coursedynamicrules_notificationroles');
         $pluginwrapper->add_child($notificationroles);
-        $notificationrole = new backup_nested_element('notificationrole', ['id'], [
+        $notificationrole = new backup_nested_element('coursedynamicrules_notificationrole', ['id'], [
             'roleid',
             'shortname',
         ]);
