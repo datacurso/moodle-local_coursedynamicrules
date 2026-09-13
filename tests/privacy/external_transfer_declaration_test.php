@@ -43,9 +43,12 @@ require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
  * (aiprovider_datacurso\httpclient\datacurso_api_base::send_request(), the $defaultpayload array on
  * the POST branch, currently site_id and timezone). Those keys never pass through the seam this
  * test stubs, so nothing here can see them, and no assertion below should be read as a statement
- * about them. They belong to the plugin that adds them, and that plugin's own privacy provider is
- * where they are accounted for - the same reasoning that keeps core's messaging fields out of this
- * plugin's declaration.
+ * about them. They are added by that plugin's transport, so declaring them is that plugin's
+ * responsibility - the same reasoning that keeps core's messaging fields out of this plugin's
+ * declaration. But responsibility is not coverage: as of this writing aiprovider_datacurso's own
+ * provider declares prompt, numberimages and userid only, so today NOBODY declares site_id or
+ * timezone. (timezone is the timezone of the account the request runs as; the action only ever
+ * runs from an adhoc task, so that is the cron account's, not the student's.)
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -55,19 +58,32 @@ require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
  */
 final class external_transfer_declaration_test extends \advanced_testcase {
     /**
-     * @var string[] Payload keys that carry no personal data and are therefore not declared.
+     * @var string[] Contractual payload keys handed to the AI client at this seam.
+     */
+    private const PAYLOAD_CONTRACT_KEYS = [
+        'instructions',
+        'lang',
+        'with_images',
+        'userid',
+        'site_url',
+        'auto_approve',
+        'service_id',
+    ];
+
+    /**
+     * @var string[] Operational controls that are not declared as transferred data fields.
      *
-     * Each entry is a deliberate exclusion, not an oversight: they are constants of the request
-     * itself, identical for every user and every course, and they identify no data subject.
+     * Each entry is a deliberate exclusion from the metadata comparison, not an oversight. This
+     * test records the plugin's classification; it does not establish a legal classification.
      *
-     * - with_images:  the teacher's own checkbox on the action form.
+     * - with_images:  configured at action level and may vary between actions.
      * - auto_approve: always true - rules run unattended from cron, so nobody can approve a plan.
      * - service_id:   the billing identity of the calling plugin.
      *
      * A payload key that is NOT here and NOT declared fails the test on purpose: adding one forces
-     * whoever adds it to decide, in this list or in provider.php, whether it names a person.
+     * whoever adds it to decide explicitly whether the metadata declaration must include it.
      */
-    private const NON_PERSONAL_PAYLOAD_KEYS = ['with_images', 'auto_approve', 'service_id'];
+    private const OPERATIONAL_CONTROL_KEYS = ['with_images', 'auto_approve', 'service_id'];
 
     /**
      * Skip when the external AI stack is absent: without it the action returns before building a
@@ -173,6 +189,23 @@ final class external_transfer_declaration_test extends \advanced_testcase {
     }
 
     /**
+     * The client seam has an explicit key contract, so coordinated drift requires a contract update.
+     *
+     * @return void
+     */
+    public function test_payload_keys_match_explicit_contract(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+
+        $actual = array_keys($this->capture_init_payload());
+        $expected = self::PAYLOAD_CONTRACT_KEYS;
+        sort($actual);
+        sort($expected);
+
+        $this->assertSame($expected, $actual);
+    }
+
+    /**
      * A declared field the service never receives misdescribes the transfer, so it must not exist.
      *
      * @return void
@@ -195,18 +228,18 @@ final class external_transfer_declaration_test extends \advanced_testcase {
     }
 
     /**
-     * A personal field that is sent but not declared leaves the transfer undisclosed.
+     * A field not classified as an operational control must be present in the declaration.
      *
      * @return void
      */
-    public function test_every_personal_field_sent_is_declared(): void {
+    public function test_every_non_operational_field_sent_is_declared(): void {
         $this->require_ai_stack();
         $this->resetAfterTest(true);
 
         $payload = $this->capture_init_payload();
         $declared = $this->declared_fields();
 
-        $undeclared = array_diff(array_keys($payload), $declared, self::NON_PERSONAL_PAYLOAD_KEYS);
+        $undeclared = array_diff(array_keys($payload), $declared, self::OPERATIONAL_CONTROL_KEYS);
 
         $this->assertSame(
             [],
