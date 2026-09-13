@@ -39,7 +39,14 @@ use core_privacy\local\metadata\collection;
  *    the user being deleted. CHANGES.md records this under "Privacy exports".
  *
  * 2. This class implements the metadata provider only: it discloses, it does not export or erase.
- *    An approved data-deletion request runs nothing here.
+ *    Under the Privacy API that has two consequences worth stating exactly. Core does not count the
+ *    plugin as compliant (privacy/classes/manager.php:143-160 requires a data provider as well),
+ *    and the plugin privacy registry therefore lists it as non-compliant WITHOUT rendering the
+ *    declaration below (admin/tool/dataprivacy/classes/metadata_registry.php:58-73 formats the
+ *    collection of compliant components only). And an approved deletion request runs none of this
+ *    class - but it is not true that it runs nothing of this plugin: it ends by deleting the
+ *    account (admin/tool/dataprivacy/classes/task/process_data_request_task.php:297), which fires
+ *    user_deleted and runs the observer in point 1, for the enable-activity action only.
  *
  * Both are open gaps, not decisions. They are named so that the next reader does not have to
  * rediscover them from the code the way a blind review had to.
@@ -60,10 +67,11 @@ class provider implements \core_privacy\local\metadata\provider {
         // createaiactivity_action::execute(), not a prose description of it: a field named here
         // that the service never receives misdescribes the transfer just as badly as an omission,
         // and external_transfer_declaration_test.php compares both directions against the request
-        // the action really sends. The three payload keys left out carry no personal data and no
-        // data subject - with_images (the teacher's checkbox), auto_approve (always true, since
-        // cron has nobody to approve a plan) and service_id (the calling plugin's billing
-        // identity) - and that exclusion is pinned in the same test.
+        // the action really sends. The three payload keys left out are operational controls of
+        // the request rather than data about a person - with_images (configured per action, so it
+        // varies between actions, but it names nobody), auto_approve (always true, since cron has
+        // nobody to approve a plan) and service_id (the calling plugin's billing identity). That
+        // is this plugin's own classification, pinned in the same test; it is not a legal one.
         //
         // Course name and course URL are deliberately NOT separate entries. They reach the service
         // only inside `instructions`, and only when the teacher writes {$a->coursename} or
