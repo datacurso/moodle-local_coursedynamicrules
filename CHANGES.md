@@ -1,4 +1,4 @@
-## 1.8.5
+## 1.8.6
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
@@ -33,6 +33,16 @@
   The enable-activity action omits from its description an activity that was deleted or whose deletion is in progress, so an action with three targets of which one is gone reads as if it only ever had two; only the case where EVERY target is gone is flagged, with the shared missing-activity warning. The create-AI-activity action drops the placement clause when its anchor activity was deleted and still hands the stale id to the generator, which then appends the new activity at the end of the section.
 - **The engine's own stop is not carried into a restored course**
   Every event this plugin raises now tells the restore how to translate the rule, condition or action it points at, so a restored course's log entries refer to its own components instead of the source site's. The one exception is the entry recording that the engine switched a rule off: it is attributed to the system rather than to a person, and Moodle drops a log record whose actor it cannot match to a user in the destination site before it ever looks at what the record points at. So that single entry does not survive a course copy. Making it survive would mean putting a person's name on a decision no person took, which is what the entry exists to avoid; Moodle's own grade engine accepts the same trade for the same reason.
+
+## 1.8.5
+
+**Released on:** 2026-09-11
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+## Fixed
+- **Course backup no longer fails when another plugin uses the same generic element names**
+  Backing up a course could fail with a "duplicate element" error whenever another installed plugin's course data happened to use the same generic names as this plugin's (rules, conditions, actions, and so on) - Moodle requires every plugin's backup element names to be unique site-wide, not only within its own structure. Every element this plugin writes to a backup now carries a plugin-specific name, so that collision cannot happen again. Backups made before this fix continue to restore exactly as before, with no action needed from anyone holding an older archive.
 
 ## 1.8.4
 

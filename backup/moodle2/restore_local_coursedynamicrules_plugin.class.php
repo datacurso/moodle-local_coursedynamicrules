@@ -39,18 +39,43 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         return [
             new restore_path_element(
                 'local_coursedynamicrules_rule',
-                $this->get_pathfor('/rules/rule')
+                $this->get_pathfor('/coursedynamicrules_rules/coursedynamicrules_rule')
             ),
             new restore_path_element(
                 'local_coursedynamicrules_condition',
-                $this->get_pathfor('/rules/rule/conditions/condition')
+                $this->get_pathfor(
+                    '/coursedynamicrules_rules/coursedynamicrules_rule/coursedynamicrules_conditions/coursedynamicrules_condition'
+                )
             ),
             new restore_path_element(
                 'local_coursedynamicrules_action',
-                $this->get_pathfor('/rules/rule/actions/action')
+                $this->get_pathfor(
+                    '/coursedynamicrules_rules/coursedynamicrules_rule/coursedynamicrules_actions/coursedynamicrules_action'
+                )
             ),
             new restore_path_element(
                 'local_coursedynamicrules_notificationrole',
+                $this->get_pathfor('/coursedynamicrules_notificationroles/coursedynamicrules_notificationrole')
+            ),
+
+            // Legacy element names, from backups made before these elements were prefixed to avoid
+            // a course backup naming collision with another local plugin. Kept so an archive created
+            // before the rename still restores its data; each delegates to the same processing as
+            // its current-name counterpart above.
+            new restore_path_element(
+                'local_coursedynamicrules_rule_legacy',
+                $this->get_pathfor('/rules/rule')
+            ),
+            new restore_path_element(
+                'local_coursedynamicrules_condition_legacy',
+                $this->get_pathfor('/rules/rule/conditions/condition')
+            ),
+            new restore_path_element(
+                'local_coursedynamicrules_action_legacy',
+                $this->get_pathfor('/rules/rule/actions/action')
+            ),
+            new restore_path_element(
+                'local_coursedynamicrules_notificationrole_legacy',
                 $this->get_pathfor('/notificationroles/notificationrole')
             ),
         ];
@@ -76,6 +101,17 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         if ($roleid > 0 && $shortname !== '') {
             $this->notificationroleshortnames[$roleid] = $shortname;
         }
+    }
+
+    /**
+     * Legacy path element: same processing as {@see self::process_local_coursedynamicrules_notificationrole()}.
+     *
+     * @param array $data
+     *
+     * @return void
+     */
+    public function process_local_coursedynamicrules_notificationrole_legacy($data) {
+        $this->process_local_coursedynamicrules_notificationrole($data);
     }
 
     /**
@@ -116,6 +152,17 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
     }
 
     /**
+     * Legacy path element: same processing as {@see self::process_local_coursedynamicrules_rule()}.
+     *
+     * @param array $data
+     *
+     * @return void
+     */
+    public function process_local_coursedynamicrules_rule_legacy($data) {
+        $this->process_local_coursedynamicrules_rule($data);
+    }
+
+    /**
      * Process condition element
      *
      * @param array $data
@@ -140,6 +187,17 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
     }
 
     /**
+     * Legacy path element: same processing as {@see self::process_local_coursedynamicrules_condition()}.
+     *
+     * @param array $data
+     *
+     * @return void
+     */
+    public function process_local_coursedynamicrules_condition_legacy($data) {
+        $this->process_local_coursedynamicrules_condition($data);
+    }
+
+    /**
      * Process action element
      *
      * @param array $data
@@ -160,6 +218,17 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
 
         $newactionid = $DB->insert_record('local_coursedynamicrules_action', $record);
         $this->set_mapping('local_coursedynamicrules_action', $data->id, $newactionid, false);
+    }
+
+    /**
+     * Legacy path element: same processing as {@see self::process_local_coursedynamicrules_action()}.
+     *
+     * @param array $data
+     *
+     * @return void
+     */
+    public function process_local_coursedynamicrules_action_legacy($data) {
+        $this->process_local_coursedynamicrules_action($data);
     }
 
     /**
