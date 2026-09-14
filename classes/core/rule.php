@@ -43,7 +43,7 @@ class rule {
     /** @var action[] List of actions instances */
     private $actions = [];
 
-    /** @var stdClass[] List of users to validate this rule */
+    /** @var iterable<stdClass> Users to validate this rule; objects carrying at least "id". Walked once. */
     private $users;
 
     /** @var array Additional data to add extra checks in conditions to avoid unexpected executions */
@@ -55,12 +55,13 @@ class rule {
     /**
      * Rule constructor.
      * @param object $rule
-     * @param stdClass[] $users List of users to validate this rule
+     * @param iterable<stdClass> $users Users to validate this rule, objects carrying at least "id"; an
+     * array or a single-pass generator, walked once by execute()
      * @param string[] $conditiontypes list of conditions to include in the executions
      * @param array $additionaldata additional data to add extra checks in conditions to avoid unexpected executions
      * of rules if not pass all conditions for each rule of the course are added
      */
-    public function __construct($rule, $users, $conditiontypes = [], $additionaldata = []) {
+    public function __construct($rule, iterable $users, $conditiontypes = [], $additionaldata = []) {
         global $DB;
         $this->id = $rule->id;
         $this->courseid = $rule->courseid;

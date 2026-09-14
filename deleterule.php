@@ -82,7 +82,8 @@ if ($delete === md5($config->confirmdeleterule ?? '')) {
     require_sesskey();
 
     // Delete rule.
-    $ruleinstance = new rule($rule, $courseid);
+    // Deleting walks no users.
+    $ruleinstance = new rule($rule, []);
     $ruleinstance->delete();
 
     echo $OUTPUT->notification(

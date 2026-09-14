@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\enrolled_users;
+use local_coursedynamicrules\helper\task_batch;
 
 defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/completionlib.php');
@@ -69,15 +71,28 @@ class course_inactivity_task extends \core\task\scheduled_task {
             }
 
             $completion = new \completion_info(get_course($rule->courseid));
-            // Deduplicated, active-only enrolled users (excludes suspended and deleted users, and
-            // collapses multiple enrolments of the same user so actions run once per user).
-            $users = get_enrolled_users(\context_course::instance($rule->courseid), '', 0, 'u.*', null, 0, 0, true);
-            $userswithoutcompletion = array_filter($users, function ($user) use ($completion) {
-                return !$completion->is_course_complete($user->id);
-            });
+            // Active-only enrolled users (excludes suspended and deleted users, one row per user
+            // however many enrolments they hold), walked in pages of ids and filtered as they stream:
+            // the course is never held in memory whole (see helper\enrolled_users).
+            $users = enrolled_users::ids(\context_course::instance($rule->courseid), task_batch::size());
 
-            $ruleinstance = new rule($rule, $userswithoutcompletion);
+            $ruleinstance = new rule($rule, self::without_course_completion($users, $completion));
             $ruleinstance->execute();
+        }
+    }
+
+    /**
+     * Pass through the users who have not completed the course, without collecting them.
+     *
+     * @param iterable<\stdClass> $users Objects carrying at least "id".
+     * @param \completion_info $completion The course's completion info.
+     * @return \Generator<int, \stdClass>
+     */
+    private static function without_course_completion(iterable $users, \completion_info $completion): \Generator {
+        foreach ($users as $user) {
+            if (!$completion->is_course_complete($user->id)) {
+                yield $user;
+            }
         }
     }
 
