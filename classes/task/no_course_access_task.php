@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\enrolled_users;
 use local_coursedynamicrules\helper\task_batch;
 
 /**
@@ -68,19 +69,22 @@ class no_course_access_task extends \core\task\scheduled_task {
 
         // Iterate through each rule and execute if conditions are met.
         foreach ($rules as $rule) {
-            // Deduplicated, active-only enrolled users (excludes suspended and deleted users, and
-            // collapses multiple enrolments of the same user so actions run once per user).
-            $users = get_enrolled_users(\context_course::instance($rule->courseid), '', 0, 'u.*', null, 0, 0, true);
-            $usercount = count($users);
-            $totalusers += $usercount;
-
-            if ($usercount > $batchsize) {
-                mtrace("local_coursedynamicrules: course {$rule->courseid} has {$usercount} enrolled users "
-                    . "(over batch threshold {$batchsize}) while evaluating rule {$rule->id}.");
-            }
+            // Active-only enrolled users (excludes suspended and deleted users, one row per user however
+            // many enrolments they hold), walked in pages of $batchsize ids: the rule engine reads
+            // nothing but the id, and a course is never held in memory whole. Nothing is queried
+            // until the rule is really executed; the walk itself is live (see helper\enrolled_users).
+            $context = \context_course::instance($rule->courseid);
+            $users = enrolled_users::ids($context, $batchsize);
 
             $ruleinstance = new rule($rule, $users);
             if ($this->could_be_execute_rule($ruleinstance)) {
+                // Counted only for a rule that runs, for the report and the threshold notice.
+                $usercount = count_enrolled_users($context, '', 0, true);
+                $totalusers += $usercount;
+                if ($usercount > $batchsize) {
+                    mtrace("local_coursedynamicrules: course {$rule->courseid} has {$usercount} enrolled users "
+                        . "(over batch threshold {$batchsize}) while evaluating rule {$rule->id}.");
+                }
                 $ruleinstance->execute();
                 $this->set_time_period($ruleinstance);
                 $executed++;
