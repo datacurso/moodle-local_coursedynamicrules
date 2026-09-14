@@ -45,10 +45,11 @@ require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
  * test stubs, so nothing here can see them, and no assertion below should be read as a statement
  * about them. They are added by that plugin's transport, so declaring them is that plugin's
  * responsibility - the same reasoning that keeps core's messaging fields out of this plugin's
- * declaration. But responsibility is not coverage: as of this writing aiprovider_datacurso's own
- * provider declares prompt, numberimages and userid only, so today NOBODY declares site_id or
- * timezone. (timezone is the timezone of the account the request runs as; the action only ever
- * runs from an adhoc task, so that is the cron account's, not the student's.)
+ * declaration, and that plugin does discharge it: from 2026090700 (release 1.5.1) its provider
+ * declares the course service as its own external location, transport fields included - site_id,
+ * site_url, timezone, lang, userid. Note the floor: 1.5.0 did not, and this plugin's declared
+ * dependency must therefore not fall below the version that does, or a site can satisfy it with a
+ * provider that leaves those fields undeclared.
  *
  * @package    local_coursedynamicrules
  * @category   test
