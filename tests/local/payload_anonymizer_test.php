@@ -38,6 +38,160 @@ final class payload_anonymizer_test extends \advanced_testcase {
         ]);
     }
 
+    /** @var string A byte sequence that is not valid UTF-8: a lone continuation byte. */
+    private const INVALID_UTF8 = "\xB1";
+
+    /**
+     * A stray invalid byte anywhere in the text must not let the student's name through.
+     *
+     * The replacement runs a Unicode-aware pattern, and preg_replace() returns null - not a string -
+     * when the subject is not valid UTF-8. Keeping the original text in that case means the payload
+     * that leaves the site still carries the real name, which is the one outcome this class exists
+     * to prevent. Invalid bytes reach a payload through the teacher's own instructions, through a
+     * profile field filled by an external sync, or through anything pasted from another system.
+     *
+     * @return void
+     */
+    public function test_an_invalid_byte_in_the_text_does_not_let_the_name_through(): void {
+        $this->resetAfterTest(true);
+        $student = $this->create_student();
+
+        $payload = [
+            'message' => 'Refuerzo para Eva' . self::INVALID_UTF8 . ' sobre fracciones.',
+            'instructions' => 'Dirigite a Eva Pérez con cercanía.' . self::INVALID_UTF8,
+        ];
+
+        $result = payload_anonymizer::anonymize($payload, $student);
+
+        $this->assertStringNotContainsString('Eva', $result['payload']['message']);
+        $this->assertStringNotContainsString('Eva', $result['payload']['instructions']);
+        $this->assertStringNotContainsString('Pérez', $result['payload']['instructions']);
+        $this->assertStringContainsString('[STUDENT_FIRSTNAME]', $result['payload']['message']);
+        $this->assertStringContainsString('[STUDENT_NAME]', $result['payload']['instructions']);
+    }
+
+    /**
+     * An invalid byte BETWEEN the first and last name must not smuggle the whole name through.
+     *
+     * This is the position that matters: a non-breaking space that arrived as byte 0xA0, the way a
+     * different encoding writes it, is not valid UTF-8 on its own. Repairing
+     * the text by DELETING that byte glues "Eva" to "Pérez", and the replacement only matches a name
+     * standing on its own, so neither the full name nor either part matches any more and the whole
+     * name travels to the AI service intact - with no error, since the replacement did run.
+     * Repairing by SUBSTITUTING a replacement character instead keeps the two words apart, and the
+     * character it inserts is neither a letter nor a digit, so both parts are still recognised.
+     *
+     * @return void
+     */
+    public function test_an_invalid_byte_between_the_names_does_not_smuggle_the_name_through(): void {
+        $this->resetAfterTest(true);
+        $student = $this->create_student();
+
+        $payload = ['instructions' => "Dirigite a Eva\xA0Pérez con cercanía."];
+
+        $result = payload_anonymizer::anonymize($payload, $student);
+
+        $this->assertStringNotContainsString('Eva', $result['payload']['instructions']);
+        $this->assertStringNotContainsString('Pérez', $result['payload']['instructions']);
+    }
+
+    /**
+     * A damaged stored name must not let the clean name in the text through.
+     *
+     * The two sides do not have to carry the same bytes. A profile damaged by an external system
+     * keeps its stray byte, while the teacher simply typed the name correctly in the instructions,
+     * so the repaired name ("Eva" plus a replacement character) no longer matches the "Eva" that is
+     * actually in the text. Matching only the repaired form leaves the first name in the request.
+     *
+     * @return void
+     */
+    public function test_a_damaged_stored_name_still_matches_the_clean_name_in_the_text(): void {
+        $this->resetAfterTest(true);
+        $student = $this->create_student();
+        $student->firstname = 'Eva' . self::INVALID_UTF8;
+
+        $payload = ['instructions' => 'Dirigite a Eva Pérez con cercanía.'];
+
+        $result = payload_anonymizer::anonymize($payload, $student);
+
+        $this->assertStringNotContainsString('Eva', $result['payload']['instructions']);
+        $this->assertStringNotContainsString('Pérez', $result['payload']['instructions']);
+    }
+
+    /**
+     * What is put back into the generated activity must be storable.
+     *
+     * The placeholders are restored into the module the service returns, and that module is written
+     * to the database, which rejects text that is not valid UTF-8. Before the text was repaired no
+     * placeholder was ever inserted for a damaged name, so nothing was restored either; now that one
+     * is, the value restored in its place has to be valid.
+     *
+     * @return void
+     */
+    public function test_the_values_restored_into_the_generated_activity_are_valid_utf8(): void {
+        $this->resetAfterTest(true);
+        $student = $this->create_student();
+        $student->firstname = 'Eva' . self::INVALID_UTF8;
+
+        $result = payload_anonymizer::anonymize(['instructions' => 'Para Eva Pérez.'], $student);
+
+        foreach ($result['replacements'] as $placeholder => $value) {
+            $this->assertTrue(
+                mb_check_encoding($value, 'UTF-8'),
+                "The value restored for {$placeholder} cannot be written to the database."
+            );
+        }
+    }
+
+    /**
+     * Text that is already valid is sent exactly as it was written.
+     *
+     * Repairing the encoding rewrites the text that leaves the site, so it must happen only when
+     * there is something to repair. A teacher's accented paragraph must arrive at the service as
+     * typed, minus the names.
+     *
+     * @return void
+     */
+    public function test_valid_text_is_not_rewritten(): void {
+        $this->resetAfterTest(true);
+        $student = $this->create_student();
+
+        // The name must be in the text, or the replacement loop never runs and this proves nothing.
+        $payload = ['instructions' => 'Explicá a Eva Pérez la lección con ejemplos cercanos, en español.'];
+
+        $result = payload_anonymizer::anonymize($payload, $student);
+
+        $this->assertSame(
+            'Explicá a [STUDENT_NAME] la lección con ejemplos cercanos, en español.',
+            $result['payload']['instructions']
+        );
+    }
+
+    /**
+     * A name that itself carries an invalid byte is removed when the text carries the same damage.
+     *
+     * The pattern is built from the name, so an invalid byte on that side makes the whole pattern
+     * invalid and preg_replace() fails exactly the same way. Here both sides carry the same bytes;
+     * the case where only one of them does is covered separately.
+     *
+     * @return void
+     */
+    public function test_an_invalid_byte_in_the_name_does_not_let_the_name_through(): void {
+        $this->resetAfterTest(true);
+        // Moodle strips invalid bytes when it WRITES a user, so the byte is put on the object the
+        // action is handed, which is where such a value realistically survives: a record read from
+        // elsewhere, a field composed in memory, a profile assembled by an authentication plugin.
+        $student = $this->create_student();
+        $student->firstname = 'Eva' . self::INVALID_UTF8;
+
+        $payload = ['message' => 'Refuerzo para Eva' . self::INVALID_UTF8 . ' sobre fracciones.'];
+
+        $result = payload_anonymizer::anonymize($payload, $student);
+
+        $this->assertStringNotContainsString('Eva', $result['payload']['message']);
+        $this->assertStringContainsString('[STUDENT_FIRSTNAME]', $result['payload']['message']);
+    }
+
     /**
      * MDL-UNIT-016: only whole-word name occurrences are anonymised, a prefix of another word is left intact.
      *
