@@ -237,9 +237,9 @@ $string['pluginnotavailable'] = 'This plugin is not available, because the produ
 $string['primaryrecipients'] = 'Primary recipients';
 $string['primaryrecipients_help'] = 'Select which roles receive the primary notification when the condition is met for a user in those roles.';
 $string['privacy:metadata:datacurso_ai'] = 'Course context is sent to the Datacurso AI service to generate reinforcement activities.';
-$string['privacy:metadata:datacurso_ai:courseid'] = 'The id of the course the reinforcement activity is generated for.';
-$string['privacy:metadata:datacurso_ai:courseurl'] = 'The URL of the course, sent as context for the generated activity.';
-$string['privacy:metadata:datacurso_ai:prompt'] = 'The configured prompt describing the reinforcement activity to generate.';
+$string['privacy:metadata:datacurso_ai:instructions'] = 'The prompt describing the reinforcement activity to generate. It carries free text from two places, so what it contains depends on how the course and the action were configured. First, the prompt configured on the action itself: if it uses the course placeholders, the course name and the course URL are sent as part of it. Second, and whether or not any placeholder is used, the course\'s own AI context prompt is prepended to it when one is set for the course. The student\'s name is replaced with a placeholder marker before the request leaves Moodle, so the name itself is not sent; the request still carries the user id, so this is pseudonymisation and not anonymisation, and the data remains personal data. A name typed literally into either prompt, or the name of any person other than the student the activity is generated for, is sent as written.';
+$string['privacy:metadata:datacurso_ai:lang'] = 'The language the activity is generated in: the user\'s language preference, falling back to the course language, then to the language of the session the task runs in, and finally to English.';
+$string['privacy:metadata:datacurso_ai:site_url'] = 'The address of this Moodle site, sent so the service can identify the installation the request comes from.';
 $string['privacy:metadata:datacurso_ai:userid'] = 'The id of the user the reinforcement activity is generated for.';
 $string['provider_not_enabled_warning'] = 'Enable notifications with <strong>Datacurso Message Hub</strong> to this action to send notifications via WhatsApp and SMS using providers like Twilio.
 You can enable it from <a href="{$a}" target="_blank">Notification settings</a> and searching <strong>Smart Rules AI notification</strong>.
