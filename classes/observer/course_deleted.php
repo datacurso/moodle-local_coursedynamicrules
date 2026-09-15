@@ -34,12 +34,30 @@ class course_deleted {
 
         $courseid = $event->objectid;
 
-        $ruleids = $DB->get_fieldset_select('local_coursedynamicrules_rule', 'id', 'courseid = ?', [$courseid]);
-        if ($ruleids) {
-            [$insql, $params] = $DB->get_in_or_equal($ruleids);
+        // The whole row, not just the id: each rule that goes down with the course is reported as
+        // its own deletion, and that report is only readable afterwards if it carries what was
+        // lost. A log entry naming an id whose row no longer exists answers nothing.
+        $rules = $DB->get_records('local_coursedynamicrules_rule', ['courseid' => $courseid]);
+        if ($rules) {
+            [$insql, $params] = $DB->get_in_or_equal(array_keys($rules));
             $DB->delete_records_select('local_coursedynamicrules_condition', "ruleid $insql", $params);
             $DB->delete_records_select('local_coursedynamicrules_action', "ruleid $insql", $params);
         }
         $DB->delete_records('local_coursedynamicrules_rule', ['courseid' => $courseid]);
+
+        // Reported AFTER the rows are gone, so nothing is announced that a later failure could
+        // leave standing. The context comes from the event and never from
+        // context_course::instance(): core captures the course context, deletes the context row and
+        // only then triggers this event (lib/moodlelib.php, delete_course()), so there is no course
+        // context left to instantiate by the time this runs.
+        $context = $event->get_context();
+        foreach ($rules as $rule) {
+            $deleted = \local_coursedynamicrules\event\rule_deleted::create([
+                'context' => $context,
+                'objectid' => $rule->id,
+            ]);
+            $deleted->add_record_snapshot('local_coursedynamicrules_rule', $rule);
+            $deleted->trigger();
+        }
     }
 }
