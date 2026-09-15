@@ -131,6 +131,7 @@ $string['enablegradegreaterthanorequal_help'] = 'Enable grade greater than or eq
 $string['enablegradelessthan'] = 'Enable grade less than';
 $string['enrollmentdate'] = 'Enrollment date';
 $string['error_aiactivity_generation_failed'] = 'The AI service reported a failed activity generation: {$a}';
+$string['error_anonymisation_failed'] = 'The student\'s name could not be removed from the text before sending it to the AI service, so nothing was sent.';
 $string['error_empty_aiactivity_prompt'] = 'Create AI activity action executed without a valid prompt message.';
 $string['error_required_local_coursegen'] = 'The plugin local_coursegen is required to execute the Create AI activity action.';
 $string['error_required_local_coursegen_version'] = 'The Create AI activity action requires local_coursegen version {$a} or later. Please update the Course Creator AI plugin.';
