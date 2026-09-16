@@ -22,8 +22,9 @@ namespace local_coursedynamicrules\helper;
  * The evaluation tasks run frequently and walk every enrolled user of every course with a rule
  * that is due. This value is the number of user ids fetched per query by that walk (see
  * enrolled_users), so it bounds the memory a task holds at any moment; the tasks also report when
- * a course exceeds it. There is no admin page for it: it is set with
- * set_config('taskbatchsize', N, 'local_coursedynamicrules') or $CFG->forced_plugin_settings.
+ * a course exceeds it. It is administered from Site administration > Plugins > Local plugins >
+ * Smart Rules AI (settings.php), and can still be forced from config.php with
+ * $CFG->forced_plugin_settings.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>

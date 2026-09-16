@@ -31,7 +31,7 @@ require_login();
 
 
 $id = required_param('id', PARAM_INT); // Rule ID.
-$delete = optional_param('delete', '', PARAM_ALPHANUM); // Confirmation hash.
+$confirm = optional_param('confirm', 0, PARAM_BOOL); // Set by the confirmation button.
 $courseid = required_param('courseid', PARAM_INT);
 
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
@@ -40,7 +40,7 @@ $context = context_course::instance($courseid);
 require_login($course);
 require_capability('local/coursedynamicrules:deleterule', $context);
 
-$url = new moodle_url('/local/coursedynamicrules/deleterule.php', ['delete' => $delete, 'courseid' => $courseid]);
+$url = new moodle_url('/local/coursedynamicrules/deleterule.php', ['id' => $id, 'courseid' => $courseid]);
 // Not necessarily the listing: deleting demands only deleterule (plus the manager key on a
 // sealed rule), so the operator may not be allowed into the listing they would be sent to.
 $rulesurl = \local_coursedynamicrules\helper\page_gate::listing_url($courseid, $context);
@@ -76,11 +76,16 @@ $rule = $rulerecord;
 // component pages through Mustache's {{description}}.
 $rulename = component_renderer::escaped_name($rule->name, $context);
 
-$config = get_config('local_coursedynamicrules');
-
-if ($delete === md5($config->confirmdeleterule ?? '')) {
+// Confirmed with the session key alone, which is per user and per session. The previous answer
+// to "has this been confirmed?" was a single plugin configuration value written while the
+// confirmation page rendered - one slot for the whole site, bound to neither the record nor the
+// operator, so the second person to open any delete confirmation silently invalidated the first
+// one's pending one.
+if ($confirm) {
+    // Aborting, not returning false: confirm_sesskey() would let a stale key fall through and
+    // re-render the very same question with no message, which is the failure this repair exists
+    // to remove, not to relocate.
     require_sesskey();
-
     // Delete rule.
     // Deleting walks no users.
     $ruleinstance = new rule($rule, []);
@@ -100,16 +105,12 @@ if ($delete === md5($config->confirmdeleterule ?? '')) {
 $strdeleterulecheck = get_string("deleterulecheck", "local_coursedynamicrules");
 $message = "{$strdeleterulecheck}<br /><br />{$rulename}";
 
-// Generate ramdom token for validation delete action.
-$confirmdeleterule = time() . md5(mt_rand(100000000, mt_getrandmax()));
-set_config('confirmdeleterule', $confirmdeleterule, 'local_coursedynamicrules');
-
 
 $continueurl = new moodle_url(
     '/local/coursedynamicrules/deleterule.php',
     [
         'id' => $rule->id,
-        'delete' => md5($confirmdeleterule),
+        'confirm' => 1,
         'courseid' => $courseid,
     ]
 );

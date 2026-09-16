@@ -263,6 +263,20 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
     // on its own - the exact mechanism the component-deletion grant below exists to compensate
     // for on OLD capabilities.
 
+    if ($oldversion < 2026091600) {
+        // Three dead rows. The delete confirmation pages used to answer "has this been confirmed?"
+        // by comparing the request against a plugin configuration value they wrote while the
+        // confirmation rendered - one slot for the whole site. The session key was doing the real
+        // work and still is, so the storage is gone; on a site upgraded from an earlier release the
+        // values would otherwise sit in config_plugins forever, and the first person to read them
+        // would reasonably assume something still consults them.
+        foreach (['confirmdeleterule', 'confirmdeletecondition', 'confirmdeleteaction'] as $name) {
+            unset_config($name, 'local_coursedynamicrules');
+        }
+
+        upgrade_plugin_savepoint(true, 2026091600, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 

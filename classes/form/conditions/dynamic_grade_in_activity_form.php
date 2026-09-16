@@ -62,7 +62,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             $completionusegrade = !is_null($cm->completiongradeitemnumber);
 
             if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && $completionusegrade && !$cm->deletioninprogress) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
                 $filteredcms[$cm->id] = $cm;
             }
         }

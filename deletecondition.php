@@ -30,7 +30,7 @@ require('../../config.php');
 
 
 $id = required_param('id', PARAM_INT); // Rule ID.
-$delete = optional_param('delete', '', PARAM_ALPHANUM); // Confirmation hash.
+$confirm = optional_param('confirm', 0, PARAM_BOOL); // Set by the confirmation button.
 $courseid = required_param('courseid', PARAM_INT);
 $ruleid = required_param('ruleid', PARAM_INT);
 
@@ -49,7 +49,7 @@ $condition = \local_coursedynamicrules\helper\ownership::get_condition($id, $cou
 
 $url = new moodle_url(
     '/local/coursedynamicrules/deletecondition.php',
-    ['id' => $id, 'delete' => $delete, 'courseid' => $courseid, 'ruleid' => $ruleid]
+    ['id' => $id, 'courseid' => $courseid, 'ruleid' => $ruleid]
 );
 // Not necessarily the conditions listing: deleting demands only deletecondition, while that
 // listing demands the condition pair, so this must not hand the operator a refusal afterwards.
@@ -69,12 +69,18 @@ $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
 
-$config = get_config('local_coursedynamicrules');
-
 $conditioninstance = rule_component_loader::create_condition_instance($condition, $courseid);
 $description = component_renderer::escaped_description($conditioninstance);
 
-if ($delete === md5($config->confirmdeletecondition ?? '')) {
+// Confirmed with the session key alone, which is per user and per session. The previous answer
+// to "has this been confirmed?" was a single plugin configuration value written while the
+// confirmation page rendered - one slot for the whole site, bound to neither the record nor the
+// operator, so the second person to open any delete confirmation silently invalidated the first
+// one's pending one.
+if ($confirm) {
+    // Aborting, not returning false: confirm_sesskey() would let a stale key fall through and
+    // re-render the very same question with no message, which is the failure this repair exists
+    // to remove, not to relocate.
     require_sesskey();
     // Delete condition.
     $conditioninstance->delete();
@@ -92,16 +98,12 @@ if ($delete === md5($config->confirmdeletecondition ?? '')) {
 $strdeleteconditioncheck = get_string("deleteconditioncheck", "local_coursedynamicrules");
 $message = "{$strdeleteconditioncheck}<br /><br />{$description}";
 
-// Generate ramdom token for validation delete action.
-$confirmdeletecondition = time() . md5(mt_rand(100000000, mt_getrandmax()));
-set_config('confirmdeletecondition', $confirmdeletecondition, 'local_coursedynamicrules');
-$hashdelete = md5($confirmdeletecondition);
 
 $continueurl = new moodle_url(
     '/local/coursedynamicrules/deletecondition.php',
     [
         'id' => $id,
-        'delete' => $hashdelete,
+        'confirm' => 1,
         'courseid' => $courseid,
         'ruleid' => $ruleid,
     ]
