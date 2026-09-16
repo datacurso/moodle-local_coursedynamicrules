@@ -10,6 +10,9 @@
 
 ## Fixed
 
+- **The two per-minute tasks now run four times an hour**
+  They scanned every enrolled user of every course holding an active rule 1440 times a day each. What made that unnecessary is not the cost of a pass, which this release already bounded, but that the cadence never decided anything: each rule carries its own clock - the no-access condition writes its next due time by adding its own period, the not-completed one waits for an expected date - so the cadence only decides how long a rule waits after falling due. The finest window either condition offers is one hour, so a quarter of an hour of slack is invisible against the smallest interval anyone can configure. **Site administrators, note:** a site that has customised either schedule keeps its own setting; only the untouched default moves. Where a rule must act sooner, the schedule is editable in Site administration as it always was.
+
 - **A form served over the web service asked for less than its own page**
   Every condition screen requires the pair of capabilities, view and manage, and a role holding only one of them is refused at the page. The grade condition's form is also reachable through Moodle's dynamic-form web service, and there it asked for the manage capability alone - so a role built exactly as these notes warn administrators about, manage allowed and view prevented, was refused at the page and served by the endpoint, which answered with every grade-tracked activity of the course and each grade item's bounds and scale labels. It writes nothing and course access was still required, so nothing could be changed this way; what it was, was the plugin offering what its own page would refuse. The endpoint now asks through the same helper the pages use, so the two cannot drift apart again.
 - **A grade condition form no longer dies on an activity whose grade item was never created**
