@@ -28,10 +28,16 @@
 defined('MOODLE_INTERNAL') || die();
 
 $tasks = [
+    // Four times an hour, not sixty. The cadence never decided when a rule fires - each rule keeps
+    // its own clock, adding its own period to reach its next due time - so it only decides how long
+    // a rule waits after falling due. The finest window either condition offers an operator is the
+    // hour, so a quarter of an hour of slack is invisible against the smallest thing anyone can
+    // configure, and it is ninety-six times fewer passes over every enrolled user of every course
+    // with an active rule.
     [
         'classname' => 'local_coursedynamicrules\task\no_complete_activity_task',
         'blocking' => 0,
-        'minute' => '*',
+        'minute' => '*/15',
         'hour' => '*',
         'day' => '*',
         'dayofweek' => '*',
@@ -41,7 +47,7 @@ $tasks = [
     [
         'classname' => 'local_coursedynamicrules\task\no_course_access_task',
         'blocking' => 0,
-        'minute' => '*',
+        'minute' => '*/15',
         'hour' => '*',
         'day' => '*',
         'dayofweek' => '*',
