@@ -147,6 +147,46 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
     }
 
     /**
+     * The ids CORE reads from a node, mirroring availability_user's own constructor.
+     *
+     * That constructor takes `userids` AND, for backwards compatibility, pushes a singular `userid`
+     * on top of it (availability/condition/user/classes/condition.php). A test that only looked at
+     * `userids` would agree with the bug instead of catching it, so the assertions below ask the
+     * question core asks: which students does this restriction actually name?
+     *
+     * @param \stdClass $node A user restriction node.
+     * @return int[]
+     */
+    private function ids_core_reads(\stdClass $node): array {
+        $ids = [];
+        foreach ((array) ($node->userids ?? []) as $id) {
+            $ids[] = (int) $id;
+        }
+        if (isset($node->userid)) {
+            $ids[] = (int) $node->userid;
+        }
+        return $ids;
+    }
+
+    /**
+     * Rewrite this plugin's own gate on a module into a given raw shape, keeping its marker.
+     *
+     * @param int $cmid The module.
+     * @param array $keys The keys to set on the owned node, replacing userids/userid.
+     * @return void
+     */
+    private function reshape_own_gate(int $cmid, array $keys): void {
+        global $DB;
+        $tree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $cmid]));
+        $node = enableactivity_action::owned_user_nodes($tree)[0];
+        unset($node->userids, $node->userid);
+        foreach ($keys as $key => $value) {
+            $node->{$key} = $value;
+        }
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $cmid]);
+    }
+
+    /**
      * Approve every context the provider reported for a user, as tool_dataprivacy does.
      *
      * @param int $userid The user.
@@ -480,6 +520,321 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
 
         [$marked] = $this->user_nodes((int) $module->cmid);
         $this->assertSame([(int) $keeper->id], $this->ids_of($marked[0]));
+    }
+
+    /**
+     * A gate written in the legacy singular shape is found and erased like any other.
+     *
+     * availability_user has always accepted `{"type":"user","userid":42}` and still does: its
+     * constructor pushes that key onto the list it evaluates. A node in that shape restricts the
+     * activity to user 42 exactly as `userids:[42]` would, and it can carry this plugin's marker,
+     * because the marker is stamped on a node chosen by TYPE and nothing about the stamping looks
+     * at the shape inside.
+     *
+     * A provider blind to that key reports no context for the student, so the module is never
+     * approved, nothing is erased, and tool_dataprivacy tells the student their data was deleted.
+     * That is the exact failure this class exists to end, reappearing in a shape nobody checked.
+     *
+     * @return void
+     */
+    public function test_a_legacy_single_userid_gate_is_found_and_erased(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $requester = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $requester->id]);
+        $this->reshape_own_gate((int) $module->cmid, ['userid' => (int) $requester->id]);
+
+        $userlist = new userlist(\context_module::instance($module->cmid), 'local_coursedynamicrules');
+        provider::get_users_in_context($userlist);
+        $this->assertSame(
+            [(int) $requester->id],
+            array_map('intval', $userlist->get_userids()),
+            'The student named by the legacy key is in the gate, so the provider must report them.'
+        );
+
+        $this->assertSame(
+            [(int) \context_module::instance($module->cmid)->id],
+            array_map('intval', provider::get_contexts_for_userid((int) $requester->id)->get_contextids()),
+            'A module whose gate names the student is one of their contexts, whichever key names them.'
+        );
+
+        provider::delete_data_for_user($this->approve_all_for((int) $requester->id));
+
+        [$marked] = $this->user_nodes((int) $module->cmid);
+        $this->assertCount(1, $marked, 'The gate itself must survive: a tree without it restricts nobody.');
+        $this->assertSame(
+            [],
+            $this->ids_core_reads($marked[0]),
+            'Core still reads the erased student out of this gate: the legacy key was left behind.'
+        );
+    }
+
+    /**
+     * A gate carrying BOTH keys loses only the requested student, from whichever key named them.
+     *
+     * This is the shape that punishes a half fix. Rewriting `userids` while leaving `userid` alone
+     * removes the student from the list the provider looked at and not from the list core reads.
+     *
+     * @return void
+     */
+    public function test_a_gate_carrying_both_keys_loses_only_the_requested_student(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $requester = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $keeper = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $requester->id]);
+        $this->reshape_own_gate(
+            (int) $module->cmid,
+            ['userids' => [(int) $keeper->id], 'userid' => (int) $requester->id]
+        );
+
+        provider::delete_data_for_user($this->approve_all_for((int) $requester->id));
+
+        [$marked] = $this->user_nodes((int) $module->cmid);
+        $this->assertSame(
+            [(int) $keeper->id],
+            $this->ids_core_reads($marked[0]),
+            'The other student keeps the access nobody asked to remove, and the requester is gone from both keys.'
+        );
+    }
+
+    /**
+     * Wrap this plugin's own gate in one or more groups, innermost operator first.
+     *
+     * @param int $cmid The module.
+     * @param string[] $ops The operators to nest the gate under, innermost first.
+     * @return void
+     */
+    private function nest_own_gate_under(int $cmid, array $ops): void {
+        global $DB;
+        $tree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $cmid]));
+        $owned = enableactivity_action::owned_user_nodes($tree)[0];
+        $tree->c = array_values(array_filter($tree->c, static function ($node) use ($owned): bool {
+            return $node !== $owned;
+        }));
+        $nested = $owned;
+        foreach ($ops as $op) {
+            $nested = (object) ['op' => $op, 'c' => [$nested], 'showc' => [false]];
+        }
+        $tree->c[] = $nested;
+        $tree->showc = array_fill(0, count($tree->c), false);
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $cmid]);
+    }
+
+    /**
+     * The ids this plugin's own gate lists, wherever in the tree the gate ended up.
+     *
+     * Deliberately not the class under test's own walk: an assertion that used the provider's notion
+     * of "our nodes" would agree with the provider by construction and could never catch it skipping
+     * one. This finds a marked node anywhere, by the marker alone.
+     *
+     * @param int $cmid The module.
+     * @return int[]
+     */
+    private function ids_anywhere(int $cmid): array {
+        global $DB;
+        $found = [];
+        $walk = static function ($node) use (&$walk, &$found): void {
+            if (($node->type ?? null) === 'user' && isset($node->source)) {
+                foreach ((array) ($node->userids ?? []) as $id) {
+                    $found[] = (int) $id;
+                }
+            }
+            foreach ((array) ($node->c ?? []) as $child) {
+                if (is_object($child)) {
+                    $walk($child);
+                }
+            }
+        };
+        $walk(json_decode($DB->get_field('course_modules', 'availability', ['id' => $cmid])));
+        return $found;
+    }
+
+    /**
+     * A gate sitting under a negating group is neither reported nor emptied.
+     *
+     * A user condition is evaluated as `$not XOR in_array($userid, $userids)`
+     * (availability/condition/user/classes/condition.php), and a negating group flips `$not` for
+     * everything beneath it (\core_availability\tree::get_logic_flags). So under `!&` the meaning of
+     * our gate is inverted: it lists the students who are KEPT OUT, and emptying it - which is
+     * exactly what erasing a whole context does - makes the group true and OPENS the activity to the
+     * entire course.
+     *
+     * That is the one outcome the erasure is built to avoid, so the provider must not touch such a
+     * node; and because it will not clean it, it must not report its context either. The two go
+     * together: the contextlist is the attestation, and a context listed is a context promised.
+     *
+     * The plugin never writes a gate there itself - apply_activity() combines with AND at the root -
+     * so this is a tree somebody else rearranged around our node.
+     *
+     * @return void
+     */
+    public function test_a_gate_under_a_negating_group_is_neither_reported_nor_emptied(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
+        $this->nest_own_gate_under((int) $module->cmid, ['!&']);
+
+        $this->assertSame(
+            [],
+            provider::get_contexts_for_userid((int) $student->id)->get_contextids(),
+            'Under a negation the gate means the opposite of a gate; the provider cannot honour it, '
+                . 'so it must not claim it either.'
+        );
+
+        $userlist = new userlist(\context_module::instance($module->cmid), 'local_coursedynamicrules');
+        provider::get_users_in_context($userlist);
+        $this->assertSame([], $userlist->get_userids());
+
+        // The hard one: erasing the whole context must not empty a node whose emptiness opens the
+        // activity to everyone enrolled.
+        provider::delete_data_for_all_users_in_context(\context_module::instance($module->cmid));
+
+        $this->assertSame(
+            [(int) $student->id],
+            $this->ids_anywhere((int) $module->cmid),
+            'The negated gate was emptied: every student in the course can now open this activity.'
+        );
+    }
+
+    /**
+     * Two negations cancel, so a gate nested under both is ordinary and IS claimed.
+     *
+     * This is what separates the real rule from the lazy one. What decides the meaning of a node is
+     * not whether a negation appears anywhere above it but the PARITY of the negations on its
+     * ancestor chain: tree::get_logic_flags() computes `$innernot = $negative ? !$not : $not`, so an
+     * even number of them leaves `$not` false and the gate means exactly what it says. A provider
+     * that bailed out on the mere sight of a `!` would refuse to erase data it can perfectly well
+     * erase - and would then report success for a request it silently skipped.
+     *
+     * @return void
+     */
+    public function test_two_negations_cancel_and_the_gate_is_claimed_again(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
+        $this->nest_own_gate_under((int) $module->cmid, ['!&', '!|']);
+
+        $this->assertSame(
+            [(int) \context_module::instance($module->cmid)->id],
+            array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids()),
+            'Two negations cancel: this gate means what it says, so it is claimable like any other.'
+        );
+
+        provider::delete_data_for_user($this->approve_all_for((int) $student->id));
+
+        $this->assertSame([], $this->ids_anywhere((int) $module->cmid));
+    }
+
+    /**
+     * The export must not name a rule of another course just because the id happens to exist.
+     *
+     * A course import brings activities without rules - the plugin documents that as intended - so a
+     * module can arrive carrying a gate stamped with an action id from wherever it was exported. All
+     * action ids of the site share one table and one number space, so that id very probably belongs
+     * to a live action of a DIFFERENT rule, in a DIFFERENT course.
+     *
+     * Resolving the marker by id alone therefore answers "which rule opened this for you?" with the
+     * name of a rule that never did. That is a false statement inside a subject access response,
+     * which is the one document where an invented answer is worse than no answer.
+     *
+     * @return void
+     */
+    public function test_the_export_does_not_name_a_rule_from_another_course(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        // Course A owns a real rule and a real action; its id is what the imported marker will carry.
+        $coursea = $this->getDataGenerator()->create_course();
+        $modulea = $this->getDataGenerator()->create_module('page', ['course' => $coursea->id]);
+        $actiona = $this->gate_module($coursea, (int) $modulea->cmid, []);
+        $DB->set_field('local_coursedynamicrules_rule', 'name', 'Rule of another course', ['courseid' => $coursea->id]);
+
+        // Course B receives an imported activity whose gate still names course A's action, and no rule.
+        $courseb = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($courseb, 'student');
+        $moduleb = $this->getDataGenerator()->create_module('page', ['course' => $courseb->id]);
+        $node = enableactivity_action::mark_node(
+            (object) ['type' => 'user', 'userids' => [(int) $student->id]],
+            (int) $actiona->get_id()
+        );
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json([$node], tree::OP_AND, false)),
+            ['id' => $moduleb->cmid]
+        );
+
+        $context = \context_module::instance($moduleb->cmid);
+        $this->export_context_data_for_user((int) $student->id, $context, 'local_coursedynamicrules');
+        $exported = writer::with_context($context)
+            ->get_data([get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]);
+
+        $this->assertSame(
+            [get_string('privacy:export:ruledeleted', 'local_coursedynamicrules')],
+            $exported->rules,
+            'The export named a rule that belongs to another course and never granted this access.'
+        );
+    }
+
+    /**
+     * A course is invalidated once per erasure, however many of its activities changed.
+     *
+     * Every invalidation bumps the course's cache revision and throws away the cached settings of
+     * the WHOLE course, so doing it per activity makes a student granted a dozen activities pay a
+     * dozen full invalidations inside one request, and every other user of that course rebuild from
+     * scratch a dozen times over. The plugin's own user-deletion observer already refuses to do that
+     * and says why: "One cache rebuild per course that changed, however many actions it holds."
+     *
+     * Asserted as the DIFFERENCE in database writes between erasing three gates and erasing one, in
+     * one course each, because an absolute count would depend on how much unrelated bookkeeping a
+     * write happens to do. Three gates cost two extra column writes than one gate does. If each gate
+     * also invalidated the course, they would cost two more on top of that - the revision bump is a
+     * write of its own (increment_revision_number, lib/datalib.php). So the difference is 2 when the
+     * invalidation is per course and 4 when it is per activity.
+     *
+     * Not measured on cacherev itself: increment_revision_number is time-based - it jumps the value
+     * to time() when it is behind and only adds one when it is not - so "the revision moved" cannot
+     * tell one invalidation from three, and a test built on it would pass either way.
+     *
+     * @return void
+     */
+    public function test_a_course_is_invalidated_once_however_many_of_its_activities_changed(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $writes = function (int $modulecount): int {
+            global $DB;
+            $course = $this->getDataGenerator()->create_course();
+            $requester = $this->getDataGenerator()->create_and_enrol($course, 'student');
+            for ($i = 0; $i < $modulecount; $i++) {
+                $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+                $this->gate_module($course, (int) $module->cmid, [(int) $requester->id]);
+            }
+            $approved = $this->approve_all_for((int) $requester->id);
+            $this->assertCount($modulecount, $approved->get_contextids(), 'Sanity: every gate must be approved.');
+
+            $before = $DB->perf_get_writes();
+            provider::delete_data_for_user($approved);
+
+            return $DB->perf_get_writes() - $before;
+        };
+
+        $one = $writes(1);
+        $three = $writes(3);
+
+        $this->assertSame(
+            2,
+            $three - $one,
+            'Three gates in one course cost two extra writes than one gate, and no more: a fourth and '
+                . 'a fifth would be a second and third invalidation of the same course.'
+        );
     }
 
     /**

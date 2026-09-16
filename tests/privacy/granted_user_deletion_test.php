@@ -138,6 +138,67 @@ final class granted_user_deletion_test extends \advanced_testcase {
     }
 
     /**
+     * The site's own user deletion also reaches a gate written in the legacy singular shape.
+     *
+     * availability_user has always accepted `{"type":"user","userid":42}` and still does - its
+     * constructor pushes that key onto the list it evaluates. A gate of ours in that shape restricts
+     * the activity to that student exactly as a list would, so leaving the id there after the account
+     * is gone is the orphan reference this cleanup exists to prevent, in a shape nobody checked.
+     *
+     * The assertion asks the question CORE asks - which students does this restriction name - rather
+     * than reading the plural key, which is the very key the defect hides behind.
+     *
+     * @covers ::revoke_user
+     * @covers \local_coursedynamicrules\observer\user_deleted::observe
+     */
+    public function test_deleting_a_granted_user_scrubs_a_legacy_single_userid_node(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $grantee = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $keeper = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $managed = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        $ruleid = $this->create_rule($course->id);
+        $record = (object) [
+            'id' => null,
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode([]),
+        ];
+        $action = new enableactivity_action($record, $course->id);
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$managed->cmid],
+        ]);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $grantee->id]);
+
+        // Rewrite our own gate so the grantee is named by the legacy key and the keeper by the list.
+        $tree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $managed->cmid]));
+        $node = enableactivity_action::owned_user_nodes($tree)[0];
+        $node->userids = [(int) $keeper->id];
+        $node->userid = (int) $grantee->id;
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $managed->cmid]);
+
+        $this->delete_site_user($grantee->id);
+
+        [$marked] = $this->split_user_nodes($this->availability_of($managed->cmid));
+        $this->assertCount(1, $marked, 'The gate must survive: a tree without it restricts nobody.');
+        $names = array_map('intval', (array) ($marked[0]->userids ?? []));
+        if (isset($marked[0]->userid)) {
+            $names[] = (int) $marked[0]->userid;
+        }
+        $this->assertSame(
+            [(int) $keeper->id],
+            $names,
+            'Core still reads the deleted user out of this gate: the legacy key was left behind.'
+        );
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
      * MDL-E2E-011: deleting a granted user removes their id from a legacy, unmarked node of a module
      * the action manages, and changes nothing else in that node.
      *
