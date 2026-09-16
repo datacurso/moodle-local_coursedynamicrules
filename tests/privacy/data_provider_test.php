@@ -716,9 +716,17 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
             'The id must be gone: a context listed is a context promised.'
         );
 
-        // And the node itself survives, nested where it was.
+        // And the node itself survives, nested where it was. Asserted on the NODE, because the
+        // comment above used to be checked by reading the enclosing group's operator - which
+        // deleting the node outright would have left untouched, so the test agreed with its own
+        // comment while proving something else.
         $tree = json_decode($this->raw_availability((int) $module->cmid));
-        $this->assertSame('!&', $tree->c[0]->op ?? null, 'The negated group and the node inside it must both remain.');
+        $this->assertSame('!&', $tree->c[0]->op ?? null, 'The negated group must remain.');
+        $this->assertCount(
+            1,
+            enableactivity_action::owned_user_nodes($tree),
+            'The gate itself must survive inside the group: a tree that loses a restriction restricts less.'
+        );
     }
 
     /**
@@ -986,6 +994,45 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
             'Two distinct rules that share a name were reported as one, so the reader cannot tell them apart.'
         );
         $this->assertSame(2, $exported->restrictions, 'Two restrictions hold this student, not one.');
+    }
+
+    /**
+     * The export emits exactly these keys, and adding one is a decision somebody has to take.
+     *
+     * Removing `granted` fixed the statement that existed. It does nothing to stop the next one: the
+     * tempting field here will always be some version of "and can they open it?", because that is
+     * what a reader wants to know and what this data looks like it should answer. It cannot. Access
+     * is a property of the whole set of restrictions evaluated for that person at a moment, plus the
+     * module's visibility, the person's capabilities and their groups - none of it knowable from the
+     * one restriction this plugin wrote.
+     *
+     * So the key set is pinned rather than the absence of one key. A new field turns this red, and
+     * whoever adds it has to come here and say why it is a fact rather than a guess. That is the
+     * whole purpose: not to forbid change, but to stop an outcome being added by reflex.
+     *
+     * @return void
+     */
+    public function test_the_export_emits_exactly_the_keys_it_can_stand_behind(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
+
+        $context = \context_module::instance($module->cmid);
+        $this->export_context_data_for_user((int) $student->id, $context, 'local_coursedynamicrules');
+        $exported = writer::with_context($context)
+            ->get_data([get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]);
+
+        $keys = array_keys((array) $exported);
+        sort($keys);
+        $this->assertSame(
+            ['restrictions', 'rules', 'whatthismeans'],
+            $keys,
+            'The export gained or lost a field. Each one is a statement made to a data subject in a '
+                . 'legal context, so it needs a reason recorded here - especially any field that '
+                . 'answers "can they open it", which this provider cannot know.'
+        );
     }
 
     /**

@@ -190,6 +190,12 @@ final class granted_user_deletion_test extends \advanced_testcase {
         $this->delete_site_user($grantee->id);
 
         [$marked] = $this->split_user_nodes($this->availability_of($managed->cmid));
+        // Asserted BEFORE the cast: (array) flattens a stdClass just as happily as an array, so a
+        // repair that wrote the gapped OBJECT back - still a TypeError for core - would have passed.
+        $this->assertIsArray(
+            $marked[0]->userids ?? null,
+            'The stored list must be a JSON array; an object is the shape core refuses to load.'
+        );
         $names = array_map('intval', (array) ($marked[0]->userids ?? []));
         if (isset($marked[0]->userid)) {
             $names[] = (int) $marked[0]->userid;
@@ -253,6 +259,12 @@ final class granted_user_deletion_test extends \advanced_testcase {
 
         [$marked] = $this->split_user_nodes($this->availability_of($managed->cmid));
         $this->assertCount(1, $marked, 'The gate must survive: a tree without it restricts nobody.');
+        // Asserted BEFORE the cast: (array) flattens a stdClass just as happily as an array, so a
+        // repair that wrote the gapped OBJECT back - still a TypeError for core - would have passed.
+        $this->assertIsArray(
+            $marked[0]->userids ?? null,
+            'The stored list must be a JSON array; an object is the shape core refuses to load.'
+        );
         $names = array_map('intval', (array) ($marked[0]->userids ?? []));
         if (isset($marked[0]->userid)) {
             $names[] = (int) $marked[0]->userid;
