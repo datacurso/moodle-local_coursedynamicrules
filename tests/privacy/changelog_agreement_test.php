@@ -25,12 +25,15 @@ namespace local_coursedynamicrules\privacy;
  * declared fields". Both sentences had been true the week before. Nobody removed them, and no test
  * could have noticed, because nothing compared the document against the code.
  *
- * It is deliberately NOT a test that the notes contain some blessed wording - that would pin prose
- * and go red on every honest rewrite. It compares the notes against a fact core computes at runtime,
- * in the direction that can do harm: if core counts this component compliant, the notes for the
- * release being shipped must not tell the reader it is not. A site administrator or an auditor reads
- * that file to decide whether a finding is closed; a release that answers that question twice, in
- * opposite directions, is worse than one that stays silent.
+ * What it does, stated exactly rather than flatteringly: core computes one fact at runtime - whether
+ * it counts this component compliant - and that fact GATES a search for a fixed list of sentences
+ * that assert the opposite. It is a regression pin, not a general agreement check: a future
+ * contradiction worded differently passes it. The list is the sentences that actually shipped,
+ * because those are the ones proven able to reach a release, and the gate is what keeps the pin
+ * honest - when the component stops being compliant, saying so stops being a contradiction.
+ *
+ * It is deliberately NOT a test that the notes contain some blessed wording, which would pin prose
+ * and go red on every honest rewrite.
  *
  * The phrases below are matched case-insensitively and are the ones that assert non-compliance
  * outright. Prose that DESCRIBES the past ("was not compliant until this release") is written in a
@@ -38,7 +41,7 @@ namespace local_coursedynamicrules\privacy;
  *
  * @package    local_coursedynamicrules
  * @category   test
- * @covers     \local_coursedynamicrules\privacy\provider
+ * @coversNothing
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -76,8 +79,16 @@ final class changelog_agreement_test extends \advanced_testcase {
         $changes = file_get_contents(__DIR__ . '/../../CHANGES.md');
         $this->assertNotFalse($changes, 'CHANGES.md must be readable.');
 
+        // Anchored to the end of the line: an unanchored search for "## 1.8" would happily match the
+        // heading of 1.8.6 and judge the wrong release.
         $heading = '## ' . $release;
-        $start = strpos($changes, $heading);
+        $start = false;
+        foreach (["{$heading}\n", "{$heading}\r\n"] as $candidate) {
+            $start = strpos($changes, $candidate);
+            if ($start !== false) {
+                break;
+            }
+        }
         $this->assertNotFalse($start, "CHANGES.md carries no section for the release in version.php ({$release}).");
 
         // Up to the next top-level release heading, or the end of the file for the newest release.

@@ -624,6 +624,17 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
     }
 
     /**
+     * The module's stored availability JSON, unparsed.
+     *
+     * @param int $cmid The module.
+     * @return string
+     */
+    private function raw_availability(int $cmid): string {
+        global $DB;
+        return (string) $DB->get_field('course_modules', 'availability', ['id' => $cmid]);
+    }
+
+    /**
      * The ids this plugin's own gate lists, wherever in the tree the gate ended up.
      *
      * Deliberately not the class under test's own walk: an assertion that used the provider's notion
@@ -653,25 +664,28 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
     }
 
     /**
-     * A gate sitting under a negating group is neither reported nor emptied.
+     * A gate nested under a negating group is claimed and erased like any other.
      *
-     * A user condition is evaluated as `$not XOR in_array($userid, $userids)`
-     * (availability/condition/user/classes/condition.php), and a negating group flips `$not` for
-     * everything beneath it (\core_availability\tree::get_logic_flags). So under `!&` the meaning of
-     * our gate is inverted: it lists the students who are KEPT OUT, and emptying it - which is
-     * exactly what erasing a whole context does - makes the group true and OPENS the activity to the
-     * entire course.
+     * This test exists because the opposite was implemented first, on a measurement that was never
+     * taken. Under a negation the node lists the students KEPT OUT, and it reads as though emptying
+     * it would open the activity to the whole course - so the provider was made to decline such a
+     * node entirely.
      *
-     * That is the one outcome the erasure is built to avoid, so the provider must not touch such a
-     * node; and because it will not clean it, it must not report its context either. The two go
-     * together: the contextlist is the attestation, and a context listed is a context promised.
+     * Simulating core's own tree logic over a cohort showed that is false. A user condition
+     * contributes `$not XOR in_array($userid, $userids)`, which consults no other student, so
+     * removing ids changes the evaluation for THOSE ids and for nobody else: with a node listing
+     * one student under `!&`, everybody else was already getting in before the change and still is
+     * after it. Declining the node protected nothing, and it kept a person's id in the database
+     * after their request had been reported as completed - which is the failure this whole class
+     * exists to end.
      *
-     * The plugin never writes a gate there itself - apply_activity() combines with AND at the root -
-     * so this is a tree somebody else rearranged around our node.
+     * (Deleting the node outright is a different matter and is still refused: an AND tree that loses
+     * a restriction stops restricting, which genuinely does open the activity to everyone. That is
+     * why the erasure empties the list and keeps the node, here as everywhere else.)
      *
      * @return void
      */
-    public function test_a_gate_under_a_negating_group_is_neither_reported_nor_emptied(): void {
+    public function test_a_gate_under_a_negating_group_is_claimed_and_erased(): void {
         $this->resetAfterTest(true);
         $course = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
@@ -680,56 +694,26 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
         $this->nest_own_gate_under((int) $module->cmid, ['!&']);
 
         $this->assertSame(
-            [],
-            provider::get_contexts_for_userid((int) $student->id)->get_contextids(),
-            'Under a negation the gate means the opposite of a gate; the provider cannot honour it, '
-                . 'so it must not claim it either.'
+            [(int) \context_module::instance($module->cmid)->id],
+            array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids()),
+            'The student id is in the database and the plugin wrote it, so the module is one of their contexts.'
         );
 
         $userlist = new userlist(\context_module::instance($module->cmid), 'local_coursedynamicrules');
         provider::get_users_in_context($userlist);
-        $this->assertSame([], $userlist->get_userids());
-
-        // The hard one: erasing the whole context must not empty a node whose emptiness opens the
-        // activity to everyone enrolled.
-        provider::delete_data_for_all_users_in_context(\context_module::instance($module->cmid));
-
-        $this->assertSame(
-            [(int) $student->id],
-            $this->ids_anywhere((int) $module->cmid),
-            'The negated gate was emptied: every student in the course can now open this activity.'
-        );
-    }
-
-    /**
-     * Two negations cancel, so a gate nested under both is ordinary and IS claimed.
-     *
-     * This is what separates the real rule from the lazy one. What decides the meaning of a node is
-     * not whether a negation appears anywhere above it but the PARITY of the negations on its
-     * ancestor chain: tree::get_logic_flags() computes `$innernot = $negative ? !$not : $not`, so an
-     * even number of them leaves `$not` false and the gate means exactly what it says. A provider
-     * that bailed out on the mere sight of a `!` would refuse to erase data it can perfectly well
-     * erase - and would then report success for a request it silently skipped.
-     *
-     * @return void
-     */
-    public function test_two_negations_cancel_and_the_gate_is_claimed_again(): void {
-        $this->resetAfterTest(true);
-        $course = $this->getDataGenerator()->create_course();
-        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
-        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
-        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
-        $this->nest_own_gate_under((int) $module->cmid, ['!&', '!|']);
-
-        $this->assertSame(
-            [(int) \context_module::instance($module->cmid)->id],
-            array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids()),
-            'Two negations cancel: this gate means what it says, so it is claimable like any other.'
-        );
+        $this->assertSame([(int) $student->id], array_map('intval', $userlist->get_userids()));
 
         provider::delete_data_for_user($this->approve_all_for((int) $student->id));
 
-        $this->assertSame([], $this->ids_anywhere((int) $module->cmid));
+        $this->assertSame(
+            [],
+            $this->ids_anywhere((int) $module->cmid),
+            'The id must be gone: a context listed is a context promised.'
+        );
+
+        // And the node itself survives, nested where it was.
+        $tree = json_decode($this->raw_availability((int) $module->cmid));
+        $this->assertSame('!&', $tree->c[0]->op ?? null, 'The negated group and the node inside it must both remain.');
     }
 
     /**

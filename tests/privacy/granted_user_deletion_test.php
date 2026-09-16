@@ -138,6 +138,73 @@ final class granted_user_deletion_test extends \advanced_testcase {
     }
 
     /**
+     * Deleting one student must not destroy the other students' grants on a gapped id list.
+     *
+     * json_decode() hands back a stdClass rather than an array whenever the stored list has gaps or
+     * string keys - which is what a gapped PHP array encodes to, and the reason this very method
+     * re-indexes what it writes. Read through an is_array() test alone, such a list looks EMPTY.
+     *
+     * That was harmless while the code only ever compared counts: an empty list produced an empty
+     * survivor list, the counts matched, and the method left the node alone. Folding in the singular
+     * key broke the tie - the counts now differ, so the node is rewritten, with a survivor list
+     * computed from ids the method never saw. The other students silently lose their access.
+     *
+     * The provider's twin reader recovers the shape and says why; this one did not. The divergence
+     * between two readers of the same column is the defect, and the fold merely detonated it.
+     *
+     * @covers ::revoke_user
+     * @covers \local_coursedynamicrules\observer\user_deleted::observe
+     */
+    public function test_deleting_a_granted_user_keeps_the_others_on_a_gapped_id_list(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $grantee = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $first = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $second = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $managed = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        $ruleid = $this->create_rule($course->id);
+        $record = (object) [
+            'id' => null,
+            'ruleid' => $ruleid,
+            'actiontype' => 'enableactivity',
+            'params' => json_encode([]),
+        ];
+        $action = new enableactivity_action($record, $course->id);
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'courseid' => $course->id,
+            'coursemodules' => [$managed->cmid],
+        ]);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $grantee->id]);
+
+        // Two surviving grants stored with a gap, and the deleted one named by the legacy key.
+        $tree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $managed->cmid]));
+        $node = enableactivity_action::owned_user_nodes($tree)[0];
+        $node->userids = (object) [0 => (int) $first->id, 2 => (int) $second->id];
+        $node->userid = (int) $grantee->id;
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $managed->cmid]);
+
+        $this->delete_site_user($grantee->id);
+
+        [$marked] = $this->split_user_nodes($this->availability_of($managed->cmid));
+        $names = array_map('intval', (array) ($marked[0]->userids ?? []));
+        if (isset($marked[0]->userid)) {
+            $names[] = (int) $marked[0]->userid;
+        }
+        sort($names);
+        $expected = [(int) $first->id, (int) $second->id];
+        sort($expected);
+        $this->assertSame(
+            $expected,
+            $names,
+            'The two students who were not deleted lost the access nobody asked to remove.'
+        );
+    }
+
+    /**
      * The site's own user deletion also reaches a gate written in the legacy singular shape.
      *
      * availability_user has always accepted `{"type":"user","userid":42}` and still does - its

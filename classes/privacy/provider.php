@@ -73,8 +73,8 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  *
  * WHAT REMAINS UNCLAIMABLE, STATED RATHER THAN HIDDEN
  *
- * Four kinds of id written by this plugin are not acted on here, and this class does not pretend
- * otherwise. Three cannot be attributed to it at all:
+ * Three kinds of id written by this plugin cannot be attributed to it, and this class does not
+ * pretend otherwise:
  *
  * 1. Nodes written by createaiactivity_action before it began marking them. That action records the
  *    module it creates nowhere - not in params, not in a table - so a historical one is
@@ -89,18 +89,7 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  *    none. So an AI-generated activity that also carries a teacher's own restriction comes back from
  *    a restore unattributable.
  *
- * And one is attributable but cannot be acted on safely:
- *
- * 4. A node of ours that somebody has since nested under a negating group. A user condition is
- *    evaluated as `$not XOR in_array(...)`, and a negation flips $not for everything beneath it, so
- *    such a node lists the students KEPT OUT rather than let in - and emptying it opens the activity
- *    to everyone enrolled, which is the one outcome this class exists to prevent. It is therefore
- *    neither reported nor rewritten, because reporting a context we will not clean is a promise of
- *    an erasure that does not happen. The plugin never writes a gate there; reaching one means the
- *    tree was rearranged around it, in which case the rule's grants already mean the opposite of
- *    what the operator asked for.
- *
- * None of the first three can be closed by a better provider. All three close the same way: by owning a
+ * None of the three can be closed by a better provider. All three close the same way: by owning a
  * condition type of our own, so that ownership is structural instead of a property some other
  * component is free to drop. That is what the availability_coursedynamicrules plugin does. Until it
  * lands they are recorded here and in CHANGES.md, because a gap a reader can see is a different
@@ -291,15 +280,25 @@ class provider implements
         // so doing it per activity makes a student granted a dozen activities pay a dozen full
         // invalidations inside one request - and every other user of that course rebuild from
         // scratch as many times. The plugin's user-deletion observer already works this way.
+        //
+        // The finally is load-bearing, not tidiness. Batching separates a write from the
+        // invalidation it owes, so anything that leaves this loop early - the encode guard below,
+        // or a database error on a later module - would carry the earlier modules' invalidations
+        // away with it. The column would then say the id is gone while modinfo, which is what
+        // students are actually evaluated against, still lets them in: the exact failure the
+        // per-write invalidation existed to prevent, reintroduced by batching it.
         $courseids = [];
-        foreach ($contextlist->get_contexts() as $context) {
-            $courseid = self::remove_from_module($context, [$userid]);
-            if ($courseid !== null) {
-                $courseids[$courseid] = $courseid;
+        try {
+            foreach ($contextlist->get_contexts() as $context) {
+                $courseid = self::remove_from_module($context, [$userid]);
+                if ($courseid !== null) {
+                    $courseids[$courseid] = $courseid;
+                }
             }
-        }
-        foreach ($courseids as $courseid) {
-            rebuild_course_cache($courseid, true);
+        } finally {
+            foreach ($courseids as $courseid) {
+                rebuild_course_cache($courseid, true);
+            }
         }
     }
 

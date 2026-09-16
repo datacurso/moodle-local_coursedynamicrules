@@ -174,6 +174,15 @@ class enableactivity_action extends action {
      * means erasing a restriction a teacher wrote, inside a request approved for this component
      * only. When it cannot prove ownership it must not claim it.
      *
+     * A node nested under a negating group is returned like any other, and that is a decision that
+     * was once made the other way and measured wrong. Under a negation the node lists the students
+     * KEPT OUT, and it is tempting to read that as "emptying it opens the activity to the course".
+     * It does not: a user condition contributes `$not XOR in_array($userid, $userids)`, which
+     * depends on no other student, so removing ids changes the evaluation for THOSE ids and nobody
+     * else. Simulated over a cohort against core's own tree logic, everyone not listed was already
+     * getting in before the change. Declining such a node would therefore protect nothing and would
+     * silently keep a person's id after their erasure request reported success.
+     *
      * The nodes are returned by reference to the caller's decoded tree, so the caller can edit them
      * in place and re-encode - which is the only safe way to rewrite the column, since going through
      * \core_availability\tree::save() re-serialises every sibling from its own condition class and
@@ -183,50 +192,26 @@ class enableactivity_action extends action {
      * @return object[] The marked nodes, in tree order; empty when the plugin owns nothing here.
      */
     public static function owned_user_nodes(object $root): array {
-        return self::collect_owned_unnegated($root, false);
-    }
-
-    /**
-     * The owned user nodes of a subtree that still MEAN what a gate means, given the negation so far.
-     *
-     * A user condition is evaluated as `$not XOR in_array($userid, $userids)`
-     * (availability/condition/user/classes/condition.php), and a negating group flips $not for
-     * everything beneath it: \core_availability\tree::get_logic_flags() computes
-     * `$innernot = $negative ? !$not : $not`. So what decides a node's meaning is not whether a
-     * negation appears above it but the PARITY of the negations on its ancestor chain. With an even
-     * number the node lists the students who are let IN, which is a gate. With an odd number it
-     * lists the ones who are kept OUT, and emptying it - what erasing a whole context does - makes
-     * the group true and opens the activity to everyone enrolled.
-     *
-     * That is the single outcome the erasure exists to prevent, so a node reached under an odd
-     * parity is not returned at all: it is not reported as holding anybody, and it is not rewritten.
-     * Both halves of that matter. A caller that listed such a node and then refused to clean it
-     * would be promising an erasure it does not perform, which is worse than declining the node.
-     *
-     * This plugin never writes a gate there - apply_availability() combines with AND at the root -
-     * so reaching one means somebody rearranged the tree around it. Bailing out on the mere sight of
-     * a negation anywhere would be the lazy version of this rule and would refuse data the plugin
-     * can perfectly well erase.
-     *
-     * @param object $node A decoded tree node.
-     * @param bool $not Whether the negations above this node invert what it means.
-     * @return object[] The nodes, in tree order.
-     */
-    private static function collect_owned_unnegated(object $node, bool $not): array {
         $found = [];
 
-        if (!$not && ($node->type ?? null) === 'user') {
-            $marker = $node->{self::MARKER_KEY} ?? null;
-            if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
-                $found[] = $node;
+        // Core decides what a node IS by its type and never reads a condition's children
+        // (\core_availability\tree), so this walk does the same: a 'user' node is a leaf here even
+        // if a malformed tree hung children off it. The cast on the children handles a list that
+        // json_decode() returned as a stdClass, which is what a gapped PHP array encodes to.
+        if (isset($root->type)) {
+            if ($root->type === 'user') {
+                $marker = $root->{self::MARKER_KEY} ?? null;
+                if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+                    $found[] = $root;
+                }
             }
+
+            return $found;
         }
 
-        $op = $node->op ?? null;
-        $childnot = ($op === '!&' || $op === '!|') ? !$not : $not;
-        foreach ((array) ($node->c ?? []) as $child) {
+        foreach ((array) ($root->c ?? []) as $child) {
             if (is_object($child)) {
-                $found = array_merge($found, self::collect_owned_unnegated($child, $childnot));
+                $found = array_merge($found, self::owned_user_nodes($child));
             }
         }
 
@@ -487,7 +472,20 @@ class enableactivity_action extends action {
             // A node whose user list is not a list is corrupt. It must not abort the site's user
             // deletion half-way (the event manager catches exceptions, not the TypeError array_filter()
             // would throw), so it is read as empty and left exactly as it is.
-            $userids = is_array($usercondition->userids ?? null) ? $usercondition->userids : [];
+            $userids = $usercondition->userids ?? null;
+            // json_decode() returns a stdClass, not an array, whenever the stored list has gaps or
+            // string keys - which is exactly what a gapped PHP array encodes to, and the reason the
+            // rewrite below re-indexes. Read through is_array() alone such a list looks EMPTY, and
+            // that was harmless only while this method compared counts and left the node alone.
+            // Folding in the singular key breaks that tie: the counts then differ, the node is
+            // rewritten, and the survivors are computed from a list this method never saw - so every
+            // OTHER student on that gate loses their access. The privacy provider's reader already
+            // recovered this shape; the two readers of one column must not disagree about what is in
+            // it.
+            if (is_object($userids)) {
+                $userids = (array) $userids;
+            }
+            $userids = is_array($userids) ? array_values($userids) : [];
             // And the SINGULAR key, which availability_user has always honoured and still does: its
             // constructor pushes $structure->userid onto the list it evaluates
             // (availability/condition/user/classes/condition.php). A node carrying it names that
