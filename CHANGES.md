@@ -10,6 +10,11 @@
 
 ## Fixed
 
+- **A form served over the web service asked for less than its own page**
+  Every condition screen requires the pair of capabilities, view and manage, and a role holding only one of them is refused at the page. The grade condition's form is also reachable through Moodle's dynamic-form web service, and there it asked for the manage capability alone - so a role built exactly as these notes warn administrators about, manage allowed and view prevented, was refused at the page and served by the endpoint, which answered with every grade-tracked activity of the course and each grade item's bounds and scale labels. It writes nothing and course access was still required, so nothing could be changed this way; what it was, was the plugin offering what its own page would refuse. The endpoint now asks through the same helper the pages use, so the two cannot drift apart again.
+- **A grade condition form no longer dies on an activity whose grade item was never created**
+  The form read the grade item's decimal places without checking it had one. An activity type whose mapping declares an item that was never created therefore produced a fatal error inside an AJAX response, which reaches the teacher as a form that never loads and explains nothing. Such an item is now skipped.
+
 - **Two people deleting at the same time no longer cancel each other**
   The three delete confirmations asked "has this been confirmed?" by comparing the request against a single value the plugin stored while the confirmation page rendered - one slot for the whole site, tied to neither the record nor the person. The second operator to open any delete confirmation therefore silently invalidated the first one's: their Delete button did nothing, the same question came back, and nothing said why. Two ordinary teachers in unrelated courses were enough. The confirmation is now the session key alone, which is per person and per session, and nothing is stored at all; the values left behind on existing sites are removed on upgrade. A bookmarked confirmation URL from an earlier version no longer deletes anything, which is the point of it.
 - **The inactivity task reports what it did, like the two tasks beside it**
