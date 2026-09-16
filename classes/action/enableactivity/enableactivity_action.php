@@ -160,6 +160,77 @@ class enableactivity_action extends action {
     }
 
     /**
+     * Every user-restriction node of a decoded availability tree that carries THIS PLUGIN's marker.
+     *
+     * The privacy provider needs to answer one question this class is the only place that can
+     * answer: which user ids in {course_modules}.availability did this plugin write. The marker
+     * format is this class's property - identity-bearing and documented at MARKER_PREFIX - so the
+     * predicate lives here rather than being re-derived, and drifting, somewhere else.
+     *
+     * Deliberately marker-only, with no fallback to "the sole unmarked user node". revoke_user()
+     * applies that fallback because it is scoped to modules the action itself records as its own,
+     * and a wrong guess there costs one extra id removed from a node the plugin does manage. A
+     * privacy provider has neither of those protections: it walks the whole site, and a wrong guess
+     * means erasing a restriction a teacher wrote, inside a request approved for this component
+     * only. When it cannot prove ownership it must not claim it.
+     *
+     * The nodes are returned by reference to the caller's decoded tree, so the caller can edit them
+     * in place and re-encode - which is the only safe way to rewrite the column, since going through
+     * \core_availability\tree::save() re-serialises every sibling from its own condition class and
+     * drops this very marker.
+     *
+     * @param object $root A decoded availability tree (the root, or any subtree).
+     * @return object[] The marked nodes, in tree order; empty when the plugin owns nothing here.
+     */
+    public static function owned_user_nodes(object $root): array {
+        $marked = [];
+        $unmarked = [];
+        self::collect_user_nodes($root, $marked, $unmarked);
+
+        return $marked;
+    }
+
+    /**
+     * Stamp a user-restriction node as belonging to one of this plugin's actions.
+     *
+     * Both halves of the marker - the property name and the value format - live here, so a caller
+     * writing a node never learns either. createaiactivity_action is such a caller: it writes its
+     * own restriction on the activity it generates, and before it stamped it, that node was
+     * indistinguishable from a restriction a teacher added by hand. The consequence was not
+     * cosmetic: the privacy provider can only export or erase a node it can prove it wrote, so the
+     * student's id sat in the database unreachable by a data-subject request, while tool_dataprivacy
+     * told that student their data had been erased.
+     *
+     * An action id from ANY action type is welcome here. The ids share one table and one number
+     * space, so a marker is unambiguous whatever wrote it; and the places that resolve a marker back
+     * to a live owner - modules_gated_by_another_action() - filter on actiontype themselves, so
+     * stamping a node of another type changes nothing they decide.
+     *
+     * @param \stdClass $node The restriction node, modified in place.
+     * @param int $actionid The action the node belongs to.
+     * @return \stdClass The same node, for chaining.
+     */
+    public static function mark_node(\stdClass $node, int $actionid): \stdClass {
+        $node->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
+
+        return $node;
+    }
+
+    /**
+     * The prefix every ownership marker this plugin writes starts with.
+     *
+     * Exposed so a caller can narrow a database scan to the rows that could possibly carry one,
+     * without learning the rest of the format. The substring is only ever a NARROWING device: what
+     * decides ownership is owned_user_nodes() on the decoded tree, because a LIKE on a JSON column
+     * cannot tell a marker from the same text sitting anywhere else in it.
+     *
+     * @return string The marker prefix.
+     */
+    public static function marker_prefix(): string {
+        return self::MARKER_PREFIX;
+    }
+
+    /**
      * Collect the user-type nodes of an availability tree, split by marker presence.
      *
      * @param object $node A decoded availability tree node.
@@ -383,10 +454,13 @@ class enableactivity_action extends action {
      * worse, so the hole is documented in CHANGES.md instead of closed by a heuristic. It has two
      * sources, not one. A gate written before the marker existed, on an upgraded site - and, on any
      * site, the restriction createaiactivity_action::execute() writes on the activity it generates,
-     * which carries no marker and appears in no action's params: measured, this method returns
-     * nothing for such an activity while correctly naming a gated one in the same course, so an
-     * enable-activity action can be pointed at it unwarned and the student it was generated for
-     * loses it. Marking that node - or writing it with an owned condition type - closes this half.
+     * which appears in no action's params: measured, this method returns nothing for such an activity
+     * while correctly naming a gated one in the same course, so an enable-activity action can be
+     * pointed at it unwarned and the student it was generated for loses it. That node now carries a
+     * marker - stamped so the privacy provider can reach it - and that does NOT close this half:
+     * $byliveid below is built from enable-activity actions alone, so an AI action's marker resolves
+     * to no live owner, exactly as an unmarked node did. Closing it means either widening that map
+     * or writing the node with an owned condition type.
      *
      * A marker naming an action that no longer exists is not a clash either. A course import brings
      * activities without rules (by design, see CHANGES.md), so the destination course can hold a gate

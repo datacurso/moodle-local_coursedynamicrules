@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\action\createaiactivity;
 
 use aiprovider_datacurso\httpclient\ai_course_api;
+use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 use local_coursedynamicrules\core\action;
 
 defined('MOODLE_INTERNAL') || die();
@@ -378,6 +379,59 @@ final class createaiactivity_action_test extends \advanced_testcase {
         $this->assertNotEmpty($availability);
         $this->assertStringContainsString('"type":"user"', $availability);
         $this->assertStringContainsString((string) $user->id, $availability);
+    }
+
+    /**
+     * The restriction this action writes must be attributable to the plugin, or privacy cannot see it.
+     *
+     * The action restricts the activity it generates to the one student it generated it for, which
+     * puts that student's user id into {course_modules}.availability. Nothing in core accounts for
+     * that column - availability_user is a null_provider - so this plugin's own privacy provider is
+     * the only thing that can export or erase the id. And the provider can only claim a node it can
+     * PROVE it wrote, because claiming an unmarked one would mean rewriting restrictions teachers
+     * added by hand.
+     *
+     * Until this test existed the node was written bare: indistinguishable from a teacher's own
+     * restriction, on a module recorded in no action's params and in no table of the plugin. A
+     * deletion request would have told the student their data was erased while this id stayed.
+     *
+     * The second assertion is the one that matters - the marker is a means, and being reachable
+     * through the privacy provider is the end.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_marks_its_restriction_so_privacy_can_reach_it(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+        $this->arm_happy_path();
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $pages = $DB->get_records('page', ['course' => $course->id]);
+        $this->assertCount(1, $pages, 'Sanity: the action must have created the activity, or nothing below is exercised.');
+        $page = reset($pages);
+        $cm = get_coursemodule_from_instance('page', $page->id, $course->id, false, MUST_EXIST);
+
+        $tree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $cm->id]));
+        $owned = enableactivity_action::owned_user_nodes($tree);
+        $this->assertCount(1, $owned, 'The restriction the action writes must carry this plugin\'s ownership marker.');
+        $this->assertSame([(int) $user->id], array_map('intval', $owned[0]->userids));
+
+        $contexts = \local_coursedynamicrules\privacy\provider::get_contexts_for_userid((int) $user->id);
+        $this->assertSame(
+            [(int) \context_module::instance($cm->id)->id],
+            array_map('intval', $contexts->get_contextids()),
+            'The generated activity holds the student\'s id, so it must be one of their privacy contexts.'
+        );
     }
 
     /**

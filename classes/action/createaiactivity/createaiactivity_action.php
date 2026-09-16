@@ -19,6 +19,7 @@ namespace local_coursedynamicrules\action\createaiactivity;
 use moodle_url;
 use aiprovider_datacurso\httpclient\ai_course_api;
 use core_availability\tree;
+use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\createaiactivity_form;
@@ -188,11 +189,22 @@ class createaiactivity_action extends action {
                 $OUTPUT = $previousoutput;
             }
 
-            // Restrict the new activity to the current user only.
-            $availabilityoptions = (object) [
-                'type' => 'user',
-                'userids' => [$userid],
-            ];
+            // Restrict the new activity to the current user only, and stamp the restriction as this
+            // plugin's own. The stamp is what makes the student's id REACHABLE: nothing in core
+            // accounts for course_modules.availability - availability_user is a null provider - so
+            // this plugin's privacy provider is the only thing that can export or erase that id, and
+            // it will only claim a node it can prove it wrote, because claiming an unmarked one would
+            // mean rewriting restrictions teachers added by hand. Written bare, as it was until now,
+            // the id was invisible to a data-subject request while tool_dataprivacy reported it
+            // erased. The activity this action creates is recorded in no params and in no table of
+            // the plugin, so the node itself is the only place that ownership can be recorded.
+            $availabilityoptions = enableactivity_action::mark_node(
+                (object) [
+                    'type' => 'user',
+                    'userids' => [$userid],
+                ],
+                (int) $this->get_id()
+            );
             $availability = tree::get_root_json([$availabilityoptions], tree::OP_AND, false);
 
             $DB->set_field(
