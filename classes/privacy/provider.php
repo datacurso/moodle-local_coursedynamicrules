@@ -95,6 +95,33 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * lands they are recorded here and in CHANGES.md, because a gap a reader can see is a different
  * thing from one the registry now hides behind a compliance tick.
  *
+ * WHAT AN ERASURE DOES TO ACCESS, WHICH IS NOT ALWAYS WHAT A READER EXPECTS
+ *
+ * Removing an id from a restriction changes what that restriction says, and that is the point. What
+ * it does to the person's ACCESS is a separate question, and the answer splits cleanly in two.
+ *
+ * In the arrangements THIS PLUGIN writes - its restriction a direct child of an AND root, which is
+ * all apply_availability() ever produces - an erasure either takes access away or changes nothing at
+ * all, and never grants it. Measured: half and half. The half that changes nothing is a teacher's
+ * own restriction, a date not yet arrived or a grade not reached, which was closing the activity
+ * before and still is.
+ *
+ * Once somebody has rearranged the activity's restrictions around ours, the answer inverts. Measured
+ * on a restriction of ours nested inside a negating group: it never takes access away, and half the
+ * time it GRANTS it. That needs saying plainly, because it surprises people and because no design
+ * avoids it.
+ * The rearrangement is a negating group - "must NOT match" - and this plugin never puts one there:
+ * it gets there when somebody regroups the activity's restrictions around ours, or when a restore's
+ * re-adoption stamps a node that was already inside one. Under a negation the list means the
+ * opposite of what it means anywhere else: it names the people kept OUT. So erasing somebody from it
+ * admits them to an activity a teacher had excluded them from, and emptying it entirely - which is
+ * what erasing a whole context does - admits everyone it named.
+ *
+ * That cannot be designed away, and refusing to act on such a node was tried and withdrawn. THERE,
+ * who is excluded IS the personal data: an erasure that declines to remove it is an erasure that did
+ * not happen, reported to the person as one that did. The one reassurance that does hold, and it was
+ * measured too: somebody who is not named in the restriction is never affected either way.
+ *
  * One asymmetry worth knowing, and it is not this class's to fix. An approved deletion request runs
  * this class and then deletes the account. Deleting an account WITHOUT such a request runs only the
  * user_deleted observer, and that observer works from each action's recorded modules - which the
@@ -224,12 +251,35 @@ class provider implements
     }
 
     /**
-     * Export, per gated activity, that a rule of this plugin opened it for the user and which one.
+     * Export, per activity, WHAT IS STORED about the user - and nothing derived from it.
      *
-     * The rule's name is resolved through the marker's action id when that action still exists. When
-     * it does not - a marker can outlive its action, which the action class documents - the export
-     * still states the grant and says the owning rule is gone, because the access itself is the fact
-     * the data subject is entitled to, not the bookkeeping behind it.
+     * This method used to report `granted => true`, under a heading that read "Activity access
+     * granted". It was false, and not only in exotic trees. Measured against core's own evaluation:
+     * an ordinary AND tree holding our restriction beside a date condition that has not arrived yet
+     * reports "granted" for a student who cannot open the activity - which is the commonest shape
+     * there is, since a teacher restricting an activity by date and a rule opening it for one
+     * student are the two things this plugin exists to combine.
+     *
+     * The mistake was not the arithmetic, it was taking the job at all. Whether an activity is open
+     * to somebody is a property of the WHOLE tree evaluated for that person at a moment in time, and
+     * of things outside the tree entirely - the module's visibility, the person's capabilities, their
+     * groups. A privacy export discloses data held, not outcomes computed, and core's own providers
+     * do exactly that: core_group exports a group name and the time it was joined, mod_choice the
+     * answer and when it changed. Neither derives anything.
+     *
+     * So three statements, each true for every tree that can be stored:
+     *
+     * 1. The user's id is in N restrictions on this activity that this plugin manages.
+     * 2. These rules are associated with those restrictions NOW - which is deliberately not a claim
+     *    that they put the id there. The marker proves this plugin wrote the NODE, and not even
+     *    that reliably: the restore's re-adoption can stamp a node a teacher wrote. Any sentence
+     *    resting on authorship is falsifiable until ownership is structural.
+     * 3. This export does not say whether the activity is open to the user.
+     *
+     * The rules are counted and de-duplicated by ACTION id rather than by name. Two rules of one
+     * course can share a name - a course copy makes that ordinary - and de-duplicating on the name
+     * collapsed two distinct restrictions into one line, leaving the reader unable to tell one from
+     * four.
      *
      * @param approved_contextlist $contextlist The approved contexts to export from.
      * @return void
@@ -248,20 +298,29 @@ class provider implements
                 continue;
             }
 
+            // Keyed by action id so two same-named rules stay two, and an unresolvable marker does
+            // not merge with another unresolvable one. A node with no readable action id keeps its
+            // own slot under a negative key for the same reason.
             $rules = [];
+            $holding = 0;
+            $unresolved = 0;
             foreach (enableactivity_action::owned_user_nodes($root) as $node) {
-                if (in_array($userid, self::userids_of($node), true)) {
-                    $rules[] = self::rule_name_behind($node, (int) $cm->course);
+                if (!in_array($userid, self::userids_of($node), true)) {
+                    continue;
                 }
+                $holding++;
+                $actionid = enableactivity_action::action_id_of($node);
+                $key = $actionid ?? --$unresolved;
+                $rules[$key] = self::rule_name_behind($node, (int) $cm->course);
             }
-            if ($rules === []) {
+            if ($holding === 0) {
                 continue;
             }
 
-            // An activity two rules manage carries two gates: name every rule that granted access.
             writer::with_context($context)->export_data($subcontext, (object) [
-                'granted' => true,
-                'rules' => array_values(array_unique($rules)),
+                'restrictions' => $holding,
+                'rules' => array_values($rules),
+                'whatthismeans' => get_string('privacy:export:idheld', 'local_coursedynamicrules', $holding),
             ]);
         }
     }
@@ -316,7 +375,14 @@ class provider implements
     }
 
     /**
-     * Empty this plugin's gates in the module context. The nodes stay, so the activity stays closed.
+     * Empty this plugin's gates in the module context, keeping the nodes themselves.
+     *
+     * The nodes are kept because deleting one removes a restriction, and an activity with one fewer
+     * restriction is open to more people. Keeping it is NOT the same as the activity staying closed,
+     * which an earlier version of this line claimed: where the node sits under a negating group it
+     * lists the people kept OUT, so emptying it admits exactly them. Measured, not reasoned. That
+     * consequence cannot be designed away - there, who is excluded IS the personal data, and an
+     * erasure that refuses to remove it is an erasure that did not happen.
      *
      * @param \context $context The context to erase.
      * @return void

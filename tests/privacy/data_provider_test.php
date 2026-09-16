@@ -293,11 +293,16 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
         $this->assertTrue($writer->has_any_data(), 'The approved context exported nothing at all.');
 
         $exported = $writer->get_data([get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]);
-        $this->assertTrue($exported->granted);
+        $this->assertSame(1, $exported->restrictions, 'One restriction of ours holds this student.');
         $this->assertSame(
             ['Enable rule'],
             $exported->rules,
-            'The export must name the rule that opened the activity, not merely that something did.'
+            'The export must name the rule associated with the restriction, not merely that one exists.'
+        );
+        $this->assertFalse(
+            property_exists($exported, 'granted'),
+            'The export must not state an access outcome: it is not computable from a node, and it was '
+                . 'measured wrong in the commonest tree there is.'
         );
     }
 
@@ -763,7 +768,7 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
         $this->assertSame(
             [get_string('privacy:export:ruledeleted', 'local_coursedynamicrules')],
             $exported->rules,
-            'The export named a rule that belongs to another course and never granted this access.'
+            'The export named a rule of another course, which is not associated with this restriction.'
         );
     }
 
@@ -819,6 +824,168 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
             'Three gates in one course cost two extra writes than one gate, and no more: a fourth and '
                 . 'a fifth would be a second and third invalidation of the same course.'
         );
+    }
+
+    /**
+     * The declared limit, as an executable fact: when core erases the stamp, the student vanishes.
+     *
+     * Every other test in this file pins a behaviour. This one pins a LIMITATION, on purpose, and it
+     * is the most important test here because it measures the root cause rather than one of its
+     * symptoms.
+     *
+     * The root cause is one sentence: this plugin records who owns a restriction by putting a
+     * property of its own inside {course_modules}.availability, a structure core owns and rebuilds
+     * from each condition's save() - and availability_user::save() emits {type, userids} and nothing
+     * else. Any property the plugin added is gone. That is not a bug in this provider; it is the
+     * condition the provider lives under, and it is why ownership can only ever be claimed and never
+     * assumed.
+     *
+     * The mechanism used below is the real one, not a simulation: shifting a course's dates is what
+     * a course reset does, and it makes core rewrite the whole tree. The same erasure happens when a
+     * teacher opens the activity's settings and saves.
+     *
+     * The two assertions together ARE the limitation, and neither is meaningful alone:
+     *
+     *   1. The student's id is STILL in the database. Nothing was cleaned.
+     *   2. The provider reports nothing. It cannot prove it wrote that restriction any more, and
+     *      guessing would mean rewriting a restriction some teacher may own.
+     *
+     * So an erasure request covering this module would report success and leave the id. That is
+     * declared in the class docblock and in CHANGES.md, and it is pinned here so it stops being
+     * rediscovered as a new finding each time somebody reviews this file. It closes the day the
+     * engine writes a condition type of its own, and not before: no amount of care inside this
+     * provider can recover a property core has already discarded.
+     *
+     * @return void
+     */
+    public function test_when_core_erases_the_stamp_the_student_is_still_there_and_the_provider_cannot_see_them(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
+
+        // A date condition beside our gate: it is what makes core walk and re-encode the whole tree.
+        $tree = json_decode($this->raw_availability((int) $module->cmid));
+        $tree->c[] = (object) ['type' => 'date', 'd' => '>=', 't' => 1700000000];
+        $tree->showc = array_fill(0, count($tree->c), false);
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $module->cmid]);
+
+        $this->assertSame(
+            [(int) \context_module::instance($module->cmid)->id],
+            array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids()),
+            'Precondition: while the stamp is there the provider reaches the student.'
+        );
+
+        // What a course reset does. Core rebuilds the tree from each condition's own save().
+        \availability_date\condition::update_all_dates((int) $course->id, 3600);
+
+        $raw = $this->raw_availability((int) $module->cmid);
+        $this->assertStringNotContainsString(
+            enableactivity_action::marker_prefix(),
+            $raw,
+            'Precondition: core must really have discarded the stamp, or this test proves nothing.'
+        );
+        $this->assertStringContainsString(
+            (string) $student->id,
+            $raw,
+            'The student id is STILL in the database. Nothing about this is a cleanup.'
+        );
+
+        $this->assertSame(
+            [],
+            provider::get_contexts_for_userid((int) $student->id)->get_contextids(),
+            'And the provider can no longer prove it wrote this restriction, so it claims nothing - '
+                . 'which means an erasure request would report success and leave the id in place.'
+        );
+    }
+
+    /**
+     * The export says the same thing whether or not the student can actually open the activity.
+     *
+     * The method used to report `granted => true`, and the failure was not an exotic one. A teacher
+     * restricts an activity by date; a rule opens it for one student. That pairing is the whole point
+     * of this plugin, and until the date arrives the student cannot open it - while the export told
+     * them access had been granted.
+     *
+     * The assertion is made against CORE's own verdict rather than against a hand-reasoned one, so
+     * the test fails if Moodle ever changes how it combines restrictions: first prove the student is
+     * shut out, then prove the export does not claim otherwise.
+     *
+     * @return void
+     */
+    public function test_the_export_claims_no_access_when_core_shuts_the_student_out(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
+
+        // A date restriction the teacher set, which has not arrived. Ordinary, and not a negation.
+        $tree = json_decode($this->raw_availability((int) $module->cmid));
+        $tree->c[] = (object) ['type' => 'date', 'd' => '>=', 't' => time() + WEEKSECS];
+        $tree->showc = array_fill(0, count($tree->c), false);
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $module->cmid]);
+        rebuild_course_cache((int) $course->id, true);
+
+        $cm = get_fast_modinfo($course->id)->get_cm($module->cmid);
+        $information = '';
+        $this->assertFalse(
+            (new \core_availability\info_module($cm))->is_available($information, false, (int) $student->id),
+            'Precondition: core must really be shutting this student out, or the test proves nothing.'
+        );
+
+        $context = \context_module::instance($module->cmid);
+        $this->export_context_data_for_user((int) $student->id, $context, 'local_coursedynamicrules');
+        $exported = writer::with_context($context)
+            ->get_data([get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]);
+
+        $this->assertFalse(
+            property_exists($exported, 'granted'),
+            'The export told a student who cannot open this activity that access had been granted.'
+        );
+        $this->assertSame(1, $exported->restrictions, 'The id IS stored here, and that is what is disclosed.');
+    }
+
+    /**
+     * Two rules that happen to share a name are reported as two restrictions, not one.
+     *
+     * The rules used to be de-duplicated on their NAME, and a course copy makes same-named rules
+     * ordinary rather than contrived. The reader was then told about one restriction when four held
+     * their id, with no way to tell the difference - and an export that undercounts what is stored is
+     * the same defect as one that miscounts it.
+     *
+     * @return void
+     */
+    public function test_two_rules_sharing_a_name_are_not_collapsed_into_one(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        // Two separate actions, each with its own rule, gating the same activity for the same student.
+        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
+        $this->gate_module($course, (int) $module->cmid, [(int) $student->id]);
+        $DB->set_field('local_coursedynamicrules_rule', 'name', 'Enable rule', ['courseid' => $course->id]);
+
+        [$marked] = $this->user_nodes((int) $module->cmid);
+        $this->assertCount(2, $marked, 'Precondition: the activity must really carry two gates of ours.');
+
+        $context = \context_module::instance($module->cmid);
+        $this->export_context_data_for_user((int) $student->id, $context, 'local_coursedynamicrules');
+        $exported = writer::with_context($context)
+            ->get_data([get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]);
+
+        $this->assertCount(
+            2,
+            $exported->rules,
+            'Two distinct rules that share a name were reported as one, so the reader cannot tell them apart.'
+        );
+        $this->assertSame(2, $exported->restrictions, 'Two restrictions hold this student, not one.');
     }
 
     /**
