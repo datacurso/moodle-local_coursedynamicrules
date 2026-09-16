@@ -356,6 +356,67 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $this->remap_notification_roles();
         $this->remap_ownership_markers();
         $this->readopt_stripped_markers();
+        $this->report_restored_components();
+    }
+
+    /**
+     * Report every rule, condition and action this restore created.
+     *
+     * A course copy can land a dozen active rules on a site at once - automation that will notify
+     * students and spend money on generated activities - and every other way a rule comes into
+     * being emits the plugin's own creation event. This path emitted none, so the operator asking
+     * where a rule came from had nothing but core's restore log, which does not name them.
+     *
+     * Emitted last, after the remapping passes above, by convention rather than by necessity: the
+     * payload is a context and an id, and that id is the same whichever order they run in. The ids
+     * come from the restore's own mapping table, so they are the rows that now exist, never the
+     * source's.
+     *
+     * @return void
+     */
+    protected function report_restored_components(): void {
+        $context = \context_course::instance($this->task->get_courseid());
+
+        $kinds = [
+            'local_coursedynamicrules_rule' => \local_coursedynamicrules\event\rule_created::class,
+            'local_coursedynamicrules_condition' => \local_coursedynamicrules\event\condition_created::class,
+            'local_coursedynamicrules_action' => \local_coursedynamicrules\event\action_created::class,
+        ];
+
+        foreach ($kinds as $itemname => $eventclass) {
+            foreach ($this->get_restored_ids($itemname) as $newid) {
+                $eventclass::create([
+                    'context' => $context,
+                    'objectid' => $newid,
+                ])->trigger();
+            }
+        }
+    }
+
+    /**
+     * The ids this restore created for one of the plugin's tables.
+     *
+     * @param string $itemname The mapping name used by set_mapping() when the row was inserted.
+     * @return int[] The new ids, in no particular order.
+     */
+    protected function get_restored_ids(string $itemname): array {
+        global $DB;
+
+        $records = $DB->get_records(
+            'backup_ids_temp',
+            ['backupid' => $this->get_restoreid(), 'itemname' => $itemname],
+            '',
+            'id, newitemid'
+        );
+
+        $ids = [];
+        foreach ($records as $record) {
+            if (!empty($record->newitemid)) {
+                $ids[] = (int) $record->newitemid;
+            }
+        }
+
+        return $ids;
     }
 
     /**

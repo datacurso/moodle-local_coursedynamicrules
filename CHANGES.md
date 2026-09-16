@@ -10,6 +10,13 @@
 
 ## Fixed
 
+- **Two people deleting at the same time no longer cancel each other**
+  The three delete confirmations asked "has this been confirmed?" by comparing the request against a single value the plugin stored while the confirmation page rendered - one slot for the whole site, tied to neither the record nor the person. The second operator to open any delete confirmation therefore silently invalidated the first one's: their Delete button did nothing, the same question came back, and nothing said why. Two ordinary teachers in unrelated courses were enough. The confirmation is now the session key alone, which is per person and per session, and nothing is stored at all; the values left behind on existing sites are removed on upgrade. A bookmarked confirmation URL from an earlier version no longer deletes anything, which is the point of it.
+- **The inactivity task reports what it did, like the two tasks beside it**
+  It walked the same courses in the same pages as the other two enrolment-wide tasks and said nothing at all: no duration, no count of what it evaluated, and no notice when a course exceeded the configured page size. It is also the one that runs unattended, six hours between passes. It now reports the same four things its siblings do.
+- **Restoring a course records the rules it brought**
+  A course copy can land a dozen active rules on a site at once, automation that will notify students and generate activities, and nothing in the log said where any of it came from - every other way a rule comes into being is recorded. Each rule, condition and action a restore creates is now reported as its own creation, against the restored course.
+
 - **Deleting a course now records which rules went with it**
   Every other way a rule disappears leaves an entry in the log, so a report asked what happened to it can answer. Deleting the course did not: the plugin removed every rule, condition and action of that course in one sweep and recorded nothing, so a whole course's automation could vanish leaving only Moodle's own "course deleted" line, which says a course was deleted and not which rules it carried. Each rule is now recorded as its own deletion, carrying the rule as it was, so the entry is still readable once the row is gone.
 - **The scheduled tasks no longer load a whole course's users into memory at once**

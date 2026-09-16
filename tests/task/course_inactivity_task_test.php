@@ -83,7 +83,11 @@ final class course_inactivity_task_test extends \advanced_testcase {
         ]);
 
         $sink = $this->redirectMessages();
+        // The task reports what it evaluated, as its siblings do; the run's own log is not what
+        // this test is about (course_inactivity_observability_test covers it).
+        ob_start();
         (new course_inactivity_task())->execute();
+        ob_end_clean();
 
         $messages = $sink->get_messages_by_component('local_coursedynamicrules');
         $tostudent = array_filter($messages, function ($m) use ($student) {
