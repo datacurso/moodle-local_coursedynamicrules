@@ -68,7 +68,7 @@ class enableactivity_form extends action_form {
         $options = [];
         foreach ($cms as $cm) {
             if (!$cm->deletioninprogress) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
             }
         }
 

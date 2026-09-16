@@ -120,7 +120,7 @@ class createaiactivity_form extends action_form {
             if ($cm->deletioninprogress) {
                 continue;
             }
-            $beforeoptions[$cm->id] = ucfirst($cm->modname) . ' - ' . $cm->name;
+            $beforeoptions[$cm->id] = ucfirst($cm->modname) . ' - ' . $cm->get_formatted_name();
         }
 
         $mform->addElement(

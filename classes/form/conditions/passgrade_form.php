@@ -51,7 +51,7 @@ class passgrade_form extends condition_form {
         foreach ($cms as $cm) {
             // Get only course modules that require passgrade and are not being deleted.
             if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && $cm->completionpassgrade && !$cm->deletioninprogress) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
             }
         }
 
