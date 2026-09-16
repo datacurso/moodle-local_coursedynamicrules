@@ -378,11 +378,15 @@ class enableactivity_action extends action {
      * grants nobody - so adding a second gate takes the activity away from the first action's
      * students the moment it is SAVED, before any rule is activated. The form asks this to refuse
      * such a selection instead of letting it happen in silence. Only MARKED nodes are counted, which
-     * leaves one real hole: a gate written before the marker existed belongs to another action too,
-     * and is indistinguishable here from a restriction a teacher added by hand - so on a site
-     * upgraded from those versions the pair can still be created. Guessing between the two would
-     * refuse a teacher's own restriction, which is worse, so the hole is documented in CHANGES.md
-     * instead of closed by a heuristic.
+     * leaves one real hole: an unmarked gate is indistinguishable here from a restriction a teacher
+     * added by hand. Guessing between the two would refuse a teacher's own restriction, which is
+     * worse, so the hole is documented in CHANGES.md instead of closed by a heuristic. It has two
+     * sources, not one. A gate written before the marker existed, on an upgraded site - and, on any
+     * site, the restriction createaiactivity_action::execute() writes on the activity it generates,
+     * which carries no marker and appears in no action's params: measured, this method returns
+     * nothing for such an activity while correctly naming a gated one in the same course, so an
+     * enable-activity action can be pointed at it unwarned and the student it was generated for
+     * loses it. Marking that node - or writing it with an owned condition type - closes this half.
      *
      * A marker naming an action that no longer exists is not a clash either. A course import brings
      * activities without rules (by design, see CHANGES.md), so the destination course can hold a gate
