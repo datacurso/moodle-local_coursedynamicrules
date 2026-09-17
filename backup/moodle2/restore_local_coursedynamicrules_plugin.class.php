@@ -430,6 +430,13 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
      * action's OWN params - the snapshot that names the modules it manages - adopting the single
      * unmarked user node exactly the way execute() adopts pre-marker legacy trees in production.
      *
+     * That derivation is a deduction, not a record: on a module this action still lists but whose
+     * own gate a teacher has since replaced, the node adopted is the teacher's. The adopted nodes
+     * are therefore stamped as deduced (enableactivity_action::MARKER_ADOPTED_KEY) so the privacy
+     * provider ignores them, and the count is reported here rather than in debugging() - for the
+     * same reason the dropped notification roles are, a few methods down: the restore log is what an
+     * operator reads afterwards, and this pass writes into a core column on their behalf.
+     *
      * @return void
      */
     protected function readopt_stripped_markers() {
@@ -480,6 +487,17 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         }
 
         if ($rewritten > 0) {
+            // Never silent, for the same reason the dropped notification roles are not: this pass
+            // decided who owns a restriction inside a core column, and it decided it by elimination.
+            // An operator who sees this can check whether any of those activities carried a user
+            // restriction of the teacher's own; nobody can check what nobody was told.
+            $this->task->log(
+                'local_coursedynamicrules: re-adopted ' . $rewritten . ' access restriction(s) whose '
+                . 'ownership marker did not survive the restore. Ownership was deduced from each '
+                . 'action\'s own list of activities, not recorded, so these are excluded from privacy '
+                . 'exports and erasures until the plugin writes them again.',
+                backup::LOG_WARNING
+            );
             rebuild_course_cache($courseid, true);
         }
     }

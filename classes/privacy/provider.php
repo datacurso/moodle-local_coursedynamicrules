@@ -79,15 +79,32 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * 1. Nodes written by createaiactivity_action before it began marking them. That action records the
  *    module it creates nowhere - not in params, not in a table - so a historical one is
  *    indistinguishable from a teacher's restriction. New ones carry the marker and are covered.
- * 2. Any node of ours whose marker a teacher destroyed by re-saving the module's restrictions
- *    through the core UI, which regenerates the tree from scratch (documented at
- *    enableactivity_action::MARKER_KEY).
+ * 2. Any node of ours whose marker somebody destroyed by saving the module's settings form -
+ *    ANY save of it, not only one that touches restrictions. Measured on the reference site on
+ *    2026-09-17: changing an activity's name and saving destroyed the marker, because the form
+ *    writes the JSON the browser's availability editor rebuilt from its own model rather than
+ *    the stored tree (documented at enableactivity_action::MARKER_KEY). This is the reason the
+ *    unmarked set grows with ordinary use rather than staying an edge case: 12 of the 19 user
+ *    restrictions on that site carried no marker that day.
  * 3. A marker a RESTORE stripped. Core re-encodes a module's whole tree through each condition's
  *    save() whenever any sibling changed, and availability_user::save() emits only {type, userids}.
  *    The restore plugin re-adopts what it can afterwards, but only for enable-activity actions,
  *    because it re-adopts by walking each action's recorded modules and createaiactivity records
  *    none. So an AI-generated activity that also carries a teacher's own restriction comes back from
  *    a restore unattributable.
+ *
+ *    A re-adopted marker is not attributable either, and this class refuses it. The re-adoption
+ *    claims the tree's single unmarked user node, which on a module the action still lists but whose
+ *    own gate a teacher has since replaced is the TEACHER'S restriction: measured on this tree, a
+ *    teacher's list of two students came back with one after an erasure approved for this component.
+ *    The engine still needs that marker - apply_availability() matches on it alone, so an unmarked
+ *    gate reads as no gate and a second, empty one gets appended, hiding the activity from everybody
+ *    - so the re-adoption writes it and additionally records that it was deduced
+ *    (enableactivity_action::MARKER_ADOPTED_KEY), and owned_user_nodes() skips anything carrying it.
+ *    The engine may act on a deduction; nothing that attests to a regulator may. The cost is stated
+ *    rather than hidden: a gate this plugin really did write, whose marker a restore stripped, is no
+ *    longer exported or erased. Nodes re-adopted by releases 1.8.4 and 1.8.5, which recorded no such
+ *    flag, are indistinguishable from written ones and remain claimable.
  *
  * None of the three can be closed by a better provider. All three close the same way: by owning a
  * condition type of our own, so that ownership is structural instead of a property some other

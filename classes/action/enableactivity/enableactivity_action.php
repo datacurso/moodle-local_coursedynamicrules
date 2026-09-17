@@ -41,10 +41,21 @@ class enableactivity_action extends action {
      * core_availability\tree and availability_user\condition only read known properties when
      * decoding a node (see availability/classes/tree.php and
      * availability/condition/user/classes/condition.php), so this extra property survives the
-     * decode/encode round-trips this class performs. It is only lost if a human re-saves the
-     * module's restrictions via the core "Restrict access" UI, which regenerates the tree from
-     * scratch via availability_user\condition::save() and drops unknown properties - an accepted,
-     * documented edge case.
+     * decode/encode round-trips this class performs. It does NOT survive anybody else rebuilding
+     * the tree, and that happens far more often than it is comfortable to assume. Measured on the
+     * reference site on 2026-09-17: saving a module's settings form having changed only the
+     * activity's NAME, without opening the restrictions section at all, destroyed the marker. The
+     * form does not write the stored tree back - it writes the JSON the browser's availability
+     * editor produced from its own model, which only knows the properties each condition plugin
+     * declares (course/modlib.php:102 and :626), and this property is in no such model. Core also
+     * rebuilds the tree through each condition's save() on a restore
+     * (availability/classes/info.php:334), on a dependency remap (:447) and on a course reset that
+     * shifts dates (availability_date\condition::update_all_dates).
+     *
+     * So this marker is lost by ORDINARY EDITING, not only by editing restrictions, and the set of
+     * unmarked nodes grows on its own with normal use of the site: 12 of the 19 user restrictions on
+     * the reference site carried no marker on 2026-09-17. That is the whole argument for owning a
+     * condition type of our own, where the save() that rebuilds the node is this plugin's code.
      */
     private const MARKER_KEY = 'source';
 
@@ -56,6 +67,33 @@ class enableactivity_action extends action {
      * recognises (and mutates) its OWN node.
      */
     private const MARKER_PREFIX = 'local_coursedynamicrules:';
+
+    /**
+     * Companion property recording that a marker was INFERRED rather than written by this plugin.
+     *
+     * The marker means "this node is ours" everywhere it is read, and adopt_stripped_marker() is
+     * the one place that writes it onto a node whose authorship nobody verified: after a restore it
+     * claims the tree's single unmarked user node, which is the same guess find_user_condition()
+     * makes at execute time. That guess is cheap to be wrong about while it only drives the engine -
+     * a node gets an id added or removed - and it became expensive the moment the privacy provider
+     * started reading the marker as PROOF of authorship, because there a wrong guess erases a
+     * teacher's own restriction inside a request approved for this component alone.
+     *
+     * So the two uses are separated rather than one of them removed. Adoption keeps writing the
+     * marker, because every engine reader needs it - apply_availability() in particular matches on
+     * the marker ALONE (find_marked_user_condition(), FIX2-3), so a gate left unmarked would be
+     * taken for absent and a second, empty gate appended beside it, hiding the activity from
+     * everybody. It additionally writes this key, and owned_user_nodes() - read only by the privacy
+     * provider - refuses any node carrying it.
+     *
+     * The engine may act on a guess. Nothing that attests to a regulator may.
+     *
+     * Like MARKER_KEY this is an unknown property to availability_user\condition::save(), so both
+     * die together whenever core re-encodes the tree: a node can never keep the marker and lose
+     * this. Nodes adopted by releases 1.8.4 and 1.8.5, which wrote no such key, are indistinguishable
+     * from nodes this plugin wrote and stay claimable - stated in CHANGES.md rather than guessed at.
+     */
+    private const MARKER_ADOPTED_KEY = 'sourceadopted';
 
     /**
      * This action's own, identity-bearing marker value (FIX3-3). Only meaningful once the action
@@ -123,6 +161,15 @@ class enableactivity_action extends action {
      * hands off, exactly as at execute time. A node already marked for this action id means the
      * remap already did the job and nothing is written.
      *
+     * That heuristic is a guess, and the node it lands on can be a teacher's own restriction: our
+     * gate is gone from a module this action still lists, the teacher's user restriction is the only
+     * unmarked one left, and it gets stamped. Measured on the delivery tree - a teacher's list of
+     * two students came back with one after an erasure approved for THIS component. So the stamp is
+     * written together with MARKER_ADOPTED_KEY, which keeps every engine reader working exactly as
+     * before while telling the privacy provider not to believe it. The restore logs the count, in
+     * the restore's own log, because an operator has to be able to find out that ownership here was
+     * deduced rather than known.
+     *
      * @param string|null $availabilityjson The course module's availability JSON, possibly null/empty.
      * @param int $actionid The RESTORED action's id, whose marker the tree should carry.
      * @return string|null The rewritten JSON, or null when nothing was (or could be) adopted.
@@ -155,6 +202,10 @@ class enableactivity_action extends action {
         }
 
         $unmarked[0]->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
+        // And a note that this one was deduced, not written: the engine reads the marker and acts,
+        // the privacy provider reads it and attests, and only the second of those may not be wrong.
+        // See MARKER_ADOPTED_KEY.
+        $unmarked[0]->{self::MARKER_ADOPTED_KEY} = true;
 
         return json_encode($tree);
     }
@@ -201,7 +252,12 @@ class enableactivity_action extends action {
         if (isset($root->type)) {
             if ($root->type === 'user') {
                 $marker = $root->{self::MARKER_KEY} ?? null;
-                if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+                // A marker the restore DEDUCED is not evidence of authorship, and this is the one
+                // reader that needs evidence rather than a working assumption: what it returns
+                // becomes the contextlist, and the contextlist is the attestation. Engine readers
+                // deliberately keep honouring these nodes - see MARKER_ADOPTED_KEY.
+                $adopted = !empty($root->{self::MARKER_ADOPTED_KEY});
+                if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0 && !$adopted) {
                     $found[] = $root;
                 }
             }
@@ -240,6 +296,11 @@ class enableactivity_action extends action {
      */
     public static function mark_node(\stdClass $node, int $actionid): \stdClass {
         $node->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
+        // Stamping a node here is the plugin writing it, which is the opposite of the deduction
+        // MARKER_ADOPTED_KEY records - so the deduction is cleared rather than left to outlive it.
+        // No caller passes an already-adopted node today; the one that eventually does would
+        // otherwise hand the privacy provider a node it wrote and told it to disbelieve.
+        unset($node->{self::MARKER_ADOPTED_KEY});
 
         return $node;
     }
