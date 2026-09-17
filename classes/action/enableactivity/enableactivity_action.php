@@ -447,11 +447,36 @@ class enableactivity_action extends action {
                 continue;
             }
 
-            $userids = $usercondition->userids ?? [];
+            // This reader has to agree with the two others that read this column - revoke_user()
+            // below and the privacy provider's userids_of() - about what the stored list holds, and
+            // until now it was the only one that did not. json_decode() returns a stdClass whenever
+            // the stored list has gaps in its integer keys, which is the shape array_filter() leaves
+            // behind and which every writer here re-indexes away; arriving here as it is stored, that
+            // shape is a TypeError in in_array(). This runs inside three scheduled tasks that catch
+            // nothing of their own, so core catches it, marks the whole task failed, and every rule
+            // after this one - in every course of the site - stops running for that pass.
+            $userids = $usercondition->userids ?? null;
+            if (is_object($userids)) {
+                $userids = (array) $userids;
+            }
+            $userids = is_array($userids) ? array_values($userids) : [];
+            // And the SINGULAR key, which availability_user still honours: its constructor pushes
+            // $structure->userid onto the list it evaluates, so a student named only there already
+            // has access and reading just the plural key grants it to them a second time.
+            if (isset($usercondition->userid)) {
+                $userids[] = $usercondition->userid;
+            }
 
+            // Deliberately the LOOSE comparison core itself uses (availability_user\condition::
+            // is_available). Tightening it - comparing as integers, say - would read a stored
+            // "501abc" as student 501: this reader would treat them as granted while core never
+            // matches them, and the student would silently never get in.
             if (!in_array($userid, $userids)) {
                 $userids[] = $userid;
                 $usercondition->userids = $userids;
+                // The folded key goes with the fold: left behind, core would add it back to the list
+                // it evaluates and the node would name the same student twice.
+                unset($usercondition->userid);
 
                 $DB->set_field(
                     'course_modules',
