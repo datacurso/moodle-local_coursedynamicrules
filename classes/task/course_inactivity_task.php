@@ -110,7 +110,7 @@ class course_inactivity_task extends \core\task\scheduled_task {
     /**
      * Pass through the users who have not completed the course, without collecting them.
      *
-     * @param iterable<\stdClass> $users Objects carrying at least "id".
+     * @param iterable $users stdClass objects carrying at least "id".
      * @param \completion_info $completion The course's completion info.
      * @return \Generator<int, \stdClass>
      */

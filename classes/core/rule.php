@@ -78,7 +78,7 @@ class rule {
     /**
      * Rule constructor.
      * @param object $rule
-     * @param iterable<stdClass> $users Users to validate this rule, objects carrying at least "id"; an
+     * @param iterable $users Users to validate this rule - stdClass objects carrying at least "id"; an
      * array or a single-pass generator, walked once by execute()
      * @param string[] $conditiontypes list of conditions to include in the executions
      * @param array $additionaldata additional data to add extra checks in conditions to avoid unexpected executions
