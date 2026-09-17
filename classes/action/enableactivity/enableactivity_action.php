@@ -174,6 +174,15 @@ class enableactivity_action extends action {
      * means erasing a restriction a teacher wrote, inside a request approved for this component
      * only. When it cannot prove ownership it must not claim it.
      *
+     * A node nested under a negating group is returned like any other, and that is a decision that
+     * was once made the other way and measured wrong. Under a negation the node lists the students
+     * KEPT OUT, and it is tempting to read that as "emptying it opens the activity to the course".
+     * It does not: a user condition contributes `$not XOR in_array($userid, $userids)`, which
+     * depends on no other student, so removing ids changes the evaluation for THOSE ids and nobody
+     * else. Simulated over a cohort against core's own tree logic, everyone not listed was already
+     * getting in before the change. Declining such a node would therefore protect nothing and would
+     * silently keep a person's id after their erasure request reported success.
+     *
      * The nodes are returned by reference to the caller's decoded tree, so the caller can edit them
      * in place and re-encode - which is the only safe way to rewrite the column, since going through
      * \core_availability\tree::save() re-serialises every sibling from its own condition class and
@@ -183,11 +192,30 @@ class enableactivity_action extends action {
      * @return object[] The marked nodes, in tree order; empty when the plugin owns nothing here.
      */
     public static function owned_user_nodes(object $root): array {
-        $marked = [];
-        $unmarked = [];
-        self::collect_user_nodes($root, $marked, $unmarked);
+        $found = [];
 
-        return $marked;
+        // Core decides what a node IS by its type and never reads a condition's children
+        // (\core_availability\tree), so this walk does the same: a 'user' node is a leaf here even
+        // if a malformed tree hung children off it. The cast on the children handles a list that
+        // json_decode() returned as a stdClass, which is what a gapped PHP array encodes to.
+        if (isset($root->type)) {
+            if ($root->type === 'user') {
+                $marker = $root->{self::MARKER_KEY} ?? null;
+                if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+                    $found[] = $root;
+                }
+            }
+
+            return $found;
+        }
+
+        foreach ((array) ($root->c ?? []) as $child) {
+            if (is_object($child)) {
+                $found = array_merge($found, self::owned_user_nodes($child));
+            }
+        }
+
+        return $found;
     }
 
     /**
@@ -214,6 +242,28 @@ class enableactivity_action extends action {
         $node->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
 
         return $node;
+    }
+
+    /**
+     * The id of the action a node belongs to, or null when the node carries no marker of ours.
+     *
+     * The read half of mark_node(). Without it a caller has to know the property name to get the id
+     * back out, which is exactly what mark_node()'s docblock promises they never need to - and a
+     * caller that hard-codes it does not fail loudly if the format ever moves: it silently stops
+     * recognising every marker, which in the privacy provider reads as "the rule is gone" for every
+     * grant on the site.
+     *
+     * @param \stdClass $node A decoded availability node.
+     * @return int|null The owning action's id, or null when the node is not this plugin's.
+     */
+    public static function action_id_of(\stdClass $node): ?int {
+        $marker = $node->{self::MARKER_KEY} ?? null;
+        if (!is_string($marker) || strpos($marker, self::MARKER_PREFIX) !== 0) {
+            return null;
+        }
+        $actionid = (int) substr($marker, strlen(self::MARKER_PREFIX));
+
+        return $actionid > 0 ? $actionid : null;
     }
 
     /**
@@ -422,7 +472,29 @@ class enableactivity_action extends action {
             // A node whose user list is not a list is corrupt. It must not abort the site's user
             // deletion half-way (the event manager catches exceptions, not the TypeError array_filter()
             // would throw), so it is read as empty and left exactly as it is.
-            $userids = is_array($usercondition->userids ?? null) ? $usercondition->userids : [];
+            $userids = $usercondition->userids ?? null;
+            // json_decode() returns a stdClass, not an array, whenever the stored list has gaps or
+            // string keys - which is exactly what a gapped PHP array encodes to, and the reason the
+            // rewrite below re-indexes. Read through is_array() alone such a list looks EMPTY, and
+            // that was harmless only while this method compared counts and left the node alone.
+            // Folding in the singular key breaks that tie: the counts then differ, the node is
+            // rewritten, and the survivors are computed from a list this method never saw - so every
+            // OTHER student on that gate loses their access. The privacy provider's reader already
+            // recovered this shape; the two readers of one column must not disagree about what is in
+            // it.
+            if (is_object($userids)) {
+                $userids = (array) $userids;
+            }
+            $userids = is_array($userids) ? array_values($userids) : [];
+            // And the SINGULAR key, which availability_user has always honoured and still does: its
+            // constructor pushes $structure->userid onto the list it evaluates
+            // (availability/condition/user/classes/condition.php). A node carrying it names that
+            // student exactly as a list would, so reading only the plural key left the deleted
+            // account's id behind - the orphan reference this cleanup exists to prevent, hiding in
+            // the one shape nothing checked.
+            if (isset($usercondition->userid)) {
+                $userids[] = $usercondition->userid;
+            }
             // The stored list can mix strings and integers (execute() keeps whatever the rule engine
             // hands it), so compare as integers. Re-index: array_filter() keeps keys, and a gapped
             // array would encode as a JSON object, which availability_user rejects with a TypeError.
@@ -433,7 +505,12 @@ class enableactivity_action extends action {
                 continue;
             }
 
+            // Written back as the plural key alone, and the singular one dropped: $userids above was
+            // the list CORE reads, both keys folded together, so $remaining is the complete set of
+            // survivors and belongs in one place. This is also the shape availability_user::save()
+            // writes, so the node is left in the form core itself would have produced.
             $usercondition->userids = $remaining;
+            unset($usercondition->userid);
             $DB->set_field('course_modules', 'availability', json_encode($availability), ['id' => $cmrecord->id]);
             $changed = true;
         }
