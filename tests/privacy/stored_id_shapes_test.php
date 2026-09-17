@@ -102,6 +102,23 @@ final class stored_id_shapes_test extends \core_privacy\tests\provider_testcase 
     }
 
     /**
+     * Skip when availability_user is absent, because core is the reference these tests compare to.
+     *
+     * Without that plugin core does not evaluate the restriction at all - it ignores a restriction
+     * whose plugin is unavailable, so EVERY user gets in. That does not merely break the comparison:
+     * it would make "core lets this student in" true for the wrong reason, and the test that asserts
+     * it would pass while measuring nothing. It is a third-party plugin and a declared dependency of
+     * this one, but the CI pipeline does not install it.
+     *
+     * @return void
+     */
+    private function require_the_reference(): void {
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; core would let everybody in.');
+        }
+    }
+
+    /**
      * A value that merely starts with a student's id is not that student.
      *
      * Core compares loosely against the value as stored, and under PHP 8 "501abc" does not equal
@@ -112,6 +129,7 @@ final class stored_id_shapes_test extends \core_privacy\tests\provider_testcase 
      */
     public function test_a_value_that_merely_starts_with_an_id_does_not_name_that_student(): void {
         $this->resetAfterTest(true);
+        $this->require_the_reference();
         $course = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
@@ -177,6 +195,7 @@ final class stored_id_shapes_test extends \core_privacy\tests\provider_testcase 
      */
     public function test_every_numeric_way_of_writing_an_id_still_names_the_student(): void {
         $this->resetAfterTest(true);
+        $this->require_the_reference();
         $course = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);

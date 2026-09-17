@@ -870,6 +870,13 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
         global $DB;
         $this->resetAfterTest(true);
         $this->setAdminUser();
+        // This measures what CORE does to a node of availability_user, so without that plugin there
+        // is nothing to measure: core ignores a restriction whose plugin is unavailable and drops the
+        // node entirely when it re-encodes the tree. It is a third-party plugin and a declared
+        // dependency of this one, but the CI pipeline does not install it.
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; core would not evaluate the node at all.');
+        }
         $course = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         $module = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);

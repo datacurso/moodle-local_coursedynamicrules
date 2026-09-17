@@ -71,6 +71,14 @@ final class createaiactivity_form_test extends \advanced_testcase {
     public function test_the_ai_form_advertises_the_marker_its_own_action_substitutes(): void {
         $this->resetAfterTest(true);
         $this->setAdminUser();
+        // definition() returns early when a plugin the AI action requires is absent, so the element
+        // this test reads is never added and the test would measure nothing.
+        foreach (\local_coursedynamicrules\action\createaiactivity\createaiactivity_action::required_plugins() as $required) {
+            $component = $required['pluginname'];
+            if (!\core_plugin_manager::instance()->get_plugin_info($component)) {
+                $this->markTestSkipped($component . ' is not installed; the AI activity form requires it.');
+            }
+        }
 
         $course = $this->getDataGenerator()->create_course();
         $form = new testable_createaiactivity_form(null, ['courseid' => $course->id, 'ruleid' => 1]);
