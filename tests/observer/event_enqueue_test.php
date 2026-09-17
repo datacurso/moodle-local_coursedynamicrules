@@ -48,6 +48,104 @@ final class event_enqueue_test extends \advanced_testcase {
     }
 
     /**
+     * Give the course a rule, which is what makes its events worth evaluating.
+     *
+     * The observers ask whether the course has any rule of this plugin before they queue anything,
+     * so a course without one is a course where nothing needs to happen. These tests are about what
+     * the observers do for a course that USES the plugin, and before that check existed their setup
+     * could leave the rule out without noticing.
+     *
+     * @param int $courseid The course.
+     * @param int $active Whether the rule is active; the check deliberately does not care.
+     * @return int The rule id.
+     */
+    private function give_the_course_a_rule(int $courseid, int $active = 1): int {
+        global $DB;
+        return (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'Rule',
+            'active' => $active,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
+     * A course that does not use this plugin costs it nothing when its students are graded.
+     *
+     * The observers used to queue an evaluation for every module grade and every completion on the
+     * site, whether or not the course had a single rule to evaluate. Each of those tasks loads the
+     * course's rules, finds none and returns - so a teacher grading a batch of assignments in a
+     * course that never heard of this plugin filled the adhoc queue with one no-op task per
+     * submission. The queue is a shared, serial resource, which makes this a cost paid by every
+     * other plugin's scheduled work too.
+     *
+     * The guard asks whether the course has any rule AT ALL, not whether it has an active one. A
+     * narrower check would change behaviour rather than only remove waste: grade conditions are
+     * evaluated on this path and on no other, so a rule activated while a task sat in the queue
+     * would silently lose that evaluation.
+     *
+     * @return void
+     */
+    public function test_a_course_with_no_rules_enqueues_nothing(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $page = $this->getDataGenerator()->create_module(
+            'page',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_MANUAL]
+        );
+
+        $completion = new \completion_info($course);
+        $cm = get_coursemodule_from_id('page', $page->cmid, $course->id, false, MUST_EXIST);
+        $completion->update_state($cm, COMPLETION_COMPLETE, $student->id);
+
+        $this->assertSame(
+            [],
+            $this->queued_rule_tasks(),
+            'A course with no rules queued an evaluation that can only load no rules and return: on a '
+                . 'site where most courses do not use this plugin, that is one wasted task per grade '
+                . 'and per completion.'
+        );
+    }
+
+    /**
+     * A course that DOES have a rule still enqueues, even while that rule is inactive.
+     *
+     * The pin on the guard rather than on the waste. Grade and completion conditions are evaluated
+     * from this path alone, so the check may only skip courses where nothing could ever match; a
+     * course holding a rule somebody has not activated yet is not one of those, because the rule can
+     * be activated between the event and the task running.
+     *
+     * @return void
+     */
+    public function test_a_course_whose_rule_is_not_active_still_enqueues(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->give_the_course_a_rule((int) $course->id, 0);
+        $page = $this->getDataGenerator()->create_module(
+            'page',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_MANUAL]
+        );
+
+        $completion = new \completion_info($course);
+        $cm = get_coursemodule_from_id('page', $page->cmid, $course->id, false, MUST_EXIST);
+        $completion->update_state($cm, COMPLETION_COMPLETE, $student->id);
+
+        $this->assertCount(
+            1,
+            $this->queued_rule_tasks(),
+            'The guard skipped a course that holds a rule: activating it before the task runs would '
+                . 'then lose this evaluation, and no scheduled task covers grade conditions.'
+        );
+    }
+
+    /**
      * MDL-INT-003: completing an activity enqueues exactly one immediate rule evaluation carrying
      * the complete_activity condition type.
      */
@@ -57,6 +155,10 @@ final class event_enqueue_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        // The observer now asks whether the course has a rule before queueing anything, so a course
+        // without one is not the subject of this test: what is under test is the wiring from the
+        // event to the queue, in a course that actually uses the plugin.
+        $this->give_the_course_a_rule((int) $course->id);
         $page = $this->getDataGenerator()->create_module(
             'page',
             ['course' => $course->id, 'completion' => COMPLETION_TRACKING_MANUAL]
@@ -85,6 +187,8 @@ final class event_enqueue_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        // As above: de-duplication is only a question for a course whose events are worth queueing.
+        $this->give_the_course_a_rule((int) $course->id);
         $page = $this->getDataGenerator()->create_module(
             'page',
             ['course' => $course->id, 'completion' => COMPLETION_TRACKING_MANUAL]

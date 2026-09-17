@@ -28,6 +28,29 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class rule {
+    /**
+     * Whether a course holds any rule of this plugin at all.
+     *
+     * The event observers ask this before queueing an immediate evaluation. Without it they queued
+     * one adhoc task per module grade and per completion on the WHOLE site, including every course
+     * that had never heard of this plugin; each of those tasks loaded the course's rules, found none
+     * and returned. A teacher grading a batch of submissions therefore filled a shared, serial queue
+     * with one no-op task per submission, at the expense of every other plugin's scheduled work.
+     *
+     * Deliberately indifferent to whether the rule is ACTIVE. A narrower check would stop being a
+     * removal of waste and start being a change of behaviour: grade conditions are evaluated from
+     * the observer path and from no scheduled task, so a rule activated between the event and the
+     * task running would silently lose that evaluation. A course holding an inactive rule is a
+     * course where something can still happen; a course holding no rule is not.
+     *
+     * @param int $courseid The course the event happened in.
+     * @return bool Whether anything of this plugin could possibly act on it.
+     */
+    public static function course_has_any_rule(int $courseid): bool {
+        global $DB;
+        return $DB->record_exists('local_coursedynamicrules_rule', ['courseid' => $courseid]);
+    }
+
     /** @var int ID of the rule on the DB */
     private $id;
 

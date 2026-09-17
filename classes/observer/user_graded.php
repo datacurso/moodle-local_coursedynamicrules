@@ -50,6 +50,13 @@ class user_graded {
             // User that completed the module.
             $userid = $eventdata["relateduserid"];
 
+            // Nothing of this plugin can act on a course that holds no rule, and queueing an
+            // evaluation for one costs a slot in a queue every other plugin shares. See
+            // rule::course_has_any_rule() for why this does not ask whether the rule is active.
+            if (!\local_coursedynamicrules\core\rule::course_has_any_rule((int) $courseid)) {
+                return;
+            }
+
             // Create an instance of the custom adhoc task with required data, including grade ID.
             // The grade ID is used to ensure the uniqueness of the task based on the specific grade_grade record.
             $task = rule_task::instance((object)[
