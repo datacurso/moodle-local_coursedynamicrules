@@ -612,7 +612,7 @@ class provider implements
         if (is_object($userids)) {
             $userids = (array) $userids;
         }
-        $ids = is_array($userids) ? array_values(array_map('intval', $userids)) : [];
+        $raw = is_array($userids) ? array_values($userids) : [];
 
         // And the SINGULAR key, which availability_user has always honoured and still does: its
         // constructor pushes $structure->userid onto the list it evaluates
@@ -622,9 +622,40 @@ class provider implements
         // inside it. Reading only the plural key would therefore leave a student this plugin gated
         // outside both the export and the erasure, while the deletion request reported success.
         if (isset($node->userid)) {
-            $ids[] = (int) $node->userid;
+            $raw[] = $node->userid;
         }
 
-        return $ids;
+        // A value names a student when core would let that student in because of it, and core
+        // decides with a LOOSE in_array() over the values exactly as stored. So every numeric way of
+        // writing an id counts - "501", "0501", " 501", "+501", "501.0" all get that student in, and
+        // ids are stored as strings far more often than as integers: 33 of the 34 on the reference
+        // site on 2026-09-17. Accepting only plain digits was drafted here and rejected, because it
+        // would have stopped claiming students core keeps letting in, and their data would have
+        // stopped being exported and erased while the request was reported as completed.
+        //
+        // Casting whatever arrives is the opposite error and is what this replaced: (int)"501abc" is
+        // 501, a student core never matches, and (int)true is 1 - which made the guest a data
+        // subject and, through the rewrite below, wrote the guest a real grant into the activity.
+        //
+        // Two departures from core are deliberate and are the only ones measured over seventeen
+        // stored forms: a stored `true` or object compares equal to somebody under core's loose
+        // comparison, so core does admit them, but neither is anybody's id. That is an access defect
+        // of core's; it does not make that person a data subject here.
+        $ids = [];
+        foreach ($raw as $value) {
+            if (!is_scalar($value) || is_bool($value) || !is_numeric($value)) {
+                continue;
+            }
+            if ((float) $value != (int) $value) {
+                // "501.7" is not the id 501: core does not match it either.
+                continue;
+            }
+            $id = (int) $value;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+
+        return array_values(array_unique($ids));
     }
 }
