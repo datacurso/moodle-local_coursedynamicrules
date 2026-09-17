@@ -139,6 +139,32 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * not happen, reported to the person as one that did. The one reassurance that does hold, and it was
  * measured too: somebody who is not named in the restriction is never affected either way.
  *
+ * AN ERASURE IS NOT A BAN, AND THE RULE KEEPS RUNNING
+ *
+ * This class removes an id. It does not tell the engine to stop granting, because a deletion request
+ * is not an instruction to exclude somebody from a course they are still enrolled on. So if the
+ * person remains enrolled, alive and still meeting a rule's condition, a later run of that rule
+ * writes their id back - and that is new processing rather than an erasure that failed.
+ *
+ * Which path the deletion came through decides whether that can happen at all, and only one of them
+ * leaves the door open:
+ *
+ * - A data-subject request, which is the ordinary case, ends in delete_user(). Every walk over a
+ *   course's users goes through get_enrolled_sql(), and core restricts that to u.deleted = 0
+ *   (lib/enrollib.php:1516). A deleted account is never evaluated again, so nothing can write the id
+ *   back. This path closes itself.
+ * - Context expiry under a retention policy splits. When a USER's own context expires,
+ *   tool_dataprivacy deletes the data and then the account (expired_contexts_manager.php:535), which
+ *   is the case above. When a COURSE or ACTIVITY context expires (:442, :468, :512), the accounts
+ *   stay, and a student still enrolled and still meeting the condition is granted again on the next
+ *   run - within fifteen minutes, since that is the tasks' schedule.
+ *
+ * Nothing here records that a student was granted once, deliberately: a rule that refused to act on
+ * somebody because of something it did months ago would be a rule that stopped doing its job, and
+ * the plugin has no basis for treating an expired retention window as a standing exclusion. What
+ * matters is that nobody reads a course-context expiry as permanent while the person is still
+ * enrolled and still qualifies. Stated here rather than worked around.
+ *
  * One asymmetry worth knowing, and it is not this class's to fix. An approved deletion request runs
  * this class and then deletes the account. Deleting an account WITHOUT such a request runs only the
  * user_deleted observer, and that observer works from each action's recorded modules - which the
