@@ -356,6 +356,67 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $this->remap_notification_roles();
         $this->remap_ownership_markers();
         $this->readopt_stripped_markers();
+        $this->report_restored_components();
+    }
+
+    /**
+     * Report every rule, condition and action this restore created.
+     *
+     * A course copy can land a dozen active rules on a site at once - automation that will notify
+     * students and spend money on generated activities - and every other way a rule comes into
+     * being emits the plugin's own creation event. This path emitted none, so the operator asking
+     * where a rule came from had nothing but core's restore log, which does not name them.
+     *
+     * Emitted last, after the remapping passes above, by convention rather than by necessity: the
+     * payload is a context and an id, and that id is the same whichever order they run in. The ids
+     * come from the restore's own mapping table, so they are the rows that now exist, never the
+     * source's.
+     *
+     * @return void
+     */
+    protected function report_restored_components(): void {
+        $context = \context_course::instance($this->task->get_courseid());
+
+        $kinds = [
+            'local_coursedynamicrules_rule' => \local_coursedynamicrules\event\rule_created::class,
+            'local_coursedynamicrules_condition' => \local_coursedynamicrules\event\condition_created::class,
+            'local_coursedynamicrules_action' => \local_coursedynamicrules\event\action_created::class,
+        ];
+
+        foreach ($kinds as $itemname => $eventclass) {
+            foreach ($this->get_restored_ids($itemname) as $newid) {
+                $eventclass::create([
+                    'context' => $context,
+                    'objectid' => $newid,
+                ])->trigger();
+            }
+        }
+    }
+
+    /**
+     * The ids this restore created for one of the plugin's tables.
+     *
+     * @param string $itemname The mapping name used by set_mapping() when the row was inserted.
+     * @return int[] The new ids, in no particular order.
+     */
+    protected function get_restored_ids(string $itemname): array {
+        global $DB;
+
+        $records = $DB->get_records(
+            'backup_ids_temp',
+            ['backupid' => $this->get_restoreid(), 'itemname' => $itemname],
+            '',
+            'id, newitemid'
+        );
+
+        $ids = [];
+        foreach ($records as $record) {
+            if (!empty($record->newitemid)) {
+                $ids[] = (int) $record->newitemid;
+            }
+        }
+
+        return $ids;
     }
 
     /**
@@ -368,6 +429,13 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
      * hook is a later step of restore_final_task) and re-derives ownership from the restored
      * action's OWN params - the snapshot that names the modules it manages - adopting the single
      * unmarked user node exactly the way execute() adopts pre-marker legacy trees in production.
+     *
+     * That derivation is a deduction, not a record: on a module this action still lists but whose
+     * own gate a teacher has since replaced, the node adopted is the teacher's. The adopted nodes
+     * are therefore stamped as deduced (enableactivity_action::MARKER_ADOPTED_KEY) so the privacy
+     * provider ignores them, and the count is reported here rather than in debugging() - for the
+     * same reason the dropped notification roles are, a few methods down: the restore log is what an
+     * operator reads afterwards, and this pass writes into a core column on their behalf.
      *
      * @return void
      */
@@ -393,8 +461,12 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
                 if ($cmid <= 0) {
                     continue;
                 }
-                // Params were remapped first (after_restore_course order), so this cmid is a module
-                // THIS restore created - never a live module of a pre-existing target course.
+                // The course filter below is load-bearing, not defensive decoration. Params were
+                // remapped first (after_restore_course order), but remap_coursemodules() KEEPS the old
+                // id when there is no mapping - which is exactly what happens when the operator
+                // deselects an activity at the Schema stage - so this cmid CAN be a live module of a
+                // pre-existing course. Removing the filter would read, and later write, another
+                // course's activity.
                 $availability = $DB->get_field(
                     'course_modules',
                     'availability',
@@ -415,6 +487,17 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         }
 
         if ($rewritten > 0) {
+            // Never silent, for the same reason the dropped notification roles are not: this pass
+            // decided who owns a restriction inside a core column, and it decided it by elimination.
+            // An operator who sees this can check whether any of those activities carried a user
+            // restriction of the teacher's own; nobody can check what nobody was told.
+            $this->task->log(
+                'local_coursedynamicrules: re-adopted ' . $rewritten . ' access restriction(s) whose '
+                . 'ownership marker did not survive the restore. Ownership was deduced from each '
+                . 'action\'s own list of activities, not recorded, so these are excluded from privacy '
+                . 'exports and erasures until the plugin writes them again.',
+                backup::LOG_WARNING
+            );
             rebuild_course_cache($courseid, true);
         }
     }

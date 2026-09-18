@@ -49,9 +49,9 @@ class passgrade_form extends condition_form {
         $cms = $modinfo->get_cms();
         $options = [];
         foreach ($cms as $cm) {
-            // Get only course modules that require passgrade.
-            if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && $cm->completionpassgrade) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+            // Get only course modules that require passgrade and are not being deleted.
+            if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && $cm->completionpassgrade && !$cm->deletioninprogress) {
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
             }
         }
 
@@ -77,11 +77,26 @@ class passgrade_form extends condition_form {
         );
         $mform->setType('coursemodule', PARAM_INT);
 
+        // Only a real ghost gets the notice: the stored activity is gone or being deleted. With the
+        // picker filtering such an activity out, the form would otherwise open blank with no explanation.
+        $stored = isset($customdata['record']) ? (object) $customdata['record'] : null;
+        $storedcmid = (int) ($stored->cmid ?? 0);
+        $storedcm = $storedcmid > 0 ? ($cms[$storedcmid] ?? null) : null;
+        if ($storedcmid > 0 && ($storedcm === null || $storedcm->deletioninprogress)) {
+            $mform->addElement(
+                'static',
+                'targetmissing',
+                '',
+                get_string('componenttargetmissing', 'local_coursedynamicrules')
+            );
+        }
+
         parent::definition();
     }
 
     /**
-     * Server side validation: an activity of this course must be selected.
+     * Server side validation: an activity of this course must be selected, and it must not be
+     * one whose deletion is already running - the condition would be born unable to ever be met.
      *
      * @param array $data Submitted data.
      * @param array $files Submitted files.
@@ -91,8 +106,11 @@ class passgrade_form extends condition_form {
         $errors = parent::validation($data, $files);
 
         $cmid = (int) ($data['coursemodule'] ?? 0);
-        if ($cmid <= 0 || !isset(get_fast_modinfo($this->courseid)->cms[$cmid])) {
+        $cms = get_fast_modinfo($this->courseid)->cms;
+        if ($cmid <= 0 || !isset($cms[$cmid])) {
             $errors['coursemodule'] = get_string('errornocoursemodule', 'local_coursedynamicrules');
+        } else if ($cms[$cmid]->deletioninprogress) {
+            $errors['coursemodule'] = get_string('componenttargetmissing', 'local_coursedynamicrules');
         }
 
         return $errors;

@@ -28,6 +28,29 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class rule {
+    /**
+     * Whether a course holds any rule of this plugin at all.
+     *
+     * The event observers ask this before queueing an immediate evaluation. Without it they queued
+     * one adhoc task per module grade and per completion on the WHOLE site, including every course
+     * that had never heard of this plugin; each of those tasks loaded the course's rules, found none
+     * and returned. A teacher grading a batch of submissions therefore filled a shared, serial queue
+     * with one no-op task per submission, at the expense of every other plugin's scheduled work.
+     *
+     * Deliberately indifferent to whether the rule is ACTIVE. A narrower check would stop being a
+     * removal of waste and start being a change of behaviour: grade conditions are evaluated from
+     * the observer path and from no scheduled task, so a rule activated between the event and the
+     * task running would silently lose that evaluation. A course holding an inactive rule is a
+     * course where something can still happen; a course holding no rule is not.
+     *
+     * @param int $courseid The course the event happened in.
+     * @return bool Whether anything of this plugin could possibly act on it.
+     */
+    public static function course_has_any_rule(int $courseid): bool {
+        global $DB;
+        return $DB->record_exists('local_coursedynamicrules_rule', ['courseid' => $courseid]);
+    }
+
     /** @var int ID of the rule on the DB */
     private $id;
 
@@ -43,7 +66,7 @@ class rule {
     /** @var action[] List of actions instances */
     private $actions = [];
 
-    /** @var stdClass[] List of users to validate this rule */
+    /** @var iterable<stdClass> Users to validate this rule; objects carrying at least "id". Walked once. */
     private $users;
 
     /** @var array Additional data to add extra checks in conditions to avoid unexpected executions */
@@ -55,12 +78,13 @@ class rule {
     /**
      * Rule constructor.
      * @param object $rule
-     * @param stdClass[] $users List of users to validate this rule
+     * @param iterable $users Users to validate this rule - stdClass objects carrying at least "id"; an
+     * array or a single-pass generator, walked once by execute()
      * @param string[] $conditiontypes list of conditions to include in the executions
      * @param array $additionaldata additional data to add extra checks in conditions to avoid unexpected executions
      * of rules if not pass all conditions for each rule of the course are added
      */
-    public function __construct($rule, $users, $conditiontypes = [], $additionaldata = []) {
+    public function __construct($rule, iterable $users, $conditiontypes = [], $additionaldata = []) {
         global $DB;
         $this->id = $rule->id;
         $this->courseid = $rule->courseid;
@@ -197,6 +221,13 @@ class rule {
      */
     public function set_active($active) {
         global $DB;
+
+        // Read the stored value before writing over it. The event below means "the engine switched
+        // this off", and only a real 1 -> 0 transition is that: writing 0 over a 0 stopped nothing.
+        // The row is asked rather than $this->active because an instance can outlive the value it
+        // was built with.
+        $wasactive = (int) $DB->get_field('local_coursedynamicrules_rule', 'active', ['id' => $this->id]);
+
         $this->active = $active ? 1 : 0;
         $DB->set_field('local_coursedynamicrules_rule', 'active', $this->active, ['id' => $this->id]);
 
@@ -216,6 +247,25 @@ class rule {
         // After the write, never before: the stamp is conditional on what the ROW says, and it is
         // idempotent, so every path that touches 'active' calls it unconditionally.
         \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $this->id);
+
+        // Only a real stop is audited. Reactivation is not an engine decision, and recording it
+        // under this type would answer "who stopped this rule?" with the opposite of the truth; a
+        // stop on a rule that was already stopped would answer it about an event that never
+        // happened. The timeautodeactivated stamp above is deliberately left unguarded: its
+        // reactivation branch must stay idempotent, and production's only caller - the one-shot
+        // task - cannot reach the double-stop path.
+        //
+        // The actor is named explicitly. Core defaults it to $USER->id, and cron runs as a copy of
+        // the site administrator, so the default would answer that same question with the name of a
+        // person who did nothing - the very confusion this event exists to remove. USER_OTHER is
+        // core's own value for "system, cli or cron", used by the grade engine for the same reason.
+        if (!$this->active && $wasactive) {
+            \local_coursedynamicrules\event\rule_autodeactivated::create([
+                'context' => \context_course::instance((int) $this->courseid),
+                'objectid' => (int) $this->id,
+                'userid' => \core\event\base::USER_OTHER,
+            ])->trigger();
+        }
     }
 
     /**

@@ -94,3 +94,27 @@ Feature: Manage existing rule conditions and actions
     And I navigate to "Smart Rules AI" in current page administration
     And I click on "Edit conditions" "link"
     And I should see "Users who take more than 1 days without accessing this course."
+
+  # The add icon is the only control on these two pages whose label is not derived from what the
+  # page manages: both pages render the same menu template, and the label was fixed in it. A sighted
+  # teacher shrugs at the wrong word; a screen reader announces the wrong component outright.
+  # One scenario per page, so a failure names the page that broke.
+  # The label lives in an attribute of a decorative-looking element, which no named selector reaches,
+  # so these two assert through CSS deliberately rather than for lack of trying.
+  @MDL-E2E-006
+  Scenario: The conditions page announces its add control as adding conditions
+    Given I log in as "teacher1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    When I click on "Edit conditions" "link"
+    Then "i[aria-label='Add conditions']" "css_element" should exist
+    And "i[aria-label='Add actions']" "css_element" should not exist
+
+  @MDL-E2E-006
+  Scenario: The actions page announces its add control as adding actions
+    Given I log in as "teacher1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    When I click on "Edit actions" "link"
+    Then "i[aria-label='Add actions']" "css_element" should exist
+    And "i[aria-label='Add conditions']" "css_element" should not exist

@@ -23,6 +23,7 @@ use core_form\dynamic_form;
 use core_grades\component_gradeitems;
 use grade_item;
 use local_coursedynamicrules\helper\grade_condition_thresholds;
+use local_coursedynamicrules\helper\page_gate;
 use moodle_url;
 use MoodleQuickForm;
 
@@ -62,7 +63,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
             $completionusegrade = !is_null($cm->completiongradeitemnumber);
 
             if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && $completionusegrade && !$cm->deletioninprogress) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
                 $filteredcms[$cm->id] = $cm;
             }
         }
@@ -150,6 +151,14 @@ class dynamic_grade_in_activity_form extends dynamic_form {
                 'itemnumber' => $itemnumber,
             ]
         );
+
+        if (!$gradeitem) {
+            // A missing item, not an error: fetch() answers false when the component's mapping
+            // declares an item number that was
+            // never created. Dereferencing it is a fatal inside an AJAX response, which reaches the
+            // operator as a form that never loads and says nothing.
+            return;
+        }
 
         $decimals = $gradeitem->get_decimals();
         $grademin = format_float($gradeitem->grademin, $decimals);
@@ -285,7 +294,11 @@ class dynamic_grade_in_activity_form extends dynamic_form {
      *     require_capability('dosomething', $this->get_context_for_dynamic_submission());
      */
     protected function check_access_for_dynamic_submission(): void {
-        require_capability('local/coursedynamicrules:managecondition', $this->get_context_for_dynamic_submission());
+        // The same pair every condition screen demands, through the same helper. Asking for manage
+        // alone let a role the pages refuse - manage allowed, view prevented - reach this form over
+        // the web service and read back every grade-tracked activity of the course with each grade
+        // item's bounds. Never offer what the page would refuse.
+        page_gate::require_listing('condition', $this->get_context_for_dynamic_submission());
     }
 
     /**
@@ -405,6 +418,9 @@ class dynamic_grade_in_activity_form extends dynamic_form {
      * @return moodle_url
      */
     protected function get_page_url_for_dynamic_submission(): moodle_url {
-        return new moodle_url('/local/test/exampledynamicform.php', []);
+        return new moodle_url(
+            '/local/coursedynamicrules/conditions.php',
+            ['courseid' => $this->optional_param('courseid', 0, PARAM_INT)]
+        );
     }
 }

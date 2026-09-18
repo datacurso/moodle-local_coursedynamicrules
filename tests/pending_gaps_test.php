@@ -29,43 +29,6 @@ namespace local_coursedynamicrules;
  */
 final class pending_gaps_test extends \advanced_testcase {
     /**
-     * MDL-E2E-006: the add menu on the actions page must announce "Add actions", not
-     * "Add conditions".
-     * [Pendiente:skip] — the actions page reuses the conditions menu template; label fix pending.
-     */
-    public function test_actions_menu_announces_add_actions(): void {
-        $this->markTestSkipped('Menu label parametrisation pending; the actions page still reuses '
-            . 'the conditions menu template.');
-    }
-
-    /**
-     * MDL-E2E-007: the AI action edit pencil must not be offered when a required plugin is missing.
-     * [Pendiente:skip] — the pencil is currently shown and leads to a dead-end degraded form.
-     */
-    public function test_ai_action_pencil_hidden_when_required_plugin_missing(): void {
-        $this->markTestSkipped('Pencil hiding via the plugin validator is pending.');
-    }
-
-    /**
-     * MDL-E2E-008: the "pass grade" activity picker must exclude activities pending deletion.
-     * [Pendiente:skip] — the picker filter is pending. Of the case's other half, the grade-condition
-     * edit form warning, only the notice for a stored activity that is no longer in the course shipped
-     * in 1.8.4 (covered by dynamic_grade_in_activity_form_test); the warning for an activity that
-     * still exists but is no longer eligible is still pending.
-     */
-    public function test_passgrade_picker_excludes_activities_pending_deletion(): void {
-        $this->markTestSkipped('Pass-grade deletion filter pending (out of the 1.8.4 scope, see CHANGES.md).');
-    }
-
-    /**
-     * MDL-E2E-009: the AI prompt help must list the markers that action actually substitutes.
-     * [Pendiente:skip] — the shared placeholder template is not yet parametrised per form.
-     */
-    public function test_ai_prompt_help_lists_its_own_markers(): void {
-        $this->markTestSkipped('Placeholder template parametrisation pending.');
-    }
-
-    /**
      * SYS-EVAL-001: the generated AI content matches the prompt, language and anonymisation golden set.
      * [Pendiente:skip] — requires the live AI service and a golden dataset; evaluated manually.
      */

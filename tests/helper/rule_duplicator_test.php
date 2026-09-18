@@ -510,20 +510,30 @@ final class rule_duplicator_test extends \advanced_testcase {
             $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
             'The original\'s student keeps the activity the original opened.'
         );
-        // The copy did gate an activity of its own, and grants nobody until it runs.
-        $this->assertNotEmpty($this->gate_of((int) $second->cmid)['availability']);
-        $this->assertFalse($this->module_is_available_to($course, (int) $second->cmid, (int) $student->id));
+        // The draft's own activity is NOT closed by being configured: since 1.8.5 the gate belongs to
+        // a rule in force and arrives with activation, and this copy has never been activated. Before
+        // that, saving the draft hid the activity from every student of a rule nobody had switched on.
+        $this->assertEmpty(
+            $this->gate_of((int) $second->cmid)['availability'],
+            'Configuring a draft must not gate anything: the gate arrives when the rule is activated.'
+        );
+        $this->assertTrue(
+            $this->module_is_available_to($course, (int) $second->cmid, (int) $student->id),
+            'And so the activity stays open until the copy is actually activated.'
+        );
         $this->assertDebuggingNotCalled();
     }
 
     /**
-     * Why the form now refuses an activity another action already opens (see
-     * enableactivity_form::validation and modules_gated_by_another_action): saving that selection
-     * writes a SECOND gate, Moodle combines gates by AND, and the newcomer's gate is empty until its
-     * rule is activated and runs - so the original's students lose the activity at the moment the
-     * draft is saved. This pins the underlying mechanism through save_action(), which the form's
-     * refusal now stands in front of; the harm is still reachable this way by any caller that
-     * bypasses the form, which is why it stays documented as a limitation too.
+     * Why the form refuses an activity another action already opens (see
+     * enableactivity_form::validation and modules_gated_by_another_action): a second gate on one
+     * activity is combined by AND, and the newcomer's is empty until its own rule runs, so the
+     * original's students lose the activity. This pins where that harm actually happens.
+     *
+     * Since 1.8.5 it is NOT the save: configuring a draft writes no gate at all, so the original's
+     * students keep the activity while the copy sits inactive. The harm arrives with ACTIVATION,
+     * which is what the form's refusal stands in front of, and it stays reachable by any caller that
+     * bypasses the form - which is why it remains documented as a limitation too.
      *
      * @covers ::duplicate
      */
@@ -551,12 +561,26 @@ final class rule_duplicator_test extends \advanced_testcase {
             'coursemodules' => [$reward->cmid],
         ]);
 
-        // A SECOND gate on the same activity, not a replacement of the original's: that is why the
-        // student is locked out - the tree ANDs both, and the copy's is empty until it runs.
+        // Saving the draft changes nothing on the activity: no second gate, nobody locked out.
+        $this->assertSame(
+            $gatesbefore,
+            count(json_decode((string) $this->gate_of((int) $reward->cmid)['availability'])->c),
+            'Configuring the copy must not add a gate beside the original\'s.'
+        );
+        $this->assertTrue(
+            $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),
+            'So the original\'s students still have the activity.'
+        );
+
+        // Activating the copy is the moment the harm lands: a SECOND gate on the same activity, not
+        // a replacement of the original's - the tree ANDs both, and the copy's is empty until it runs.
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $newid]);
+        \local_coursedynamicrules\core\action::notify_rule_activated($newid, (int) $course->id);
+
         $this->assertSame(
             $gatesbefore + 1,
             count(json_decode((string) $this->gate_of((int) $reward->cmid)['availability'])->c),
-            'The copy adds its own gate beside the original\'s.'
+            'The activated copy adds its own gate beside the original\'s.'
         );
         $this->assertFalse(
             $this->module_is_available_to($course, (int) $reward->cmid, (int) $student->id),

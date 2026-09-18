@@ -50,7 +50,7 @@ class no_complete_activity_form extends condition_form {
         $options = [];
         foreach ($cms as $cm) {
             if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && !$cm->deletioninprogress) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
             }
         }
 

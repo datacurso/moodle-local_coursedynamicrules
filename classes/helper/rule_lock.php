@@ -148,16 +148,34 @@ class rule_lock {
      * @return bool
      */
     public static function is_complete(int $ruleid): bool {
+        return self::incompleteness_reason($ruleid) === null;
+    }
+
+    /**
+     * WHY a rule is not ready to activate, or null when it is.
+     *
+     * is_complete() above answers whether, on the same rules; this answers which of the four states
+     * the rule is in, so the operator reads the one sentence that applies instead of a list of every
+     * requirement at once. The states are checked in the order that makes the answer useful: a rule
+     * with no condition can never fire however many actions it has, so that is reported first.
+     *
+     * The return value is a language string key, not a sentence: callers translate it, and tests can
+     * assert on it without depending on wording.
+     *
+     * @param int $ruleid
+     * @return string|null A language string key in this component, or null when the rule is complete.
+     */
+    public static function incompleteness_reason(int $ruleid): ?string {
         global $DB;
 
         if (!$DB->record_exists('local_coursedynamicrules_condition', ['ruleid' => $ruleid])) {
-            return false;
+            return 'ruleactivationnoconditions';
         }
 
         $rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], 'id, courseid', MUST_EXIST);
         $actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $ruleid]);
         if (!$actions) {
-            return false;
+            return 'ruleactivationnoactions';
         }
 
         foreach ($actions as $action) {
@@ -168,14 +186,31 @@ class rule_lock {
                 // instead of throwing keeps the gate usable: it is consulted from the rule form and
                 // from the activation endpoint, and throwing there would lock the operator out of a
                 // rule they could otherwise still fix or delete.
-                return false;
+                return 'ruleactivationactionbroken';
             }
             if (!$instance->can_act()) {
-                return false;
+                return 'ruleactivationactionidle';
             }
         }
 
-        return true;
+        return null;
+    }
+
+    /**
+     * Every reason incompleteness_reason() can return.
+     *
+     * Exists so a test can prove each one resolves to a real language string: a reason that renders
+     * as "[[ruleactivation...]]" explains nothing, and nothing else would catch it.
+     *
+     * @return string[] Language string keys in this component.
+     */
+    public static function incompleteness_reasons(): array {
+        return [
+            'ruleactivationnoconditions',
+            'ruleactivationnoactions',
+            'ruleactivationactionbroken',
+            'ruleactivationactionidle',
+        ];
     }
 
     /**

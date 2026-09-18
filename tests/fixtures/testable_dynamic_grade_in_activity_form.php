@@ -36,4 +36,13 @@ class testable_dynamic_grade_in_activity_form extends dynamic_grade_in_activity_
     public function get_mform_for_test(): \MoodleQuickForm {
         return $this->_form;
     }
+
+    /**
+     * Run the form's own access check, which core calls before it renders or accepts anything.
+     *
+     * @return void
+     */
+    public function check_access_for_test(): void {
+        $this->check_access_for_dynamic_submission();
+    }
 }

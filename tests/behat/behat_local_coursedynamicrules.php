@@ -502,6 +502,56 @@ class behat_local_coursedynamicrules extends behat_base {
     }
 
     /**
+     * Create an enable-activity action on an existing rule, addressed by the activity's idnumber.
+     *
+     * Goes through the action's own save_action() - the production writer - so the row carries the
+     * params shape the listing and the runtime expect, exactly as a teacher saving the form would
+     * leave it. Whether that save ALSO gates the activity depends on the rule being active, which
+     * is the whole point of a scenario about activation: build the rule inactive and the activity
+     * must stay open until somebody activates the rule.
+     *
+     * There is no UI path this stack can take here - the action form picks its activities through a
+     * JavaScript autocomplete, and this stack runs Behat without a browser.
+     *
+     * @Given /^the following local coursedynamicrules enable activity actions exist:$/
+     * @param TableNode $table Columns: course (shortname), rule (rule name), activity (cm idnumber).
+     */
+    public function the_following_local_coursedynamicrules_enable_activity_actions_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $rule = $DB->get_record(
+                'local_coursedynamicrules_rule',
+                ['courseid' => $course->id, 'name' => trim($row['rule'])],
+                '*',
+                MUST_EXIST
+            );
+            $cm = $DB->get_record(
+                'course_modules',
+                ['course' => $course->id, 'idnumber' => trim($row['activity'])],
+                '*',
+                MUST_EXIST
+            );
+
+            $action = new \local_coursedynamicrules\action\enableactivity\enableactivity_action(
+                (object) [
+                    'id' => null,
+                    'ruleid' => $rule->id,
+                    'actiontype' => 'enableactivity',
+                    'params' => json_encode([]),
+                ],
+                $course->id
+            );
+            $action->save_action((object) [
+                'ruleid' => $rule->id,
+                'courseid' => $course->id,
+                'coursemodules' => [$cm->id],
+            ]);
+        }
+    }
+
+    /**
      * Delete an activity from a course, synchronously, addressed by its idnumber.
      *
      * The core "I delete X activity" step drives the action menu and needs JavaScript; this stack

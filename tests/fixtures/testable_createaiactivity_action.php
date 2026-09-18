@@ -26,6 +26,9 @@ use aiprovider_datacurso\httpclient\ai_course_api;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class testable_createaiactivity_action extends createaiactivity_action {
+    /** @var array|null Requirements reported instead of the real ones, when set. */
+    public static $requiredplugins = null;
+
     /** @var ai_course_api|null Client double returned by get_api_client() when set. */
     public static $client = null;
 
@@ -47,11 +50,21 @@ final class testable_createaiactivity_action extends createaiactivity_action {
      * @return void
      */
     public static function reset(): void {
+        self::$requiredplugins = null;
         self::$client = null;
         self::$lasturls = null;
         self::$coursegenversiondb = false;
         self::$streamevent = [];
         self::$laststreamurl = null;
+    }
+
+    /**
+     * Report the declared requirements, or the seam's list when a test set one.
+     *
+     * @return array
+     */
+    public static function required_plugins(): array {
+        return self::$requiredplugins ?? parent::required_plugins();
     }
 
     /**
