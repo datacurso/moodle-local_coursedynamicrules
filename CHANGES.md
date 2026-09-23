@@ -1,3 +1,18 @@
+## 1.8.6-500
+
+**Compatibility note:** This version is compatible only with **Moodle 5.0**. It is the
+5.0 line of release 1.8.6: same functionality, same code, and the only difference is the
+compatibility declared in `version.php`. The 4.5 line continues as 1.8.6 on `main`.
+
+## Changed
+- **The plugin declares Moodle 5.0 instead of Moodle 4.5**
+  `$plugin->supported` named the 4.5 branch only, and Moodle checks that declaration
+  before letting an upgrade proceed, so the plugin could not be installed on a 5.0 site
+  at all. It now names the 5.0 branch, and `$plugin->requires` moves to the 5.0 branching
+  date so the floor matches the branch rather than inviting an install on 4.5, where this
+  line is not the one to use. No behaviour changes: the whole plugin was exercised against
+  Moodle 5.0.10 with the manual test suite before this declaration was moved.
+
 ## 1.8.6
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
