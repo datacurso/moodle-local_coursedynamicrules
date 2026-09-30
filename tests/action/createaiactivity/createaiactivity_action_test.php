@@ -878,15 +878,21 @@ final class createaiactivity_action_test extends \advanced_testcase {
     public function test_execute_gives_up_after_a_second_review_needed(): void {
         global $DB;
         $this->require_ai_stack();
-        $this->expectOutputRegex('/createaiactivity failed: \[stage: feedback\]/');
+        // The service's own reason for the second review must reach the task log.
+        $this->expectOutputRegex('/createaiactivity failed: \[stage: feedback\] .*The plan is missing the question types\./');
         $this->resetAfterTest(true);
         $this->setAdminUser();
         [$course, $user] = $this->create_course_and_student();
 
         testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        $secondreview = $this->review_needed_event();
+        $secondreview['message'] = [
+            'string_id' => 'plan_needs_review',
+            'string' => 'The plan is missing the question types.',
+        ];
         testable_createaiactivity_action::$streamevents = [
             $this->review_needed_event(),
-            $this->review_needed_event(),
+            $secondreview,
         ];
 
         $action = $this->create_testable_action($this->page_action_params(), $course->id);

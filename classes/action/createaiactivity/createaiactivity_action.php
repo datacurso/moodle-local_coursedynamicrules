@@ -152,7 +152,12 @@ class createaiactivity_action extends action {
             while (($event['type'] ?? '') === 'review_needed') {
                 $stage = 'feedback';
                 if ($approvals >= self::MAX_APPROVAL_ROUNDS) {
-                    throw new \moodle_exception('error_aiactivity_review_loop', 'local_coursedynamicrules');
+                    throw new \moodle_exception(
+                        'error_aiactivity_review_loop',
+                        'local_coursedynamicrules',
+                        '',
+                        self::event_message($event)
+                    );
                 }
                 $client->request('POST', '/activity/feedback', [
                     'thread_id' => $threadid,
@@ -168,16 +173,11 @@ class createaiactivity_action extends action {
 
             $eventtype = $event['type'] ?? '';
             if ($eventtype === 'failed' || $eventtype === 'error') {
-                // The service localizes event messages as {string_id, string} objects.
-                $failmessage = $event['message'] ?? '';
-                if (is_array($failmessage)) {
-                    $failmessage = $failmessage['string'] ?? json_encode($failmessage);
-                }
                 throw new \moodle_exception(
                     'error_aiactivity_generation_failed',
                     'local_coursedynamicrules',
                     '',
-                    $failmessage
+                    self::event_message($event)
                 );
             }
 
@@ -446,6 +446,23 @@ class createaiactivity_action extends action {
         }
         $type = $data['type'] ?? '';
         return in_array($type, self::TERMINAL_EVENT_TYPES, true) ? $data : null;
+    }
+
+    /**
+     * Return the readable message of a stream event.
+     *
+     * The service localizes event messages as {string_id, string} objects; older events carry a
+     * plain string.
+     *
+     * @param array $event Decoded stream event.
+     * @return string
+     */
+    protected static function event_message(array $event): string {
+        $message = $event['message'] ?? '';
+        if (is_array($message)) {
+            $message = $message['string'] ?? json_encode($message);
+        }
+        return (string) $message;
     }
 
     /**
