@@ -42,6 +42,12 @@ class createaiactivity_action extends action {
     /** @var int Maximum seconds to keep the activity generation stream open. */
     public const STREAM_TIMEOUT = 600;
 
+    /** @var int Plan approvals sent per generation before giving up on a service that keeps asking. */
+    public const MAX_APPROVAL_ROUNDS = 1;
+
+    /** @var string[] Stream event types that end a stream read. */
+    public const TERMINAL_EVENT_TYPES = ['completed', 'failed', 'error', 'review_needed'];
+
     /** @var string type of the action */
     protected $type = 'createaiactivity';
 
@@ -79,6 +85,8 @@ class createaiactivity_action extends action {
             return;
         }
 
+        // The step being attempted, reported with a failure so the task log tells which call failed.
+        $stage = 'init';
         try {
             require_once($CFG->dirroot . '/course/lib.php');
             require_once($CFG->dirroot . '/course/modlib.php');
@@ -132,13 +140,34 @@ class createaiactivity_action extends action {
                 throw new \moodle_exception('error_unexpected_airesponse', 'local_coursedynamicrules');
             }
 
-            // The graph only advances while the stream is open: consume it until the
-            // terminal event. With auto_approve the single pass runs to completion.
+            // The graph only advances while the stream is open: consume it until a lifecycle
+            // event. The service ignores auto_approve and stops on review_needed once the plan
+            // is drafted: nobody can review it under cron, so the plan is approved on the
+            // student's behalf and the stream is read again - once, so a service that keeps
+            // asking cannot spend credits in a loop.
             $streamurl = $client->get_base_url() . 'activity/stream/' . rawurlencode($threadid);
+            $stage = 'stream';
             $event = $this->read_activity_stream($streamurl);
+            $approvals = 0;
+            while (($event['type'] ?? '') === 'review_needed') {
+                $stage = 'feedback';
+                if ($approvals >= self::MAX_APPROVAL_ROUNDS) {
+                    throw new \moodle_exception('error_aiactivity_review_loop', 'local_coursedynamicrules');
+                }
+                $client->request('POST', '/activity/feedback', [
+                    'thread_id' => $threadid,
+                    'approval_status' => 'accept',
+                    'instruction' => '',
+                    // Explicit: under cron the provider would otherwise bill $USER, the administrator.
+                    'userid' => (string) $userid,
+                ]);
+                $approvals++;
+                $stage = 'stream';
+                $event = $this->read_activity_stream($streamurl);
+            }
 
             $eventtype = $event['type'] ?? '';
-            if ($eventtype === 'failed') {
+            if ($eventtype === 'failed' || $eventtype === 'error') {
                 // The service localizes event messages as {string_id, string} objects.
                 $failmessage = $event['message'] ?? '';
                 if (is_array($failmessage)) {
@@ -156,8 +185,10 @@ class createaiactivity_action extends action {
             if (!is_array($resultinfo)) {
                 // The stream may have been cut right at the end: the persisted result
                 // is the source of truth for a finished thread.
+                $stage = 'result';
                 $resultinfo = $client->request('GET', '/activity/result/' . rawurlencode($threadid));
             }
+            $stage = 'create';
 
             $resultinfo = payload_anonymizer::deanonymize_data($resultinfo, $replacements);
 
@@ -220,7 +251,7 @@ class createaiactivity_action extends action {
             // The task log keeps a durable record even with debugging off: a failed PAID
             // generation must never be invisible (final-review finding - the same silence this
             // release's changelog criticizes about the 1.8.x breakage).
-            mtrace('local_coursedynamicrules createaiactivity failed: ' . $e->getMessage());
+            mtrace('local_coursedynamicrules createaiactivity failed: [stage: ' . $stage . '] ' . $e->getMessage());
             debugging(
                 get_string('error_unexpected_creating_aiactivity', 'local_coursedynamicrules', $e->getMessage()),
                 DEBUG_DEVELOPER
@@ -355,12 +386,12 @@ class createaiactivity_action extends action {
     }
 
     /**
-     * Consume the activity generation SSE stream until its terminal event.
+     * Consume the activity generation SSE stream until a lifecycle event.
      *
      * The v2 service only advances the generation graph while this stream is
-     * open, so the connection is held until a "completed" or "failed" event
-     * arrives (or STREAM_TIMEOUT expires). Returns the terminal event data,
-     * or an empty array when the stream ended without one.
+     * open, so the connection is held until a "completed", "failed", "error" or
+     * "review_needed" event arrives (or STREAM_TIMEOUT expires). Returns that
+     * event's data, or an empty array when the stream ended without one.
      *
      * @param string $streamurl Absolute URL of the activity stream.
      * @return array
@@ -377,19 +408,12 @@ class createaiactivity_action extends action {
             'CURLOPT_WRITEFUNCTION' => function ($handle, $chunk) use (&$buffer, &$finalevent) {
                 $buffer .= $chunk;
                 while (($pos = strpos($buffer, "\n")) !== false) {
-                    $line = trim(substr($buffer, 0, $pos));
+                    $line = substr($buffer, 0, $pos);
                     $buffer = substr($buffer, $pos + 1);
-                    if (strpos($line, 'data:') !== 0) {
-                        continue;
-                    }
-                    $data = json_decode(trim(substr($line, 5)), true);
-                    if (!is_array($data)) {
-                        continue;
-                    }
-                    $type = $data['type'] ?? '';
-                    if ($type === 'completed' || $type === 'failed') {
-                        $finalevent = $data;
-                        // Abort the transfer: the terminal event arrived.
+                    $event = self::terminal_event_from_line($line);
+                    if ($event !== null) {
+                        $finalevent = $event;
+                        // Abort the transfer: the lifecycle event arrived.
                         return 0;
                     }
                 }
@@ -400,6 +424,28 @@ class createaiactivity_action extends action {
         $curl->get($streamurl);
 
         return $finalevent;
+    }
+
+    /**
+     * Parse one SSE line and return its event when it ends a stream read.
+     *
+     * Only "data:" lines carrying a JSON object whose type is one of TERMINAL_EVENT_TYPES
+     * count; progress events (status, token, done), comments and malformed lines return null.
+     *
+     * @param string $line One line of the event stream.
+     * @return array|null The decoded event, or null when the line does not end the read.
+     */
+    public static function terminal_event_from_line(string $line): ?array {
+        $line = trim($line);
+        if (strpos($line, 'data:') !== 0) {
+            return null;
+        }
+        $data = json_decode(trim(substr($line, 5)), true);
+        if (!is_array($data)) {
+            return null;
+        }
+        $type = $data['type'] ?? '';
+        return in_array($type, self::TERMINAL_EVENT_TYPES, true) ? $data : null;
     }
 
     /**
