@@ -345,4 +345,130 @@ final class rule_form_test extends \advanced_testcase {
             'A fitting name draws no refusal: the message above measured the refusal, not its mere presence.'
         );
     }
+
+    /**
+     * Build a sealed rule and the form that processes a submission against it.
+     *
+     * The form is built AFTER mock_submit(), exactly as editrule.php builds it on a POST: the
+     * rule is already sealed at processing time, so definition() hard-freezes name and description
+     * whatever the tab that submitted looked like.
+     *
+     * @param string $description The stored description.
+     * @param array $post The submitted fields (courseid and id are added).
+     * @return array [\stdClass $rule, rule_form $form]
+     */
+    private function sealed_rule_submission(string $description, array $post): array {
+        global $DB;
+
+        $courseid = (int) $this->getDataGenerator()->create_course()->id;
+        $ruleid = (int) $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'Sealed rule',
+            'description' => $description,
+            'active' => 1,
+            'timeactivated' => time(),
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], '*', MUST_EXIST);
+
+        rule_form::mock_submit($post + ['courseid' => $courseid, 'id' => $ruleid]);
+        $form = new rule_form(
+            new \moodle_url('/local/coursedynamicrules/editrule.php', ['courseid' => $courseid]),
+            ['rule' => $rule, 'courseid' => $courseid]
+        );
+
+        return [$rule, $form];
+    }
+
+    /**
+     * The payload editrule.php hands to the discard detector: get_data() with the raw edits on top.
+     *
+     * @param rule_form $form
+     * @return \stdClass
+     */
+    private function submitted_payload(rule_form $form): \stdClass {
+        return (object) array_merge((array) $form->get_data(), (array) $form->get_submitted_locked_edits());
+    }
+
+    /**
+     * MDL-E2E-003: a save from a tab opened before the seal exposes the edits the seal discards.
+     *
+     * The form is frozen while it PROCESSES the submission, so core's exportValues() hands back
+     * the stored name and description instead of the submitted ones: get_data() cannot tell a
+     * stale-tab rename from an untouched save, and the teacher was told "updated successfully"
+     * over a discarded rename. The raw submitted values are what the warning must be decided on.
+     *
+     * @covers ::get_submitted_locked_edits
+     */
+    public function test_a_stale_tab_submission_exposes_the_edits_the_seal_discards(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [, $form] = $this->sealed_rule_submission('Stored description', [
+            'name' => 'Renamed',
+            'description' => 'Changed',
+        ]);
+
+        $this->assertSame(
+            'Sealed rule',
+            $form->get_data()->name,
+            'Core behaviour this fix works around: a hard-frozen element exports its stored default.'
+        );
+
+        $edits = $form->get_submitted_locked_edits();
+        $this->assertSame('Renamed', $edits->name, 'The submitted name must reach the discard detector.');
+        $this->assertSame('Changed', $edits->description, 'And so must the submitted description.');
+        $this->assertTrue(
+            \local_coursedynamicrules\helper\rule_lock::locked_write_discards($this->submitted_payload($form)),
+            'A stale-tab rename on a sealed rule is discarded, and the teacher must be warned.'
+        );
+    }
+
+    /**
+     * MDL-E2E-003: the frozen form itself submits no locked edits, so its save stays green.
+     *
+     * A form rendered after the seal shows name and description frozen and does not send them at
+     * all: nothing was discarded, and "updated successfully" is the honest message.
+     *
+     * @covers ::get_submitted_locked_edits
+     */
+    public function test_the_frozen_form_submits_no_locked_edits(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [, $form] = $this->sealed_rule_submission('Stored description', []);
+
+        $edits = $form->get_submitted_locked_edits();
+        $this->assertObjectNotHasProperty('name', $edits, 'A field the browser did not send is not an edit.');
+        $this->assertObjectNotHasProperty('description', $edits, 'Neither is the description.');
+        $this->assertFalse(
+            \local_coursedynamicrules\helper\rule_lock::locked_write_discards($this->submitted_payload($form)),
+            'The frozen form discards nothing: its save must not warn.'
+        );
+    }
+
+    /**
+     * MDL-E2E-003: a textarea's CRLF line endings alone are not an edit.
+     *
+     * Browsers submit textarea line breaks as CRLF while the stored description holds LF; comparing
+     * them raw would warn about a discard on every untouched stale-tab save of a multi-line rule.
+     *
+     * @covers ::get_submitted_locked_edits
+     */
+    public function test_line_endings_alone_are_not_an_edit(): void {
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [, $form] = $this->sealed_rule_submission("Line one\nLine two", [
+            'name' => 'Sealed rule',
+            'description' => "Line one\r\nLine two",
+        ]);
+
+        $this->assertSame("Line one\nLine two", $form->get_submitted_locked_edits()->description);
+        $this->assertFalse(
+            \local_coursedynamicrules\helper\rule_lock::locked_write_discards($this->submitted_payload($form)),
+            'The same text with browser line endings discards nothing.'
+        );
+    }
 }

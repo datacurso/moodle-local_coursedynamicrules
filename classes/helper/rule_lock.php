@@ -285,13 +285,17 @@ class rule_lock {
      *
      * Discarding is the contract; reporting "updated successfully" over a discarded rename is a
      * lie. Compared against the STORED row, because the sanitised write object deliberately
-     * carries nothing to compare against. The frozen form stays quiet the honest way: hardFrozen
-     * elements re-export their defaults through get_data() (formslib exportValues with
-     * setPersistantFreeze(false)), so its payload holds the stored values verbatim and no field
-     * differs. Only a tab rendered before the rule locked can submit a differing value, and that
-     * difference is exactly what the user must be warned about.
+     * carries nothing to compare against.
      *
-     * @param \stdClass $submitted The payload as the form submitted it (must carry id).
+     * The payload must hold what the browser SENT, not get_data(): the form hard-freezes name and
+     * description while it processes a submission against a locked rule, and a hard-frozen element
+     * re-exports its stored default through get_data() (formslib exportValues with
+     * setPersistantFreeze(false)) - so get_data() never differs, not even for a tab rendered before
+     * the rule locked. editrule.php overlays rule_form::get_submitted_locked_edits() on get_data().
+     * The frozen form sends neither field, so its save stays quiet; a stale tab's differing value is
+     * exactly what the user must be warned about.
+     *
+     * @param \stdClass $submitted The payload as the browser submitted it (must carry id).
      * @return bool True when a submitted field differs from the value the row holds.
      */
     public static function locked_write_discards(\stdClass $submitted): bool {

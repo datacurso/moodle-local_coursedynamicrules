@@ -573,4 +573,21 @@ class behat_local_coursedynamicrules extends behat_base {
         course_delete_module($cm->id);
         rebuild_course_cache($course->id, true);
     }
+
+    /**
+     * Activate and seal a rule outside the page the browser is on.
+     *
+     * Stands in for a second tab: the edit form already rendered stays unfrozen while the rule
+     * locks underneath it, which is exactly the stale-tab save the discard warning is about.
+     *
+     * @Given /^the local coursedynamicrules rule "(?P<name>[^"]*)" is activated behind my back$/
+     * @param string $name The rule name.
+     */
+    public function the_local_coursedynamicrules_rule_is_activated_behind_my_back(string $name): void {
+        global $DB;
+
+        $ruleid = (int) $DB->get_field('local_coursedynamicrules_rule', 'id', ['name' => $name], MUST_EXIST);
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
+    }
 }
