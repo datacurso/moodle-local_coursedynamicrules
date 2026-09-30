@@ -409,4 +409,29 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
         );
         $this->assertDebuggingNotCalled();
     }
+
+    /**
+     * MDL-INT-021: only the no-complete-activity condition declares a one-shot rule.
+     *
+     * A one-shot condition leaves its rule to the scheduled pass alone; declaring any other
+     * condition one-shot would silently stop its rules from firing on events.
+     *
+     * @covers ::is_one_shot
+     */
+    public function test_only_no_complete_activity_is_one_shot(): void {
+        $types = [
+            'complete_activity' => false,
+            'course_inactivity' => false,
+            'grade_in_activity' => false,
+            'no_complete_activity' => true,
+            'no_course_access' => false,
+            'passgrade' => false,
+        ];
+        foreach ($types as $type => $expected) {
+            $condition = \local_coursedynamicrules\helper\rule_component_loader::create_condition_instance(
+                (object) ['ruleid' => 1, 'conditiontype' => $type, 'params' => json_encode([])]
+            );
+            $this->assertSame($expected, $condition->is_one_shot(), $type);
+        }
+    }
 }
