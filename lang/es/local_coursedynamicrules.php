@@ -131,6 +131,7 @@ $string['enablegradegreaterthanorequal_help'] = 'Habilitar calificación mayor o
 $string['enablegradelessthan'] = 'Habilitar calificación menor que';
 $string['enrollmentdate'] = 'Fecha de matrícula';
 $string['error_aiactivity_generation_failed'] = 'El servicio de IA reportó una generación de actividad fallida: {$a}';
+$string['error_aiactivity_review_loop'] = 'El servicio de IA volvió a pedir la revisión del plan de la actividad después de aprobarlo. Se detuvo la generación para no consumir más créditos.';
 $string['error_anonymisation_failed'] = 'No se pudo quitar el nombre del estudiante del texto antes de enviarlo al servicio de IA, por lo que no se envió nada.';
 $string['error_empty_aiactivity_prompt'] = 'La acción de Crear actividad con IA se ejecutó sin un mensaje de prompt válido.';
 $string['error_required_local_coursegen'] = 'Se requiere el complemento local_coursegen para ejecutar la acción de Crear actividad con IA.';

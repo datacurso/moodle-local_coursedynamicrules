@@ -699,6 +699,297 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * Build an AI client double that answers by route and records every request it receives.
+     *
+     * POST /activity/init answers with a thread, POST /activity/feedback with the service's
+     * acknowledgement and GET /activity/result/{thread} with the given result.
+     *
+     * @param array|null $calls Filled with one ['method', 'path', 'body'] entry per request() call.
+     * @param array $result Decoded response for GET /activity/result/{thread}.
+     * @return ai_course_api
+     */
+    private function routing_api_client(?array &$calls, array $result = []): ai_course_api {
+        $calls = [];
+        $client = $this->getMockBuilder(ai_course_api::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['request', 'get_base_url'])
+            ->getMock();
+
+        $client->method('request')
+            ->willReturnCallback(function ($method, $path, $body = []) use (&$calls, $result) {
+                $calls[] = ['method' => $method, 'path' => $path, 'body' => $body];
+                if ($method === 'POST' && $path === '/activity/init') {
+                    return $this->init_response();
+                }
+                if ($method === 'POST' && $path === '/activity/feedback') {
+                    return ['approval_status' => $body['approval_status'] ?? ''];
+                }
+                return $result;
+            });
+        $client->method('get_base_url')->willReturn('https://ai.example.test/api/v1/');
+
+        return $client;
+    }
+
+    /**
+     * Stream event the service emits when it stops the generation for a plan review.
+     *
+     * @return array
+     */
+    private function review_needed_event(): array {
+        return [
+            'type' => 'review_needed',
+            'current_plan' => ['resource_type' => 'page', 'title' => 'Fractions reinforcement'],
+        ];
+    }
+
+    /**
+     * Keep only the calls made to one method and path prefix.
+     *
+     * @param array $calls Calls recorded by routing_api_client().
+     * @param string $method HTTP method.
+     * @param string $pathprefix Path or path prefix.
+     * @return array
+     */
+    private function calls_to(array $calls, string $method, string $pathprefix): array {
+        return array_values(array_filter($calls, function ($call) use ($method, $pathprefix) {
+            return $call['method'] === $method && strpos($call['path'], $pathprefix) === 0;
+        }));
+    }
+
+    /**
+     * Params of the AI action used by the review tests.
+     *
+     * @return array
+     */
+    private function page_action_params(): array {
+        return [
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ];
+    }
+
+    /**
+     * SYS-E2E-001: a plan stopped for review is approved once and the activity is then created.
+     *
+     * The service ignores auto_approve and pauses on review_needed; the action must approve the
+     * plan, read the stream again and create the module restricted to the user and visible.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_approves_review_needed_plan_and_creates_module(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            ['type' => 'completed', 'result' => $this->page_ai_result()],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertSame(2, testable_createaiactivity_action::$streamreads);
+        $this->assertStringContainsString('/activity/stream/thread-1', testable_createaiactivity_action::$laststreamurl);
+
+        $pages = $DB->get_records('page', ['course' => $course->id]);
+        $this->assertCount(1, $pages);
+        $page = reset($pages);
+        $this->assertSame('AI reinforcement page', $page->name);
+
+        $cm = get_coursemodule_from_instance('page', $page->id, $course->id, false, MUST_EXIST);
+        $this->assertEquals(1, $cm->visible);
+        $availability = $DB->get_field('course_modules', 'availability', ['id' => $cm->id]);
+        $this->assertStringContainsString('"type":"user"', $availability);
+        $this->assertStringContainsString((string) $user->id, $availability);
+    }
+
+    /**
+     * SYS-E2E-001: the approval is exactly one feedback "accept" for the thread, on behalf of the student.
+     *
+     * Under cron $USER is the administrator, so the student's id must travel explicitly.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_sends_one_feedback_accept_for_the_thread(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            ['type' => 'completed', 'result' => $this->page_ai_result()],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $feedback = $this->calls_to($calls, 'POST', '/activity/feedback');
+        $this->assertCount(1, $feedback);
+        $this->assertSame([
+            'thread_id' => 'thread-1',
+            'approval_status' => 'accept',
+            'instruction' => '',
+            'userid' => (string) $user->id,
+        ], $feedback[0]['body']);
+    }
+
+    /**
+     * SYS-E2E-001: after an approved plan completes, the result endpoint is never queried.
+     *
+     * Querying /activity/result for a thread still paused for review answered 404: that was the
+     * error the task log showed.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_never_queries_result_after_review_needed(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            ['type' => 'completed', 'result' => $this->page_ai_result()],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertSame([], $this->calls_to($calls, 'GET', '/activity/result'));
+    }
+
+    /**
+     * SYS-E2E-001: a second review request after the approval stops the generation without more calls.
+     *
+     * One approval round only: approving in a loop could spend credits without limit.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_gives_up_after_a_second_review_needed(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->expectOutputRegex('/createaiactivity failed: \[stage: feedback\]/');
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            $this->review_needed_event(),
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertDebuggingCalledCount(1);
+        $this->assertCount(1, $this->calls_to($calls, 'POST', '/activity/feedback'));
+        $this->assertSame([], $this->calls_to($calls, 'GET', '/activity/result'));
+        $this->assertSame(2, testable_createaiactivity_action::$streamreads);
+        $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * SYS-E2E-001: a generation that fails after the approval reports the service's localized message.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_reports_failed_after_approval(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->expectOutputRegex('/createaiactivity failed: .*We could not complete your request right now\./');
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            [
+                'type' => 'failed',
+                'message' => [
+                    'string_id' => 'stream_generic_error',
+                    'string' => 'We could not complete your request right now.',
+                ],
+            ],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertDebuggingCalledCount(1);
+        $this->assertCount(1, $this->calls_to($calls, 'POST', '/activity/feedback'));
+        $this->assertSame([], $this->calls_to($calls, 'GET', '/activity/result'));
+        $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * SYS-E2E-001: a stream cut before any lifecycle event still falls back to the persisted result.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_still_falls_back_to_result_when_stream_is_cut(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls, $this->page_ai_result());
+        testable_createaiactivity_action::$streamevent = [];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $result = $this->calls_to($calls, 'GET', '/activity/result');
+        $this->assertCount(1, $result);
+        $this->assertSame('/activity/result/thread-1', $result[0]['path']);
+        $this->assertSame([], $this->calls_to($calls, 'POST', '/activity/feedback'));
+        $this->assertEquals(1, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * SYS-E2E-001: only lifecycle events end a stream read; progress lines and noise never do.
+     *
+     * @covers ::terminal_event_from_line
+     */
+    public function test_terminal_event_from_line_recognises_lifecycle_events(): void {
+        foreach (['completed', 'failed', 'error', 'review_needed'] as $type) {
+            $event = ['type' => $type, 'thread_id' => 'thread-1'];
+            $this->assertSame(
+                $event,
+                createaiactivity_action::terminal_event_from_line('data: ' . json_encode($event)),
+                "A {$type} event must end the stream read."
+            );
+        }
+
+        $ignored = [
+            'data: ' . json_encode(['type' => 'token', 'content' => 'Frac']),
+            'data: ' . json_encode(['type' => 'done']),
+            'data: ' . json_encode(['type' => 'status', 'status' => 'planning']),
+            'data: ' . json_encode(['content' => 'no type']),
+            'event: message',
+            ': keep-alive',
+            '',
+            'data: {not json',
+            'data: "completed"',
+        ];
+        foreach ($ignored as $line) {
+            $this->assertNull(createaiactivity_action::terminal_event_from_line($line), "Line must be ignored: {$line}");
+        }
+    }
+
+    /**
      * Skip when the AI companion plugins are absent, as they are on a CI checkout of this plugin alone.
      *
      * This guard is a stopgap, not the design. These tests build their client double by reflecting
