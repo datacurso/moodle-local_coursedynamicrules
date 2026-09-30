@@ -65,7 +65,9 @@ class rule_task extends \core\task\adhoc_task {
             // Make array to pass to rule class in second param.
             $users = [$user];
 
-            // Get active rules for the course.
+            // Get active rules for the course. A rule holding a one-shot condition (see
+            // condition::is_one_shot()) is loaded too but never executed here: rule::execute()
+            // leaves it to its scheduled pass.
             $rules = $DB->get_records('local_coursedynamicrules_rule', ['courseid' => $courseid, 'active' => 1]);
 
             $additionaldata = [];

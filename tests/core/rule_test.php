@@ -253,4 +253,62 @@ final class rule_test extends \advanced_testcase {
 
         $this->assertSame(0, $this->count_messages($sink, $student->id));
     }
+
+    /**
+     * Build a mixed one-shot rule: completed activity A plus "activity B not completed" with a past date.
+     *
+     * @param \stdClass $course Course.
+     * @param \stdClass $student Student who completed A and not B.
+     * @param int $studentroleid Student role id.
+     * @return array [stdClass rule record, int completionid of A]
+     */
+    private function create_one_shot_rule_due(\stdClass $course, \stdClass $student, int $studentroleid): array {
+        [$cma, $completionid] = $this->create_completed_activity($course, $student->id);
+        $pageb = $this->getDataGenerator()->create_module('page', [
+            'course' => $course->id,
+            'completion' => COMPLETION_TRACKING_MANUAL,
+        ]);
+        $rule = $this->insert_rule($course->id, [
+            ['complete_activity', ['cmid' => $cma->id]],
+            ['no_complete_activity', ['cmid' => $pageb->cmid, 'expectedcompletiondate' => time() - HOURSECS]],
+        ], $studentroleid);
+        return [$rule, $completionid];
+    }
+
+    /**
+     * MDL-INT-021: an event never executes a rule holding a one-shot condition, even once it is due.
+     *
+     * The scheduled pass is the only executor of such a rule (and switches it off in the same
+     * operation), so an event evaluation must not notify, or the pass would notify a second time.
+     *
+     * @covers ::execute
+     */
+    public function test_event_path_never_fires_a_one_shot_rule_after_its_date(): void {
+        $this->resetAfterTest(true);
+        [$course, $student, $studentroleid] = $this->setup_course_student();
+        [$rule, $completionid] = $this->create_one_shot_rule_due($course, $student, $studentroleid);
+
+        $sink = $this->redirectMessages();
+        $ruleinstance = new rule($rule, [$student], self::EVENT_TYPES, ['completionid' => $completionid]);
+        $ruleinstance->execute();
+
+        $this->assertSame(0, $this->count_messages($sink, $student->id));
+    }
+
+    /**
+     * MDL-INT-021: the scheduled evaluation (no trigger types) still fires the same one-shot rule.
+     *
+     * @covers ::execute
+     */
+    public function test_scheduled_path_still_fires_a_one_shot_rule(): void {
+        $this->resetAfterTest(true);
+        [$course, $student, $studentroleid] = $this->setup_course_student();
+        [$rule] = $this->create_one_shot_rule_due($course, $student, $studentroleid);
+
+        $sink = $this->redirectMessages();
+        $ruleinstance = new rule($rule, [$student]);
+        $ruleinstance->execute();
+
+        $this->assertSame(1, $this->count_messages($sink, $student->id));
+    }
 }

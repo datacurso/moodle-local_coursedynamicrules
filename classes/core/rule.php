@@ -142,11 +142,22 @@ class rule {
      * was fired for; this prevents a rule from firing on unrelated events without forcing sibling
      * conditions to false (which would break the AND).
      *
+     * A rule holding a one-shot condition is never relevant to an event: the scheduled pass is its
+     * only executor and switches it off in the same operation, so an event evaluation could only
+     * add a second notification to the same arming (MDL-INT-021). Nothing legitimate is lost:
+     * before the date the one-shot condition is false, and after it the pass evaluates everyone.
+     *
      * @return bool
      */
     private function is_relevant_trigger() {
         if (empty($this->conditiontypes)) {
             return true;
+        }
+
+        foreach ($this->conditions as $condition) {
+            if ($condition->is_one_shot()) {
+                return false;
+            }
         }
 
         $cmid = $this->get_cmid_from_additionaldata();

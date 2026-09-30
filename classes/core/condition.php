@@ -410,4 +410,18 @@ abstract class condition {
      * @return int The id of the saved condition record.
      */
     abstract public function save_condition($formdata);
+
+    /**
+     * Whether this condition makes its rule one-shot.
+     *
+     * A one-shot rule is executed by a single scheduled pass, which switches the rule off in the
+     * same operation; no event evaluation may ever execute it (see rule::is_relevant_trigger()).
+     * Otherwise an event arriving after the condition became true would notify a student, and the
+     * next pass would notify the same student again within the same arming.
+     *
+     * @return bool
+     */
+    public function is_one_shot(): bool {
+        return false;
+    }
 }

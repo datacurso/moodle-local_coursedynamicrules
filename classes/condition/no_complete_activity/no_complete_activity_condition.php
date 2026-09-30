@@ -75,6 +75,15 @@ class no_complete_activity_condition extends condition {
     }
 
     /**
+     * The rule is executed once, by no_complete_activity_task, which then switches it off.
+     *
+     * @return bool
+     */
+    public function is_one_shot(): bool {
+        return true;
+    }
+
+    /**
      * Determines if the provided completion state represents a completed activity.
      *
      * @param int $completionstate Completion state constant.
