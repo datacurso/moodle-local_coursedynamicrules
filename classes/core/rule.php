@@ -343,12 +343,16 @@ class rule {
 
     /**
      * Retrieves the course module ID (cmid) from the additional data.
-     * Tries using completion ID first, then grade ID.
+     * Uses the cmid itself when the evaluation carries it (grade events), then the completion ID,
+     * then the grade ID (evaluations queued before grade events carried the cmid).
      *
      * @return int|null Course module ID if found, or null if not available.
      */
     private function get_cmid_from_additionaldata() {
         global $DB;
+        if (!empty($this->additionaldata['cmid'])) {
+            return (int) $this->additionaldata['cmid'];
+        }
         if (isset($this->additionaldata['completionid'])) {
             return $this->get_cmid_from_completionid();
         }
