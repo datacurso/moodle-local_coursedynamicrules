@@ -170,6 +170,16 @@ class course_inactivity_condition extends condition {
     }
 
     /**
+     * The inactivity stamp is the start of the previous scheduled pass (see is_after_last_run()).
+     *
+     * @return bool
+     */
+    #[\Override]
+    public function is_clocked_by_schedule(): bool {
+        return true;
+    }
+
+    /**
      * Get user's last access to the course
      * @param int $courseid Course ID
      * @param int $userid User ID
@@ -304,7 +314,10 @@ class course_inactivity_condition extends condition {
             $endinterval = $this->add_time_interval($basetime, $timeinterval, $intervalunit);
             $timewindow = $this->add_time_interval($endinterval, self::CRON_INTERVAL_HOURS, 'hours');
 
-            if ($this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)) {
+            if (
+                $this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)
+                && $this->is_after_last_run($endinterval)
+            ) {
                 if ($this->is_user_inactive($lastaccess, $startinterval)) {
                     return true;
                 }
@@ -350,6 +363,7 @@ class course_inactivity_condition extends condition {
         $timewindow = $this->add_time_interval($endinterval, self::CRON_INTERVAL_HOURS, 'hours');
 
         return $this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)
+            && $this->is_after_last_run($endinterval)
             && $this->is_user_inactive($lastaccess, $startinterval);
     }
 
@@ -455,6 +469,28 @@ class course_inactivity_condition extends condition {
      */
     private function is_within_interval_window($currenttime, $endinterval, $timewindow) {
         return $currenttime >= $endinterval && $currenttime <= $timewindow;
+    }
+
+    /**
+     * Whether a milestone fell due after this condition's previous run, and by now.
+     *
+     * The six-hour window outlasts the gap between two runs of the task (a manual run, cron
+     * catching up), so the window alone let a second run notify the same student again for the
+     * same milestone (MDL-UNIT-010). The condition's lastexecutiontime is the start of its previous
+     * run (rule::execute()): a milestone due by then was already evaluated by that run, one due
+     * later - even during it - was not. Never run (null: a new or duplicated rule) leaves the
+     * window as the only check.
+     *
+     * The stamp belongs to the condition, not to the student, so what that run decided is not
+     * revisited: a milestone a sibling condition or a failed action kept from a student is not
+     * offered to them again, and moving the base date back does not re-notify milestones the
+     * previous run already passed.
+     *
+     * @param int $end The moment the milestone fell due.
+     * @return bool
+     */
+    private function is_after_last_run(int $end): bool {
+        return $end > (int) ($this->lastexecutiontime ?? 0) && $end <= $this->currenttime;
     }
 
     /**

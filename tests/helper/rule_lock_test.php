@@ -20,6 +20,7 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/course/lib.php');
+require_once(__DIR__ . '/../fixtures/module_deleter.php');
 
 /**
  * The lock that makes a rule unmodifiable after its first activation.
@@ -346,10 +347,11 @@ final class rule_lock_test extends \advanced_testcase {
      * after silently throwing away the user's rename is a lie. The honest rule: warn only when a
      * submitted field actually differed from what the ROW holds - compared against the stored
      * record, because the sanitised write object deliberately carries no other fields to compare
-     * against. Both round-2 judges corrected the earlier rationale: a hardFrozen element still
-     * exports its DEFAULT through get_data() (formslib exportValues + setPersistantFreeze(false)),
-     * so the frozen form's real payload is the stored values verbatim - the third case below -
-     * and it must stay quiet.
+     * against. The payload is what the browser SENT: a hardFrozen element exports its DEFAULT
+     * through get_data() (formslib exportValues + setPersistantFreeze(false)), so get_data() alone
+     * never differs - editrule.php overlays rule_form::get_submitted_locked_edits() on it (see
+     * rule_form_test for the end-to-end cases). A payload whose fields equal the stored values -
+     * the third case below - must stay quiet.
      *
      * @covers ::locked_write_discards
      */
@@ -368,12 +370,11 @@ final class rule_lock_test extends \advanced_testcase {
             'A payload carrying no editable fields discards nothing, success is honest.'
         );
 
-        // The frozen form's REAL payload: hardFrozen elements re-export their defaults, which are
-        // the stored values - so name and description arrive, equal, and nothing is discarded.
+        // A stale tab that sends the stored values back untouched: equal fields, nothing discarded.
         $unchanged = (object) ['id' => $ruleid, 'name' => 'Lock probe', 'description' => '', 'active' => 0];
         $this->assertFalse(
             rule_lock::locked_write_discards($unchanged),
-            'The frozen form re-exports the stored values: equal fields discard nothing.'
+            'Submitted values equal to the stored ones discard nothing.'
         );
     }
 
@@ -597,7 +598,7 @@ final class rule_lock_test extends \advanced_testcase {
         // and a task is queued, so a query that merely finds the row still sees it. The operator has
         // deleted it all the same. Enabled here rather than trusted as a site default.
         set_config('coursebinenable', 1, 'tool_recyclebin');
-        course_delete_module((int) $entry->id, true);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $entry->id, true);
 
         $this->assertSame(
             1,
@@ -610,7 +611,7 @@ final class rule_lock_test extends \advanced_testcase {
         );
 
         // And once the task has run and the row is gone, the answer does not change.
-        course_delete_module((int) $entry->id);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $entry->id);
         rebuild_course_cache($this->courseid, true);
         $this->assertFalse(\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid));
     }

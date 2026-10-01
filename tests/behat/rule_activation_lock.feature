@@ -112,6 +112,24 @@ Feature: A rule can be edited only until its first activation
     Then I should see "Paused"
     And I should not see "Inactive"
 
+  @MDL-E2E-003
+  Scenario: A save from a tab opened before the seal warns that the edits were discarded
+    # The form freezes name and description while it PROCESSES the save, so get_data() hands back
+    # the stored values: the warning is decided on what the browser actually sent.
+    Given the following local coursedynamicrules no course access rules exist:
+      | course | name       | active | periodvalue | periodunit | primaryroles | copyroles | subject | body |
+      | C1     | Stale rule | 0      | 1           | days       | student      |           | S       | B    |
+    And I log in as "teacher1"
+    And I am on "C1" course homepage
+    And I navigate to "Smart Rules AI" in current page administration
+    And I click on "//tr[contains(., 'Stale rule')]//a[contains(@href, 'editrule.php')]" "xpath_element"
+    And the local coursedynamicrules rule "Stale rule" is activated behind my back
+    When I set the field "Name" to "Stale rule renamed"
+    And I press "Save changes"
+    Then I should see "This rule is locked, so only its active state was saved - the other changes were discarded."
+    And I should see "Stale rule"
+    And I should not see "Stale rule renamed"
+
   @MDL-E2E-001
   Scenario: Replaying the activation confirmation on a sealed rule tells the truth
     # Both judges flagged the replay lie: back button, double click or an old tab reaches the

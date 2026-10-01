@@ -555,7 +555,7 @@ class behat_local_coursedynamicrules extends behat_base {
      * Delete an activity from a course, synchronously, addressed by its idnumber.
      *
      * The core "I delete X activity" step drives the action menu and needs JavaScript; this stack
-     * runs Behat without a browser. Deleting through course_delete_module() is what that menu ends
+     * runs Behat without a browser. Deleting through the course module API is what that menu ends
      * up calling anyway, and the synchronous path leaves the module truly gone - the state a
      * component pointing at it must survive.
      *
@@ -570,7 +570,25 @@ class behat_local_coursedynamicrules extends behat_base {
         $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
         $cm = $DB->get_record('course_modules', ['course' => $course->id, 'idnumber' => $idnumber], '*', MUST_EXIST);
 
-        course_delete_module($cm->id);
+        require_once(__DIR__ . '/../fixtures/module_deleter.php');
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $cm->id);
         rebuild_course_cache($course->id, true);
+    }
+
+    /**
+     * Activate and seal a rule outside the page the browser is on.
+     *
+     * Stands in for a second tab: the edit form already rendered stays unfrozen while the rule
+     * locks underneath it, which is exactly the stale-tab save the discard warning is about.
+     *
+     * @Given /^the local coursedynamicrules rule "(?P<name>[^"]*)" is activated behind my back$/
+     * @param string $name The rule name.
+     */
+    public function the_local_coursedynamicrules_rule_is_activated_behind_my_back(string $name): void {
+        global $DB;
+
+        $ruleid = (int) $DB->get_field('local_coursedynamicrules_rule', 'id', ['name' => $name], MUST_EXIST);
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
     }
 }

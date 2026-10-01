@@ -91,6 +91,34 @@ class rule_form extends \moodleform {
     }
 
     /**
+     * The edits to lock-protected fields exactly as the browser submitted them.
+     *
+     * The seal is decided while the submission is PROCESSED, so a tab rendered before the rule
+     * locked is processed by a form that hard-freezes name and description - and core's
+     * exportValues() then returns their stored defaults, not what was sent. get_data() therefore
+     * cannot tell a stale-tab rename from an untouched save; rule_lock::locked_write_discards()
+     * must be fed these raw values instead.
+     *
+     * A field the browser did not send (the frozen form sends neither) is left out. Line breaks
+     * are normalised to LF because a textarea submits CRLF while the stored text holds LF.
+     *
+     * @return \stdClass The submitted name and/or description, cleaned with the elements' types.
+     */
+    public function get_submitted_locked_edits(): \stdClass {
+        $edits = new \stdClass();
+
+        foreach (['name' => PARAM_TEXT, 'description' => PARAM_RAW] as $field => $type) {
+            $value = $this->_form->getSubmitValue($field);
+            if (!is_string($value)) {
+                continue;
+            }
+            $edits->{$field} = clean_param(str_replace(["\r\n", "\r"], "\n", $value), $type);
+        }
+
+        return $edits;
+    }
+
+    /**
      * Activation requires a complete rule - and a new rule is never complete.
      *
      * Activation is the moment the rule locks forever (see rule_lock), so activating a rule with

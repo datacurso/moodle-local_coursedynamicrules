@@ -142,11 +142,22 @@ class rule {
      * was fired for; this prevents a rule from firing on unrelated events without forcing sibling
      * conditions to false (which would break the AND).
      *
+     * A rule holding a one-shot condition is never relevant to an event: the scheduled pass is its
+     * only executor and switches it off in the same operation, so an event evaluation could only
+     * add a second notification to the same arming (MDL-INT-021). Nothing legitimate is lost:
+     * before the date the one-shot condition is false, and after it the pass evaluates everyone.
+     *
      * @return bool
      */
     private function is_relevant_trigger() {
         if (empty($this->conditiontypes)) {
             return true;
+        }
+
+        foreach ($this->conditions as $condition) {
+            if ($condition->is_one_shot()) {
+                return false;
+            }
         }
 
         $cmid = $this->get_cmid_from_additionaldata();
@@ -181,6 +192,11 @@ class rule {
             return;
         }
 
+        // The stamp is the moment the run started, not the one it ended: a condition reading it
+        // as "evaluated up to here" (the inactivity milestones) must not lose a milestone that fell
+        // due while a long run walked the course.
+        $runstart = time();
+
         foreach ($this->users as $user) {
             $rulecontext = (object)[
                 'courseid' => $this->courseid,
@@ -196,7 +212,7 @@ class rule {
         }
 
         // After the rule is executed, set the last execution time.
-        $this->set_last_execution_time(time());
+        $this->set_last_execution_time($runstart);
     }
 
     /**
@@ -272,6 +288,8 @@ class rule {
      * Sets the last execution time for the rule.
      *
      * This method updates the 'lastexecutiontime' field in the 'local_coursedynamicrules_rule' table
+     * and in each of its conditions and actions. An event evaluation leaves out the conditions
+     * whose stamp belongs to the scheduled pass (condition::is_clocked_by_schedule()).
      *
      * @param int $time The timestamp of the last execution time.
      */
@@ -280,6 +298,9 @@ class rule {
         $DB->set_field('local_coursedynamicrules_rule', 'lastexecutiontime', $time, ['id' => $this->id]);
 
         foreach ($this->conditions as $condition) {
+            if (!empty($this->conditiontypes) && $condition->is_clocked_by_schedule()) {
+                continue;
+            }
             $condition->set_last_execution_time($time);
         }
 
@@ -332,12 +353,16 @@ class rule {
 
     /**
      * Retrieves the course module ID (cmid) from the additional data.
-     * Tries using completion ID first, then grade ID.
+     * Uses the cmid itself when the evaluation carries it (grade events), then the completion ID,
+     * then the grade ID (evaluations queued before grade events carried the cmid).
      *
      * @return int|null Course module ID if found, or null if not available.
      */
     private function get_cmid_from_additionaldata() {
         global $DB;
+        if (!empty($this->additionaldata['cmid'])) {
+            return (int) $this->additionaldata['cmid'];
+        }
         if (isset($this->additionaldata['completionid'])) {
             return $this->get_cmid_from_completionid();
         }

@@ -24,6 +24,7 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/course/lib.php');
+require_once(__DIR__ . '/../fixtures/module_deleter.php');
 
 /**
  * A component whose target activity was deleted (a "ghost") must stay VISIBLE and manageable,
@@ -92,7 +93,7 @@ final class ghost_component_test extends \advanced_testcase {
         );
 
         // The activity the condition targets is deleted from the course.
-        course_delete_module($cm->cmid);
+        \local_coursedynamicrules\tests\module_deleter::delete($cm->cmid);
         rebuild_course_cache($course->id, true);
 
         // Reload the condition exactly as the components page does.
