@@ -36,6 +36,7 @@ final class passgrade_form_test extends \advanced_testcase {
     public static function setUpBeforeClass(): void {
         parent::setUpBeforeClass();
         require_once(__DIR__ . '/../../fixtures/testable_passgrade_form.php');
+        require_once(__DIR__ . '/../../fixtures/module_deleter.php');
     }
 
     /**
@@ -74,7 +75,7 @@ final class passgrade_form_test extends \advanced_testcase {
         // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
         // trusted as a site default, or this test silently measures the hard-deleted case instead.
         set_config('coursebinenable', 1, 'tool_recyclebin');
-        course_delete_module($cmid, true);
+        \local_coursedynamicrules\tests\module_deleter::delete($cmid, true);
 
         $this->assertEquals(
             1,
@@ -270,7 +271,7 @@ final class passgrade_form_test extends \advanced_testcase {
         set_config('coursebinenable', 0, 'tool_recyclebin');
 
         [$course, $cm] = $this->create_passgrade_activity();
-        course_delete_module($cm->id);
+        \local_coursedynamicrules\tests\module_deleter::delete($cm->id);
         $this->assertArrayNotHasKey(
             $cm->id,
             get_fast_modinfo($course->id)->get_cms(),
