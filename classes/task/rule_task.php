@@ -29,6 +29,12 @@ use local_coursedynamicrules\core\rule;
  */
 class rule_task extends \core\task\adhoc_task {
     /**
+     * Seconds a grade evaluation waits before running, so every grade item written by one
+     * gradebook save is in place and folded into a single queued evaluation (MDL-UNIT-012).
+     */
+    public const COALESCE_DELAY = 30;
+
+    /**
      * Return a instance of rule_task with custom data added
      *
      * @param object $customdata Custom data to pass to the task
@@ -77,6 +83,11 @@ class rule_task extends \core\task\adhoc_task {
             }
             if (isset($customdata->gradeid)) {
                 $additionaldata['gradeid'] = $customdata->gradeid;
+            }
+            // Grade evaluations are keyed by the activity (see observer\user_graded); tasks queued
+            // before that change still carry a gradeid and resolve through it.
+            if (isset($customdata->cmid)) {
+                $additionaldata['cmid'] = $customdata->cmid;
             }
 
             foreach ($rules as $rule) {
