@@ -2,10 +2,6 @@
 
 **Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
 
-## Added
-- **Inactivity notices are recorded per milestone**
-  A new table, `local_coursedynamicrules_delivery`, records which inactivity milestone each student has already been notified for, keyed by condition, student, anchor date and milestone. The row is written only after the rule's actions have run, so an action that throws leaves the milestone unrecorded and it is retried on the next pass. Because the anchor is part of the key, moving the course start date still re-anchors the milestones and notifies once more. The rows are deleted with their rule, condition, course or user, and the privacy provider declares, exports and erases them in the course context. **Site administrators, note:** the rows are not included in course backups, so a restored course can notify again inside a window that is still open.
-
 ## Changed
 - **The 5.2 line declares Moodle 4.5 to 5.2**
   It carries the code of 1.8.7-500, so `$plugin->requires` moves back to the Moodle 4.5 release and `$plugin->supported` names the range from 4.5 to 5.2, and the same release installs on any of them. Continuous integration now runs the plugin against Moodle 4.5 and 5.2 (MariaDB and PostgreSQL) and Moodle 5.0 (MariaDB). The whole plugin was exercised against Moodle 5.2.3 with the manual test suite on this release; Moodle 5.1 is covered by the declared range and not tested separately
@@ -20,15 +16,11 @@
 - **Saving two grades of the same activity in one operation notifies once**
   The grade observer queued one evaluation per grade, so a teacher saving both grade items of a forum in a single gradebook operation produced two evaluations that were both true, and the student received the same notification twice. The evaluation is now queued once per activity and runs 30 seconds after the grading operation, so grades saved together are evaluated together. Regrading later still notifies again, and evaluations already queued by earlier versions are still processed.
 - **The inactivity task no longer repeats a notice when it runs twice in the same window**
-  Whether a student was notified only once per milestone depended on the task running exactly once inside each window. With the delivery record described above, a second run inside the same window sends nothing.
+  Whether a student was notified only once per milestone depended on the task running exactly once inside each window. A milestone now notifies only if it ended after the condition's previous run, and each run is stamped with the time it started, so a second run inside the same window sends nothing and a milestone that ends while a run is in progress is not lost. An event on a mixed rule no longer stamps the inactivity condition, so it cannot hold back the milestone for the other students.
 
 ## 1.8.7-500
 
 **Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.0**.
-
-## Added
-- **Inactivity notices are recorded per milestone**
-  A new table, `local_coursedynamicrules_delivery`, records which inactivity milestone each student has already been notified for, keyed by condition, student, anchor date and milestone. The row is written only after the rule's actions have run, so an action that throws leaves the milestone unrecorded and it is retried on the next pass. Because the anchor is part of the key, moving the course start date still re-anchors the milestones and notifies once more. The rows are deleted with their rule, condition, course or user, and the privacy provider declares, exports and erases them in the course context. **Site administrators, note:** the rows are not included in course backups, so a restored course can notify again inside a window that is still open.
 
 ## Changed
 - **The 5.0 line declares Moodle 4.5 and 5.0**
@@ -44,7 +36,7 @@
 - **Saving two grades of the same activity in one operation notifies once**
   The grade observer queued one evaluation per grade, so a teacher saving both grade items of a forum in a single gradebook operation produced two evaluations that were both true, and the student received the same notification twice. The evaluation is now queued once per activity and runs 30 seconds after the grading operation, so grades saved together are evaluated together. Regrading later still notifies again, and evaluations already queued by earlier versions are still processed.
 - **The inactivity task no longer repeats a notice when it runs twice in the same window**
-  Whether a student was notified only once per milestone depended on the task running exactly once inside each window. With the delivery record described above, a second run inside the same window sends nothing.
+  Whether a student was notified only once per milestone depended on the task running exactly once inside each window. A milestone now notifies only if it ended after the condition's previous run, and each run is stamped with the time it started, so a second run inside the same window sends nothing and a milestone that ends while a run is in progress is not lost. An event on a mixed rule no longer stamps the inactivity condition, so it cannot hold back the milestone for the other students.
 
 ## 1.8.6-502
 
