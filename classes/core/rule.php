@@ -218,12 +218,6 @@ class rule {
         foreach ($this->actions as $action) {
             $action->execute($rulecontext);
         }
-
-        // After the actions, so a condition records a delivery only once it really happened; an
-        // action that throws leaves it undelivered and a later run retries.
-        foreach ($this->conditions as $condition) {
-            $condition->actions_executed($rulecontext);
-        }
     }
 
     /**
@@ -332,10 +326,6 @@ class rule {
         foreach ($this->actions as $action) {
             $action->delete();
         }
-
-        // Each condition cleared its own deliveries above; clearing by rule as well leaves no row
-        // behind whose condition row was removed some other way.
-        \local_coursedynamicrules\helper\delivery_ledger::delete_for_rule((int) $this->id);
 
         $result = $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
 

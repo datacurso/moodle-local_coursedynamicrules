@@ -17,7 +17,7 @@
 namespace local_coursedynamicrules\observer;
 
 /**
- * Removes a course's rules (and their conditions, actions and deliveries) when the course is deleted.
+ * Removes a course's rules (and their conditions and actions) when the course is deleted.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -42,7 +42,6 @@ class course_deleted {
             [$insql, $params] = $DB->get_in_or_equal(array_keys($rules));
             $DB->delete_records_select('local_coursedynamicrules_condition', "ruleid $insql", $params);
             $DB->delete_records_select('local_coursedynamicrules_action', "ruleid $insql", $params);
-            \local_coursedynamicrules\helper\delivery_ledger::delete_for_rules(array_keys($rules));
         }
         $DB->delete_records('local_coursedynamicrules_rule', ['courseid' => $courseid]);
 

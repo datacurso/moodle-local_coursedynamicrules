@@ -19,7 +19,6 @@ namespace local_coursedynamicrules\condition\course_inactivity;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\course_inactivity_form;
-use local_coursedynamicrules\helper\delivery_ledger;
 use local_coursedynamicrules\helper\rule_lock;
 use stdClass;
 
@@ -76,14 +75,6 @@ class course_inactivity_condition extends condition {
      * a property of the rule, not of the user. Null until first read.
      */
     private ?int $activationtime = null;
-
-    /**
-     * @var string[] Milestone key met by the last evaluation, per user id, until the actions run.
-     *
-     * evaluate() finds the milestone; actions_executed() records it once the rule's actions really
-     * ran for that user. Kept per user because one instance evaluates the whole course.
-     */
-    private array $pendingdeliveries = [];
 
     /**
      * course_inactivity_condition constructor.
@@ -145,9 +136,10 @@ class course_inactivity_condition extends condition {
      * @return bool True if the condition is met, false otherwise
      */
     public function evaluate($context) {
+        global $DB;
+
         $courseid = $context->courseid;
         $userid = $context->userid;
-        unset($this->pendingdeliveries[$userid]);
 
         // Guard against invalid stored data (e.g. legacy rules saved before validation existed):
         // an interval of 0/non-numeric would raise a DivisionByZeroError and abort the whole task.
@@ -168,65 +160,13 @@ class course_inactivity_condition extends condition {
             return false;
         }
 
-        $basetime = (int) $basedate->timestart;
         if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
-            $milestone = $this->due_custom_milestone($lastaccess, $basetime, (int) $userid);
+            return $this->check_inactivity_intervals($lastaccess, $basedate->timestart);
         } else if ($this->params->intervaltype == self::INTERVAL_RECURRING) {
-            $milestone = $this->due_recurring_milestone($lastaccess, $basetime, (int) $userid);
-        } else {
-            $milestone = null;
+            return $this->check_recurring_inactivity($lastaccess, $basedate->timestart);
         }
 
-        if ($milestone === null) {
-            return false;
-        }
-
-        $this->pendingdeliveries[$userid] = delivery_ledger::milestone_key($basetime, $milestone);
-        return true;
-    }
-
-    /**
-     * Record the milestone the last evaluation met for this user as delivered.
-     *
-     * Called by the rule only after its actions ran, so a milestone that a sibling condition kept
-     * from being delivered stays deliverable for the rest of its window.
-     *
-     * @param stdClass $rulecontext The context the conditions were evaluated with.
-     * @return void
-     */
-    public function actions_executed(stdClass $rulecontext): void {
-        $userid = (int) $rulecontext->userid;
-        if (!isset($this->pendingdeliveries[$userid])) {
-            return;
-        }
-        $key = $this->pendingdeliveries[$userid];
-        unset($this->pendingdeliveries[$userid]);
-
-        if (empty($this->get_id())) {
-            return;
-        }
-        delivery_ledger::record((int) $this->ruleid, (int) $this->get_id(), $userid, $key);
-    }
-
-    /**
-     * Whether this milestone, measured from this anchor, is still to be delivered to the user.
-     *
-     * An unsaved condition (no id) has no ledger and is always deliverable.
-     *
-     * @param int $userid The user.
-     * @param int $basetime The anchor.
-     * @param int $milestone The milestone.
-     * @return bool
-     */
-    private function is_undelivered(int $userid, int $basetime, int $milestone): bool {
-        if (empty($this->get_id())) {
-            return true;
-        }
-        return !delivery_ledger::is_delivered(
-            (int) $this->get_id(),
-            $userid,
-            delivery_ledger::milestone_key($basetime, $milestone)
-        );
+        return false;
     }
 
     /**
@@ -347,14 +287,13 @@ class course_inactivity_condition extends condition {
     }
 
     /**
-     * The custom milestone whose window is open, the user inactive during its stretch and not yet delivered.
+     * Check if user is inactive during the intervals
      *
      * @param int $lastaccess User last access in timestamp
      * @param int $basetime Base timestamp to calculate the intervals, e.g., enrollment date, course start date, etc.
-     * @param int $userid The user.
-     * @return int|null The milestone timestamp, or null when no milestone is due for the user.
+     * @return bool True if user is inactive during the interval, false otherwise
      */
-    private function due_custom_milestone($lastaccess, $basetime, int $userid): ?int {
+    private function check_inactivity_intervals($lastaccess, $basetime) {
         $timeintervals = explode(',', $this->params->timeintervals);
         $intervalunit = $this->params->intervalunit;
 
@@ -365,29 +304,26 @@ class course_inactivity_condition extends condition {
             $endinterval = $this->add_time_interval($basetime, $timeinterval, $intervalunit);
             $timewindow = $this->add_time_interval($endinterval, self::CRON_INTERVAL_HOURS, 'hours');
 
-            if (
-                $this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)
-                && $this->is_user_inactive($lastaccess, $startinterval)
-                && $this->is_undelivered($userid, $basetime, $endinterval)
-            ) {
-                return $endinterval;
+            if ($this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)) {
+                if ($this->is_user_inactive($lastaccess, $startinterval)) {
+                    return true;
+                }
             }
 
             $prevtimeinterval = $timeinterval;
         }
 
-        return null;
+        return false;
     }
 
     /**
-     * The last completed recurring milestone, when its window is open, the user inactive and it is not yet delivered.
+     * Check if user is inactive during the recurring interval
      *
      * @param int $lastaccess User last access in timestamp
      * @param int $basetime Base date to calculate the intervals, e.g., enrollment date, course start date, etc.
-     * @param int $userid The user.
-     * @return int|null The milestone timestamp, or null when no milestone is due for the user.
+     * @return bool True if user is inactive during the interval, false otherwise
      */
-    private function due_recurring_milestone($lastaccess, $basetime, int $userid): ?int {
+    private function check_recurring_inactivity($lastaccess, $basetime) {
         $interval = $this->params->timeintervals;
         $intervalunit = $this->params->intervalunit;
 
@@ -402,7 +338,7 @@ class course_inactivity_condition extends condition {
         // before the interval the rule promises had elapsed. A negative count (clock before the
         // anchor) has no milestone either.
         if ($intervalspassed < 1) {
-            return null;
+            return false;
         }
 
         $currentinterval = $intervalspassed * $interval;
@@ -413,11 +349,8 @@ class course_inactivity_condition extends condition {
 
         $timewindow = $this->add_time_interval($endinterval, self::CRON_INTERVAL_HOURS, 'hours');
 
-        $due = $this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)
-            && $this->is_user_inactive($lastaccess, $startinterval)
-            && $this->is_undelivered($userid, $basetime, $endinterval);
-
-        return $due ? $endinterval : null;
+        return $this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)
+            && $this->is_user_inactive($lastaccess, $startinterval);
     }
 
     /**

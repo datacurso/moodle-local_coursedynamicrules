@@ -240,7 +240,6 @@ $string['primaryrecipients'] = 'Primary recipients';
 $string['primaryrecipients_help'] = 'Select which roles receive the primary notification when the condition is met for a user in those roles.';
 $string['privacy:export:activityaccess'] = 'Activity restrictions holding your user id (Smart Rules AI)';
 $string['privacy:export:idheld'] = 'Your user id is stored in {$a} access restriction(s) on this activity that Smart Rules AI currently manages. The rules named here are the ones associated with those restrictions now; they are not necessarily what placed your id there, because a teacher can edit the same restriction from the activity\'s access settings. This export does not state whether the activity is open to you: that depends on the whole set of restrictions on it, and on much else besides.';
-$string['privacy:export:inactivitydeliveries'] = 'Inactivity reminders delivered to you (Smart Rules AI)';
 $string['privacy:export:ruledeleted'] = 'No rule of this course is currently associated with this restriction';
 $string['privacy:metadata:course_modules'] = 'Smart Rules AI records which students a rule has opened an activity for. It does so inside the access restrictions of the activity itself, which is a core field of the course module rather than a table of this plugin.';
 $string['privacy:metadata:course_modules:availability'] = 'The access restrictions of an activity. When a rule grants a student access, the plugin adds that student\'s user id to its own restriction inside this field, and marks that restriction as its own so it can be told apart from a restriction a teacher added by hand. Only the plugin\'s own restriction is read, exported or erased here; restrictions written by anyone else are left untouched.';
@@ -249,12 +248,6 @@ $string['privacy:metadata:datacurso_ai:instructions'] = 'The prompt describing t
 $string['privacy:metadata:datacurso_ai:lang'] = 'The language the activity is generated in: the user\'s language preference, falling back to the course language, then to the language of the session the task runs in, and finally to English.';
 $string['privacy:metadata:datacurso_ai:site_url'] = 'The address of this Moodle site, sent so the service can identify the installation the request comes from.';
 $string['privacy:metadata:datacurso_ai:userid'] = 'The id of the user the reinforcement activity is generated for.';
-$string['privacy:metadata:local_coursedynamicrules_delivery'] = 'Smart Rules AI records each course inactivity milestone a rule has already notified a student about, so that a later run of the inactivity task within the same window does not notify them again.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:conditionid'] = 'The inactivity condition of the rule that the milestone belongs to.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:milestonekey'] = 'The base date the milestones are measured from and the moment the milestone fell due.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:ruleid'] = 'The rule whose actions were run for the student at that milestone.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:timecreated'] = 'When the milestone was delivered.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:userid'] = 'The id of the student the milestone was delivered to.';
 $string['provider_not_enabled_warning'] = 'Enable notifications with <strong>Datacurso Message Hub</strong> to this action to send notifications via WhatsApp and SMS using providers like Twilio.
 You can enable it from <a href="{$a}" target="_blank">Notification settings</a> and searching <strong>Smart Rules AI notification</strong>.
 <br>
