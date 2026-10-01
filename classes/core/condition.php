@@ -424,4 +424,19 @@ abstract class condition {
     public function is_one_shot(): bool {
         return false;
     }
+
+    /**
+     * Whether this condition's lastexecutiontime belongs to the scheduled pass alone.
+     *
+     * A condition that reads its own stamp as the start of the previous scheduled pass - the
+     * inactivity condition, which meets a milestone only once that pass is behind it - must not be
+     * stamped by an event evaluation (see rule::set_last_execution_time()). An event evaluates the
+     * rule for the one student it concerns; its stamp would put a milestone already due behind the
+     * next pass's horizon, and every other student would miss it.
+     *
+     * @return bool
+     */
+    public function is_clocked_by_schedule(): bool {
+        return false;
+    }
 }

@@ -636,4 +636,90 @@ final class course_inactivity_condition_test extends \advanced_testcase {
         $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
         $this->assertFalse($result);
     }
+
+    /**
+     * Provider for the previous-run tests: the condition's last run against the 7-day milestone.
+     *
+     * The student enrolled on 2025-01-10 08:00, so the 7-day milestone falls due on 2025-01-17
+     * 08:00 and this run, at 12:00, sits inside its six-hour window.
+     *
+     * @return array
+     */
+    public static function previous_run_provider(): array {
+        $custom = course_inactivity_condition::INTERVAL_CUSTOM;
+        $recurring = course_inactivity_condition::INTERVAL_RECURRING;
+        return [
+            'custom, never run' => [$custom, '7,14,21', null, true],
+            'recurring, never run' => [$recurring, '7', null, true],
+            'custom, run before the milestone fell due' => [$custom, '7,14,21', strtotime('2025-01-17 07:00:00'), true],
+            'recurring, run before the milestone fell due' => [$recurring, '7', strtotime('2025-01-17 07:00:00'), true],
+            'custom, run the moment it fell due' => [$custom, '7,14,21', strtotime('2025-01-17 08:00:00'), false],
+            'recurring, run the moment it fell due' => [$recurring, '7', strtotime('2025-01-17 08:00:00'), false],
+            'custom, run inside the same window' => [$custom, '7,14,21', strtotime('2025-01-17 09:00:00'), false],
+            'recurring, run inside the same window' => [$recurring, '7', strtotime('2025-01-17 09:00:00'), false],
+        ];
+    }
+
+    /**
+     * MDL-UNIT-010: a milestone is met once, by the first run after it fell due.
+     *
+     * The condition's lastexecutiontime is the start of its previous run: a milestone that fell due
+     * by then was already evaluated, so a second run inside the same window does not meet it again;
+     * one that fell due later (including during that previous run) still is. A condition that never
+     * ran (null, as a fresh or duplicated rule) behaves as before.
+     *
+     * @dataProvider previous_run_provider
+     *
+     * @param string $intervaltype Interval type.
+     * @param string $timeintervals Interval value(s), in days.
+     * @param int|null $lastexecutiontime Start of the condition's previous run.
+     * @param bool $expected Expected result.
+     * @covers ::evaluate
+     */
+    public function test_evaluate_meets_a_milestone_only_after_the_previous_run(
+        string $intervaltype,
+        string $timeintervals,
+        ?int $lastexecutiontime,
+        bool $expected
+    ): void {
+        $course = $this->getDataGenerator()->create_course(
+            ['startdate' => $this->coursestarttime, 'enddate' => $this->courseendtime]
+        );
+        $user = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, 'student', 'manual', $this->enrolltime);
+
+        $condition = $this->create_test_condition(
+            ['intervaltype' => $intervaltype, 'timeintervals' => $timeintervals],
+            strtotime('2025-01-17 12:00:00'),
+            $lastexecutiontime
+        );
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertSame($expected, $result);
+    }
+
+    /**
+     * MDL-UNIT-010: a later custom milestone is still met after an earlier one was covered.
+     *
+     * The previous run covered the 7-day milestone; at the 14-day one only the stamp of that run
+     * stands behind it, so it is met.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_meets_the_next_custom_milestone_after_a_covered_one(): void {
+        $course = $this->getDataGenerator()->create_course(
+            ['startdate' => $this->coursestarttime, 'enddate' => $this->courseendtime]
+        );
+        $user = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, 'student', 'manual', $this->enrolltime);
+
+        $condition = $this->create_test_condition(
+            ['intervaltype' => course_inactivity_condition::INTERVAL_CUSTOM, 'timeintervals' => '7,14,21'],
+            strtotime('2025-01-24 12:00:00'),
+            strtotime('2025-01-17 12:00:00')
+        );
+
+        $this->assertTrue($condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]));
+    }
 }

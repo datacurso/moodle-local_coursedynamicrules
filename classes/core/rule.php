@@ -192,6 +192,11 @@ class rule {
             return;
         }
 
+        // The stamp is the moment the run started, not the one it ended: a condition reading it
+        // as "evaluated up to here" (the inactivity milestones) must not lose a milestone that fell
+        // due while a long run walked the course.
+        $runstart = time();
+
         foreach ($this->users as $user) {
             $rulecontext = (object)[
                 'courseid' => $this->courseid,
@@ -207,7 +212,7 @@ class rule {
         }
 
         // After the rule is executed, set the last execution time.
-        $this->set_last_execution_time(time());
+        $this->set_last_execution_time($runstart);
     }
 
     /**
@@ -283,6 +288,8 @@ class rule {
      * Sets the last execution time for the rule.
      *
      * This method updates the 'lastexecutiontime' field in the 'local_coursedynamicrules_rule' table
+     * and in each of its conditions and actions. An event evaluation leaves out the conditions
+     * whose stamp belongs to the scheduled pass (condition::is_clocked_by_schedule()).
      *
      * @param int $time The timestamp of the last execution time.
      */
@@ -291,6 +298,9 @@ class rule {
         $DB->set_field('local_coursedynamicrules_rule', 'lastexecutiontime', $time, ['id' => $this->id]);
 
         foreach ($this->conditions as $condition) {
+            if (!empty($this->conditiontypes) && $condition->is_clocked_by_schedule()) {
+                continue;
+            }
             $condition->set_last_execution_time($time);
         }
 
