@@ -20,25 +20,15 @@ use core_privacy\local\metadata\collection;
 use core_privacy\local\request\approved_contextlist;
 use core_privacy\local\request\approved_userlist;
 use core_privacy\local\request\contextlist;
-use core_privacy\local\request\transform;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
-use local_coursedynamicrules\helper\delivery_ledger;
 
 /**
  * Privacy provider for local_coursedynamicrules.
  *
- * Two kinds of personal data, handled in two different contexts.
- *
- * The plain one is the plugin's own inactivity delivery ledger (delivery_ledger): one row per
- * inactivity milestone delivered to a student, so a later task run inside the same window does not
- * notify them again. A row names the student, the rule's condition and the milestone. The rule
- * belongs to a course, so the row belongs to that course's CONTEXT_COURSE, and that is the only
- * thing this class does in a course context. It is stored, exported and erased like any table.
- *
- * The rule, condition and action tables hold course configuration only and no row in them names a
- * person. The rest of this docblock is about the less obvious data: the
+ * The plugin's own three tables hold course configuration only - a rule, its conditions and its
+ * actions - and no row in them names a person. Its personal data lives somewhere less obvious: the
  * enable-activity action grants a student access to an activity by writing that student's id into
  * {course_modules}.availability, a CORE column that no core component accounts for.
  * core_availability's provider is a null_provider and so is availability_user's, so until this
@@ -73,9 +63,8 @@ use local_coursedynamicrules\helper\delivery_ledger;
  * save() re-serialises every sibling node from its own condition class and would drop the very
  * marker this class depends on.
  *
- * ONLY CONTEXT_MODULE IS ACTED ON FOR THE GATES
+ * ONLY CONTEXT_MODULE IS ACTED ON
  *
- * (The delivery ledger, above, is the one thing handled in CONTEXT_COURSE.)
  * The action attaches a gate to an activity, never to a section, so a node of ours never reaches
  * course_sections.availability. Context expiry hands this class course and category contexts too;
  * ignoring them is correct rather than a gap, because the module contexts underneath are flagged
@@ -170,8 +159,7 @@ use local_coursedynamicrules\helper\delivery_ledger;
  *   stay, and a student still enrolled and still meeting the condition is granted again on the next
  *   run - within fifteen minutes, since that is the tasks' schedule.
  *
- * Nothing here records that a student was granted once, deliberately (the inactivity delivery ledger
- * records a notification per milestone, which ends with that milestone and excludes nobody): a rule that refused to act on
+ * Nothing here records that a student was granted once, deliberately: a rule that refused to act on
  * somebody because of something it did months ago would be a rule that stopped doing its job, and
  * the plugin has no basis for treating an expired retention window as a standing exclusion. What
  * matters is that nobody reads a course-context expiry as permanent while the person is still
@@ -198,18 +186,6 @@ class provider implements
      * @return collection The updated collection.
      */
     public static function get_metadata(collection $collection): collection {
-        $collection->add_database_table(
-            delivery_ledger::TABLE,
-            [
-                'ruleid' => 'privacy:metadata:local_coursedynamicrules_delivery:ruleid',
-                'conditionid' => 'privacy:metadata:local_coursedynamicrules_delivery:conditionid',
-                'userid' => 'privacy:metadata:local_coursedynamicrules_delivery:userid',
-                'milestonekey' => 'privacy:metadata:local_coursedynamicrules_delivery:milestonekey',
-                'timecreated' => 'privacy:metadata:local_coursedynamicrules_delivery:timecreated',
-            ],
-            'privacy:metadata:local_coursedynamicrules_delivery'
-        );
-
         // These are the KEYS of the /activity/init payload built by
         // createaiactivity_action::execute(), not a prose description of it: a field named here
         // that the service never receives misdescribes the transfer just as badly as an omission,
@@ -275,17 +251,6 @@ class provider implements
         global $DB;
 
         $contextlist = new contextlist();
-
-        // The courses whose rules delivered an inactivity milestone to the user.
-        $contextlist->add_from_sql(
-            "SELECT ctx.id
-               FROM {" . delivery_ledger::TABLE . "} d
-               JOIN {local_coursedynamicrules_rule} r ON r.id = d.ruleid
-               JOIN {context} ctx ON ctx.instanceid = r.courseid AND ctx.contextlevel = :contextlevel
-              WHERE d.userid = :userid",
-            ['contextlevel' => CONTEXT_COURSE, 'userid' => $userid]
-        );
-
         $cmids = self::modules_gating($userid);
         if ($cmids === []) {
             return $contextlist;
@@ -309,17 +274,6 @@ class provider implements
      */
     public static function get_users_in_context(userlist $userlist): void {
         $context = $userlist->get_context();
-        if ((int) $context->contextlevel === CONTEXT_COURSE) {
-            $userlist->add_from_sql(
-                'userid',
-                "SELECT d.userid
-                   FROM {" . delivery_ledger::TABLE . "} d
-                   JOIN {local_coursedynamicrules_rule} r ON r.id = d.ruleid
-                  WHERE r.courseid = :courseid",
-                ['courseid' => (int) $context->instanceid]
-            );
-            return;
-        }
         if ((int) $context->contextlevel !== CONTEXT_MODULE) {
             return;
         }
@@ -378,10 +332,6 @@ class provider implements
         $subcontext = [get_string('privacy:export:activityaccess', 'local_coursedynamicrules')];
 
         foreach ($contextlist->get_contexts() as $context) {
-            if ((int) $context->contextlevel === CONTEXT_COURSE) {
-                self::export_deliveries($context, $userid);
-                continue;
-            }
             if ((int) $context->contextlevel !== CONTEXT_MODULE) {
                 continue;
             }
@@ -442,7 +392,6 @@ class provider implements
         $courseids = [];
         try {
             foreach ($contextlist->get_contexts() as $context) {
-                self::delete_deliveries($context, [$userid]);
                 $courseid = self::remove_from_module($context, [$userid]);
                 if ($courseid !== null) {
                     $courseids[$courseid] = $courseid;
@@ -462,7 +411,6 @@ class provider implements
      * @return void
      */
     public static function delete_data_for_users(approved_userlist $userlist): void {
-        self::delete_deliveries($userlist->get_context(), array_map('intval', $userlist->get_userids()));
         $courseid = self::remove_from_module($userlist->get_context(), array_map('intval', $userlist->get_userids()));
         if ($courseid !== null) {
             rebuild_course_cache($courseid, true);
@@ -483,85 +431,10 @@ class provider implements
      * @return void
      */
     public static function delete_data_for_all_users_in_context(\context $context): void {
-        self::delete_deliveries($context, null);
         $courseid = self::remove_from_module($context, null);
         if ($courseid !== null) {
             rebuild_course_cache($courseid, true);
         }
-    }
-
-    /**
-     * Export the inactivity milestones delivered to the user by the rules of one course.
-     *
-     * @param \context $context The course context.
-     * @param int $userid The user.
-     * @return void
-     */
-    private static function export_deliveries(\context $context, int $userid): void {
-        global $DB;
-
-        $rows = $DB->get_records_sql(
-            "SELECT d.id, d.milestonekey, d.timecreated, r.name AS rulename
-               FROM {" . delivery_ledger::TABLE . "} d
-               JOIN {local_coursedynamicrules_rule} r ON r.id = d.ruleid
-              WHERE d.userid = :userid AND r.courseid = :courseid
-           ORDER BY d.timecreated, d.id",
-            ['userid' => $userid, 'courseid' => (int) $context->instanceid]
-        );
-        if (!$rows) {
-            return;
-        }
-
-        $deliveries = [];
-        foreach ($rows as $row) {
-            $milestone = delivery_ledger::milestone_of($row->milestonekey);
-            $deliveries[] = (object) [
-                'rule' => format_string($row->rulename, true, ['context' => $context]),
-                'milestone' => $milestone !== null ? transform::datetime($milestone) : $row->milestonekey,
-                'timecreated' => transform::datetime($row->timecreated),
-            ];
-        }
-
-        writer::with_context($context)->export_data(
-            [get_string('privacy:export:inactivitydeliveries', 'local_coursedynamicrules')],
-            (object) ['deliveries' => $deliveries]
-        );
-    }
-
-    /**
-     * Delete the inactivity deliveries of the given users (or of everyone) made by one course's rules.
-     *
-     * @param \context $context The context; anything but a course context is ignored.
-     * @param int[]|null $userids The users, or null for every user.
-     * @return void
-     */
-    private static function delete_deliveries(\context $context, ?array $userids): void {
-        global $DB;
-
-        if ((int) $context->contextlevel !== CONTEXT_COURSE) {
-            return;
-        }
-        $ruleids = $DB->get_fieldset_select(
-            'local_coursedynamicrules_rule',
-            'id',
-            'courseid = :courseid',
-            ['courseid' => (int) $context->instanceid]
-        );
-        if (!$ruleids) {
-            return;
-        }
-
-        [$rulesql, $params] = $DB->get_in_or_equal($ruleids, SQL_PARAMS_NAMED, 'rule');
-        $select = "ruleid $rulesql";
-        if ($userids !== null) {
-            if ($userids === []) {
-                return;
-            }
-            [$usersql, $userparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'user');
-            $select .= " AND userid $usersql";
-            $params += $userparams;
-        }
-        $DB->delete_records_select(delivery_ledger::TABLE, $select, $params);
     }
 
     /**
