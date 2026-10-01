@@ -294,7 +294,6 @@ abstract class condition {
         $record = $DB->get_record('local_coursedynamicrules_condition', ['id' => $this->id]);
 
         $result = $DB->delete_records('local_coursedynamicrules_condition', ['id' => $this->id]);
-        \local_coursedynamicrules\helper\delivery_ledger::delete_for_condition((int) $this->id);
 
         $event = \local_coursedynamicrules\event\condition_deleted::create([
             'context' => \context_course::instance($this->courseid),
@@ -427,16 +426,17 @@ abstract class condition {
     }
 
     /**
-     * Called once the rule's actions have run for one user, after every condition was met.
+     * Whether this condition's lastexecutiontime belongs to the scheduled pass alone.
      *
-     * Nothing by default. A condition that must remember what it already delivered - the inactivity
-     * condition and its milestones - records it here and not in evaluate(): evaluate() is reached
-     * also when a sibling condition keeps the actions from running, and a milestone recorded then
-     * would never be delivered at all.
+     * A condition that reads its own stamp as the start of the previous scheduled pass - the
+     * inactivity condition, which meets a milestone only once that pass is behind it - must not be
+     * stamped by an event evaluation (see rule::set_last_execution_time()). An event evaluates the
+     * rule for the one student it concerns; its stamp would put a milestone already due behind the
+     * next pass's horizon, and every other student would miss it.
      *
-     * @param stdClass $rulecontext The context the conditions were evaluated with (courseid, userid).
-     * @return void
+     * @return bool
      */
-    public function actions_executed(stdClass $rulecontext): void {
+    public function is_clocked_by_schedule(): bool {
+        return false;
     }
 }

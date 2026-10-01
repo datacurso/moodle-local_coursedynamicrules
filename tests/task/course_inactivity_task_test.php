@@ -98,15 +98,22 @@ final class course_inactivity_task_test extends \advanced_testcase {
     }
 
     /**
-     * Build a course started at $startdate, one enrolled student who never entered it, and an
-     * active rule holding one inactivity condition (course-start base) and a notification.
+     * Build a course started at $startdate with one student who never entered it, and an active rule
+     * holding one inactivity condition (course-start base), any extra conditions, and a notification
+     * to students.
      *
      * @param int $startdate Course start date.
      * @param string $intervaltype 'custom' or 'recurring'.
      * @param string $timeintervals Interval value(s), in days.
-     * @return array [stdClass course, stdClass student]
+     * @param array $extraconditions Further conditions, as [conditiontype, params array] pairs.
+     * @return array [stdClass course, stdClass student, int rule id]
      */
-    private function create_inactivity_rule(int $startdate, string $intervaltype, string $timeintervals): array {
+    private function create_inactivity_rule(
+        int $startdate,
+        string $intervaltype,
+        string $timeintervals,
+        array $extraconditions = []
+    ): array {
         global $DB;
 
         $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1, 'startdate' => $startdate]);
@@ -122,16 +129,19 @@ final class course_inactivity_task_test extends \advanced_testcase {
             'timecreated' => time(),
             'timemodified' => time(),
         ]);
-        $DB->insert_record('local_coursedynamicrules_condition', (object) [
-            'ruleid' => $ruleid,
-            'conditiontype' => 'course_inactivity',
-            'params' => json_encode([
-                'intervaltype' => $intervaltype,
-                'timeintervals' => $timeintervals,
-                'intervalunit' => 'days',
-                'basedatetype' => 'coursestart',
-            ]),
-        ]);
+        $conditions = array_merge([['course_inactivity', [
+            'intervaltype' => $intervaltype,
+            'timeintervals' => $timeintervals,
+            'intervalunit' => 'days',
+            'basedatetype' => 'coursestart',
+        ]]], $extraconditions);
+        foreach ($conditions as [$type, $params]) {
+            $DB->insert_record('local_coursedynamicrules_condition', (object) [
+                'ruleid' => $ruleid,
+                'conditiontype' => $type,
+                'params' => json_encode($params),
+            ]);
+        }
         $DB->insert_record('local_coursedynamicrules_action', (object) [
             'ruleid' => $ruleid,
             'actiontype' => 'sendnotification',
@@ -143,7 +153,7 @@ final class course_inactivity_task_test extends \advanced_testcase {
             ]),
         ]);
 
-        return [$course, $student];
+        return [$course, $student, (int) $ruleid];
     }
 
     /**
@@ -204,28 +214,107 @@ final class course_inactivity_task_test extends \advanced_testcase {
     }
 
     /**
-     * MDL-UNIT-010 step 5: moving the course start back re-anchors the milestones and notifies again.
+     * MDL-UNIT-010: a run stamps its conditions with the moment it started, not the one it ended.
      *
-     * With the start one day earlier the recurring milestone falls on the very same instant as
-     * before, but measured from another anchor: that is a new delivery, and it is delivered once.
+     * A milestone falling due while a long run walks the course was not evaluated by that run; an
+     * end-of-run stamp would put it behind the next run's horizon and it would never be notified.
+     * The users are walked by a generator that lets a second pass, standing in for a long run.
      */
-    public function test_moving_the_course_start_back_notifies_again_once(): void {
+    public function test_a_run_stamps_its_conditions_with_its_start(): void {
         global $DB;
 
         $this->resetAfterTest(true);
-        [$course, $student] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'recurring', '1');
+        [, $student, $ruleid] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'custom', '2');
+        $record = $DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid], '*', MUST_EXIST);
+
+        $runstart = time();
+        $users = (function () use ($student) {
+            yield $student;
+            $this->waitForSecond();
+        })();
+        $this->redirectMessages();
+        (new \local_coursedynamicrules\core\rule($record, $users))->execute();
+        $runend = time();
+
+        $stamp = (int) $DB->get_field('local_coursedynamicrules_condition', 'lastexecutiontime', ['ruleid' => $ruleid]);
+        $this->assertGreaterThan($runstart, $runend, 'Sanity: the run must have lasted past its first second.');
+        $this->assertGreaterThanOrEqual($runstart, $stamp);
+        $this->assertLessThan($runend, $stamp, 'The stamp must be the start of the run.');
+    }
+
+    /**
+     * MDL-UNIT-010: an event on a mixed rule does not block the inactivity milestone for others.
+     *
+     * The completion event of one student evaluates the rule for that student alone. Stamping the
+     * inactivity condition then would put a milestone already due behind the scheduled pass's
+     * horizon, and every other student would miss it.
+     */
+    public function test_an_event_on_a_mixed_rule_does_not_block_the_milestone_for_other_students(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        // The inactive student (B) is the one the helper enrols; A is active in the course.
+        [$course, $inactive, $ruleid] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'custom', '2');
+        $page = $this->getDataGenerator()->create_module('page', [
+            'course' => $course->id,
+            'completion' => COMPLETION_TRACKING_MANUAL,
+        ]);
+        $cm = get_coursemodule_from_id('page', $page->cmid, $course->id, false, MUST_EXIST);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'complete_activity',
+            'params' => json_encode(['cmid' => $cm->id]),
+        ]);
+        $active = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->getDataGenerator()->get_plugin_generator('local_coursedynamicrules')
+            ->create_user_lastaccess($active->id, $course->id, time());
+
+        $completion = new \completion_info($course);
+        $completion->update_state($cm, COMPLETION_COMPLETE, $inactive->id);
+        $completion->update_state($cm, COMPLETION_COMPLETE, $active->id);
+        $completionid = (int) $DB->get_field(
+            'course_modules_completion',
+            'id',
+            ['coursemoduleid' => $cm->id, 'userid' => $active->id],
+            MUST_EXIST
+        );
+
+        $sink = $this->redirectMessages();
+        rule_task::instance((object) [
+            'courseid' => $course->id,
+            'userid' => $active->id,
+            'conditiontypes' => ['complete_activity'],
+            'completionid' => $completionid,
+        ])->execute();
+        $this->run_task();
+
+        $this->assertSame(1, $this->count_to($sink, (int) $inactive->id), 'The milestone must still reach the inactive student.');
+        $this->assertSame(0, $this->count_to($sink, (int) $active->id));
+    }
+
+    /**
+     * MDL-UNIT-010: a duplicated rule never ran, so its first run notifies as the original's did.
+     */
+    public function test_a_duplicated_rule_notifies_as_a_first_run(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        [$course, $student, $ruleid] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'custom', '2');
 
         $sink = $this->redirectMessages();
         $this->run_task();
-        $this->assertSame(1, $this->count_to($sink, (int) $student->id));
+        $this->assertSame(1, $this->count_to($sink, (int) $student->id), 'Sanity: the original notified.');
 
-        $DB->set_field('course', 'startdate', time() - (3 * DAYSECS) - (2 * HOURSECS), ['id' => $course->id]);
-        rebuild_course_cache($course->id, true);
+        $copyid = \local_coursedynamicrules\helper\rule_duplicator::duplicate(
+            $ruleid,
+            (int) $course->id,
+            \context_course::instance($course->id)
+        );
+        $this->assertNull($DB->get_field('local_coursedynamicrules_condition', 'lastexecutiontime', ['ruleid' => $copyid]));
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $copyid]);
 
         $this->run_task();
-        $this->assertSame(2, $this->count_to($sink, (int) $student->id), 'The re-anchored milestone must notify.');
 
-        $this->run_task();
-        $this->assertSame(2, $this->count_to($sink, (int) $student->id), 'And only once.');
+        $this->assertSame(2, $this->count_to($sink, (int) $student->id), 'The copy notifies once; the original does not repeat.');
     }
 }

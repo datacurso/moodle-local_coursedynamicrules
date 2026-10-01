@@ -240,7 +240,6 @@ $string['primaryrecipients'] = 'Destinatarios principales';
 $string['primaryrecipients_help'] = 'Selecciona los roles que recibirán la notificación principal cuando la condición se cumpla para un usuario de esos roles.';
 $string['privacy:export:activityaccess'] = 'Restricciones de actividad que contienen su id de usuario (Smart Rules AI)';
 $string['privacy:export:idheld'] = 'Su id de usuario está almacenado en {$a} restricción(es) de acceso de esta actividad que Smart Rules AI gestiona actualmente. Las reglas que se nombran son las asociadas ahora a esas restricciones; no son necesariamente lo que puso ahí su id, porque un docente puede editar la misma restricción desde los ajustes de acceso de la actividad. Esta exportación no indica si la actividad está abierta para usted: eso depende del conjunto completo de restricciones que tenga, y de bastantes cosas más.';
-$string['privacy:export:inactivitydeliveries'] = 'Recordatorios de inactividad que se le entregaron (Smart Rules AI)';
 $string['privacy:export:ruledeleted'] = 'Ninguna regla de este curso está asociada actualmente a esta restricción';
 $string['privacy:metadata:course_modules'] = 'Smart Rules AI registra a qué estudiantes les ha abierto una actividad una regla. Lo hace dentro de las restricciones de acceso de la propia actividad, que es un campo del núcleo del módulo del curso y no una tabla de este plugin.';
 $string['privacy:metadata:course_modules:availability'] = 'Las restricciones de acceso de una actividad. Cuando una regla concede acceso a un estudiante, el plugin añade el identificador de ese usuario a su propia restricción dentro de este campo, y marca esa restricción como suya para poder distinguirla de una restricción añadida a mano por un docente. Aquí solo se lee, exporta o borra la restricción propia del plugin; las restricciones escritas por cualquier otro quedan intactas.';
@@ -249,12 +248,6 @@ $string['privacy:metadata:datacurso_ai:instructions'] = 'El prompt que describe 
 $string['privacy:metadata:datacurso_ai:lang'] = 'El idioma en el que se genera la actividad: la preferencia de idioma del usuario y, en su defecto, el idioma del curso, luego el idioma de la sesión en la que corre la tarea y, por último, inglés.';
 $string['privacy:metadata:datacurso_ai:site_url'] = 'La dirección de este sitio Moodle, enviada para que el servicio pueda identificar la instalación desde la que llega la solicitud.';
 $string['privacy:metadata:datacurso_ai:userid'] = 'El id del usuario para el que se genera la actividad de refuerzo.';
-$string['privacy:metadata:local_coursedynamicrules_delivery'] = 'Smart Rules AI registra cada hito de inactividad en el curso por el que una regla ya notificó a un estudiante, para que una corrida posterior de la tarea de inactividad dentro de la misma ventana no vuelva a notificarle.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:conditionid'] = 'La condición de inactividad de la regla a la que pertenece el hito.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:milestonekey'] = 'La fecha base desde la que se miden los hitos y el momento en que venció el hito.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:ruleid'] = 'La regla cuyas acciones se ejecutaron para el estudiante en ese hito.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:timecreated'] = 'Cuándo se entregó el hito.';
-$string['privacy:metadata:local_coursedynamicrules_delivery:userid'] = 'El id del estudiante al que se le entregó el hito.';
 $string['provider_not_enabled_warning'] = 'Habilite las notificaciones con <strong>Datacurso Message Hub</strong> para que esta acción envíe notificaciones por WhatsApp y SMS utilizando proveedores como Twilio.
 Puede habilitarlo desde <a href="{$a}" target="_blank">Configuración de notificaciones</a> buscando <strong>Smart Rules AI notification</strong>.
 <br>
