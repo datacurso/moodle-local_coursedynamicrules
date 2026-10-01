@@ -1,10 +1,14 @@
 ## 1.8.7-500
 
-**Compatibility note:** This version is compatible only with **Moodle 5.0**.
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.0**.
 
 ## Added
 - **Inactivity notices are recorded per milestone**
   A new table, `local_coursedynamicrules_delivery`, records which inactivity milestone each student has already been notified for, keyed by condition, student, anchor date and milestone. The row is written only after the rule's actions have run, so an action that throws leaves the milestone unrecorded and it is retried on the next pass. Because the anchor is part of the key, moving the course start date still re-anchors the milestones and notifies once more. The rows are deleted with their rule, condition, course or user, and the privacy provider declares, exports and erases them in the course context. **Site administrators, note:** the rows are not included in course backups, so a restored course can notify again inside a window that is still open.
+
+## Changed
+- **The 5.0 line declares Moodle 4.5 and 5.0**
+  `$plugin->requires` moves back to the Moodle 4.5 release and `$plugin->supported` names both branches, so the same release installs on either. Continuous integration now runs the plugin against Moodle 4.5 (MariaDB and PostgreSQL) and Moodle 5.0 (MariaDB)
 
 ## Fixed
 - **Editing a sealed rule from a tab opened before the seal now warns that the edits were discarded**
