@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_coursedynamicrules';
-$plugin->release = '1.8.6-502';
-$plugin->version = 2026092300;
+$plugin->release = '1.8.7-502';
+$plugin->version = 2026093001;
 $plugin->requires = 2026042000; // Moodle 5.2.
 $plugin->maturity = MATURITY_STABLE;
 $plugin->supported = [502, 502];

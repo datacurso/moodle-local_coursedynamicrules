@@ -277,6 +277,15 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026091600, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026093000) {
+        // Inactivity milestones already delivered (MDL-UNIT-010): without it a second task run inside
+        // the same six-hour window - a manual run, or cron catching up - notified the same student
+        // again for the same milestone.
+        local_coursedynamicrules_upgrade_add_delivery_table($dbman);
+
+        upgrade_plugin_savepoint(true, 2026093000, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 
@@ -425,4 +434,36 @@ function local_coursedynamicrules_upgrade_grant_component_deletion(): void {
     }
 
     $systemcontext->mark_dirty();
+}
+
+/**
+ * Create the inactivity delivery ledger.
+ *
+ * Extracted from the savepoint so the upgrade path is testable, and idempotent so a site that
+ * already has the table (installed from install.xml) loses nothing by running it.
+ *
+ * @param database_manager $dbman
+ * @return void
+ */
+function local_coursedynamicrules_upgrade_add_delivery_table(database_manager $dbman): void {
+    $table = new xmldb_table('local_coursedynamicrules_delivery');
+    if ($dbman->table_exists($table)) {
+        return;
+    }
+
+    $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+    $table->add_field('ruleid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('conditionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('milestonekey', XMLDB_TYPE_CHAR, '64', null, XMLDB_NOTNULL, null, null);
+    $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+
+    $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+    $table->add_key('ruleid', XMLDB_KEY_FOREIGN, ['ruleid'], 'local_coursedynamicrules_rule', ['id']);
+    $table->add_key('conditionid', XMLDB_KEY_FOREIGN, ['conditionid'], 'local_coursedynamicrules_condition', ['id']);
+    $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+
+    $table->add_index('conditionid-userid-milestonekey', XMLDB_INDEX_UNIQUE, ['conditionid', 'userid', 'milestonekey']);
+
+    $dbman->create_table($table);
 }
