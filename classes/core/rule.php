@@ -142,11 +142,22 @@ class rule {
      * was fired for; this prevents a rule from firing on unrelated events without forcing sibling
      * conditions to false (which would break the AND).
      *
+     * A rule holding a one-shot condition is never relevant to an event: the scheduled pass is its
+     * only executor and switches it off in the same operation, so an event evaluation could only
+     * add a second notification to the same arming (MDL-INT-021). Nothing legitimate is lost:
+     * before the date the one-shot condition is false, and after it the pass evaluates everyone.
+     *
      * @return bool
      */
     private function is_relevant_trigger() {
         if (empty($this->conditiontypes)) {
             return true;
+        }
+
+        foreach ($this->conditions as $condition) {
+            if ($condition->is_one_shot()) {
+                return false;
+            }
         }
 
         $cmid = $this->get_cmid_from_additionaldata();
@@ -206,6 +217,12 @@ class rule {
     private function execute_actions($rulecontext) {
         foreach ($this->actions as $action) {
             $action->execute($rulecontext);
+        }
+
+        // After the actions, so a condition records a delivery only once it really happened; an
+        // action that throws leaves it undelivered and a later run retries.
+        foreach ($this->conditions as $condition) {
+            $condition->actions_executed($rulecontext);
         }
     }
 
@@ -316,6 +333,10 @@ class rule {
             $action->delete();
         }
 
+        // Each condition cleared its own deliveries above; clearing by rule as well leaves no row
+        // behind whose condition row was removed some other way.
+        \local_coursedynamicrules\helper\delivery_ledger::delete_for_rule((int) $this->id);
+
         $result = $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
 
         $event = \local_coursedynamicrules\event\rule_deleted::create([
@@ -332,12 +353,16 @@ class rule {
 
     /**
      * Retrieves the course module ID (cmid) from the additional data.
-     * Tries using completion ID first, then grade ID.
+     * Uses the cmid itself when the evaluation carries it (grade events), then the completion ID,
+     * then the grade ID (evaluations queued before grade events carried the cmid).
      *
      * @return int|null Course module ID if found, or null if not available.
      */
     private function get_cmid_from_additionaldata() {
         global $DB;
+        if (!empty($this->additionaldata['cmid'])) {
+            return (int) $this->additionaldata['cmid'];
+        }
         if (isset($this->additionaldata['completionid'])) {
             return $this->get_cmid_from_completionid();
         }

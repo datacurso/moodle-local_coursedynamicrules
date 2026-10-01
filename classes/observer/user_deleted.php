@@ -19,7 +19,8 @@ namespace local_coursedynamicrules\observer;
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 
 /**
- * Scrubs a deleted user's id from the access restrictions the enable-activity action wrote.
+ * Scrubs a deleted user's id from the access restrictions the enable-activity action wrote, and
+ * forgets the inactivity milestones delivered to them.
  *
  * The action grants a student access by writing their id into a managed module's user restriction.
  * Core's availability_user keeps no privacy data and does not react to a user deletion, so that id
@@ -32,7 +33,7 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  */
 class user_deleted {
     /**
-     * Remove the deleted user from every enable-activity action's own restriction nodes.
+     * Remove the deleted user's deliveries, and the user from every enable-activity action's own restriction nodes.
      *
      * @param \core\event\user_deleted $event The user deleted event.
      * @return void
@@ -41,6 +42,9 @@ class user_deleted {
         global $DB;
 
         $userid = (int) $event->objectid;
+
+        // The inactivity milestones delivered to the user name them and serve nobody else.
+        \local_coursedynamicrules\helper\delivery_ledger::delete_for_user($userid);
 
         // Every enable-activity action on the site, with the course its rule belongs to: the action
         // resolves its modules and its own restriction node against that course.

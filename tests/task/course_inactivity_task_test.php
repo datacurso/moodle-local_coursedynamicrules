@@ -96,4 +96,136 @@ final class course_inactivity_task_test extends \advanced_testcase {
 
         $this->assertCount(1, $tostudent);
     }
+
+    /**
+     * Build a course started at $startdate, one enrolled student who never entered it, and an
+     * active rule holding one inactivity condition (course-start base) and a notification.
+     *
+     * @param int $startdate Course start date.
+     * @param string $intervaltype 'custom' or 'recurring'.
+     * @param string $timeintervals Interval value(s), in days.
+     * @return array [stdClass course, stdClass student]
+     */
+    private function create_inactivity_rule(int $startdate, string $intervaltype, string $timeintervals): array {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1, 'startdate' => $startdate]);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $studentroleid = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        $ruleid = $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $course->id,
+            'name' => 'Inactivity milestone',
+            'description' => 'test',
+            'active' => 1,
+            'lastexecutiontime' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $DB->insert_record('local_coursedynamicrules_condition', (object) [
+            'ruleid' => $ruleid,
+            'conditiontype' => 'course_inactivity',
+            'params' => json_encode([
+                'intervaltype' => $intervaltype,
+                'timeintervals' => $timeintervals,
+                'intervalunit' => 'days',
+                'basedatetype' => 'coursestart',
+            ]),
+        ]);
+        $DB->insert_record('local_coursedynamicrules_action', (object) [
+            'ruleid' => $ruleid,
+            'actiontype' => 'sendnotification',
+            'params' => json_encode([
+                'messagesubject' => 'Milestone alert',
+                'messagebody' => 'You have been inactive.',
+                'primaryroleids' => [$studentroleid],
+                'copyroleids' => [],
+            ]),
+        ]);
+
+        return [$course, $student];
+    }
+
+    /**
+     * Run the inactivity task once, discarding its report.
+     *
+     * @return void
+     */
+    private function run_task(): void {
+        ob_start();
+        (new course_inactivity_task())->execute();
+        ob_end_clean();
+    }
+
+    /**
+     * Notifications the sink holds for one user.
+     *
+     * @param \phpunit_message_sink $sink The sink.
+     * @param int $userid The recipient.
+     * @return int
+     */
+    private function count_to(\phpunit_message_sink $sink, int $userid): int {
+        return count(array_filter(
+            $sink->get_messages_by_component('local_coursedynamicrules'),
+            static fn($m) => (int) $m->useridto === $userid
+        ));
+    }
+
+    /**
+     * MDL-UNIT-010: a second run inside the same window does not repeat a custom milestone.
+     *
+     * The milestone fell due two hours ago, so both runs sit inside its six-hour window; only the
+     * first may notify.
+     */
+    public function test_second_run_in_the_same_window_does_not_repeat_custom_milestone(): void {
+        $this->resetAfterTest(true);
+        [, $student] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'custom', '2');
+
+        $sink = $this->redirectMessages();
+        $this->run_task();
+        $this->assertSame(1, $this->count_to($sink, (int) $student->id), 'The open window must notify once.');
+
+        $this->run_task();
+        $this->assertSame(1, $this->count_to($sink, (int) $student->id), 'A second run in the same window must not repeat.');
+    }
+
+    /**
+     * MDL-UNIT-010: a second run inside the same window does not repeat a recurring milestone.
+     */
+    public function test_second_run_in_the_same_window_does_not_repeat_recurring_milestone(): void {
+        $this->resetAfterTest(true);
+        [, $student] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'recurring', '1');
+
+        $sink = $this->redirectMessages();
+        $this->run_task();
+        $this->run_task();
+
+        $this->assertSame(1, $this->count_to($sink, (int) $student->id));
+    }
+
+    /**
+     * MDL-UNIT-010 step 5: moving the course start back re-anchors the milestones and notifies again.
+     *
+     * With the start one day earlier the recurring milestone falls on the very same instant as
+     * before, but measured from another anchor: that is a new delivery, and it is delivered once.
+     */
+    public function test_moving_the_course_start_back_notifies_again_once(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+        [$course, $student] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'recurring', '1');
+
+        $sink = $this->redirectMessages();
+        $this->run_task();
+        $this->assertSame(1, $this->count_to($sink, (int) $student->id));
+
+        $DB->set_field('course', 'startdate', time() - (3 * DAYSECS) - (2 * HOURSECS), ['id' => $course->id]);
+        rebuild_course_cache($course->id, true);
+
+        $this->run_task();
+        $this->assertSame(2, $this->count_to($sink, (int) $student->id), 'The re-anchored milestone must notify.');
+
+        $this->run_task();
+        $this->assertSame(2, $this->count_to($sink, (int) $student->id), 'And only once.');
+    }
 }

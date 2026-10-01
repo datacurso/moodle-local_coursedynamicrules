@@ -184,7 +184,10 @@ if ($ruleform->is_cancelled()) {
     $waslocked = !empty($data->id) && \local_coursedynamicrules\helper\rule_lock::is_locked((int) $data->id);
     $lockeddiscards = false;
     if ($waslocked) {
-        $submitted = clone $data;
+        // The form froze name and description while processing this very submission, so the
+        // data holds their STORED values. The raw submitted edits go on top so the detector
+        // compares what the user actually sent.
+        $submitted = (object) array_merge((array) $data, (array) $ruleform->get_submitted_locked_edits());
         $data = \local_coursedynamicrules\helper\rule_lock::sanitise_locked_write($data);
         $lockeddiscards = \local_coursedynamicrules\helper\rule_lock::locked_write_discards($submitted);
     }
