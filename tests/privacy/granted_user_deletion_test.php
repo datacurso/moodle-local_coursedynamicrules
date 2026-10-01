@@ -26,6 +26,7 @@ defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once($CFG->dirroot . '/user/lib.php');
 require_once($CFG->dirroot . '/course/lib.php');
+require_once(__DIR__ . '/../fixtures/module_deleter.php');
 
 /**
  * When a granted user is deleted from the site, their id must not linger inside the plugin's
@@ -447,7 +448,7 @@ final class granted_user_deletion_test extends \advanced_testcase {
         );
 
         // The teacher deletes one of the managed modules; the action's params still list it.
-        course_delete_module($doomed->cmid);
+        \local_coursedynamicrules\tests\module_deleter::delete($doomed->cmid);
 
         $this->delete_site_user($grantee->id);
 

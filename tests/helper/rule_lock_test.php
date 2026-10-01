@@ -20,6 +20,7 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/course/lib.php');
+require_once(__DIR__ . '/../fixtures/module_deleter.php');
 
 /**
  * The lock that makes a rule unmodifiable after its first activation.
@@ -597,7 +598,7 @@ final class rule_lock_test extends \advanced_testcase {
         // and a task is queued, so a query that merely finds the row still sees it. The operator has
         // deleted it all the same. Enabled here rather than trusted as a site default.
         set_config('coursebinenable', 1, 'tool_recyclebin');
-        course_delete_module((int) $entry->id, true);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $entry->id, true);
 
         $this->assertSame(
             1,
@@ -610,7 +611,7 @@ final class rule_lock_test extends \advanced_testcase {
         );
 
         // And once the task has run and the row is gone, the answer does not change.
-        course_delete_module((int) $entry->id);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $entry->id);
         rebuild_course_cache($this->courseid, true);
         $this->assertFalse(\local_coursedynamicrules\helper\rule_lock::is_complete($ruleid));
     }
