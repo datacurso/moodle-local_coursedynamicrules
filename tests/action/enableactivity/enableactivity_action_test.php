@@ -24,6 +24,7 @@ defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
 require_once($CFG->dirroot . '/course/lib.php');
+require_once(__DIR__ . '/../../fixtures/module_deleter.php');
 
 /**
  * Tests for the enableactivity action robustness against deleted/changed modules.
@@ -997,7 +998,7 @@ final class enableactivity_action_test extends \advanced_testcase {
         // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
         // trusted as a site default, or this test silently measures the hard-deleted case instead.
         set_config('coursebinenable', 1, 'tool_recyclebin');
-        course_delete_module((int) $doomed->cmid, true);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $doomed->cmid, true);
         $this->assertEquals(
             1,
             $DB->get_field('course_modules', 'deletioninprogress', ['id' => $doomed->cmid]),
@@ -1139,7 +1140,7 @@ final class enableactivity_action_test extends \advanced_testcase {
             'Sanity: while the activity exists the action names it.'
         );
 
-        course_delete_module((int) $page->cmid);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $page->cmid);
         rebuild_course_cache((int) $course->id, true);
         $this->assertSame(
             get_string('componenttargetmissing', 'local_coursedynamicrules'),
@@ -1484,7 +1485,7 @@ final class enableactivity_action_test extends \advanced_testcase {
         // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
         // trusted as a site default, or this test silently measures the hard-deleted case instead.
         set_config('coursebinenable', 1, 'tool_recyclebin');
-        course_delete_module((int) $page->cmid, true);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $page->cmid, true);
         $this->assertEquals(
             1,
             $DB->get_field('course_modules', 'deletioninprogress', ['id' => $page->cmid]),
@@ -1531,7 +1532,7 @@ final class enableactivity_action_test extends \advanced_testcase {
         // in core only tool_recyclebin does, and only while enabled. Turned on here rather than
         // trusted as a site default, or this test silently measures the hard-deleted case instead.
         set_config('coursebinenable', 1, 'tool_recyclebin');
-        course_delete_module((int) $doomed->cmid, true);
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $doomed->cmid, true);
         $this->assertEquals(
             1,
             $DB->get_field('course_modules', 'deletioninprogress', ['id' => $doomed->cmid]),

@@ -1,3 +1,81 @@
+## 1.8.7-502
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
+
+## Added
+- **Inactivity notices are recorded per milestone**
+  A new table, `local_coursedynamicrules_delivery`, records which inactivity milestone each student has already been notified for, keyed by condition, student, anchor date and milestone. The row is written only after the rule's actions have run, so an action that throws leaves the milestone unrecorded and it is retried on the next pass. Because the anchor is part of the key, moving the course start date still re-anchors the milestones and notifies once more. The rows are deleted with their rule, condition, course or user, and the privacy provider declares, exports and erases them in the course context. **Site administrators, note:** the rows are not included in course backups, so a restored course can notify again inside a window that is still open.
+
+## Changed
+- **The 5.2 line declares Moodle 4.5 to 5.2**
+  It carries the code of 1.8.7-500, so `$plugin->requires` moves back to the Moodle 4.5 release and `$plugin->supported` names the range from 4.5 to 5.2, and the same release installs on any of them. Continuous integration now runs the plugin against Moodle 4.5 and 5.2 (MariaDB and PostgreSQL) and Moodle 5.0 (MariaDB). The whole plugin was exercised against Moodle 5.2.3 with the manual test suite on this release; Moodle 5.1 is covered by the declared range and not tested separately
+
+## Fixed
+- **Editing a sealed rule from a tab opened before the seal now warns that the edits were discarded**
+  The form freezes the locked fields once a rule is sealed, and Moodle then returns the stored values instead of the submitted ones, so the discard check compared the stored rule with itself and the teacher saw "Rule updated successfully" even though their edits had been dropped. The check now reads the values the browser actually submitted, and the discard warning is shown. A normal save of a sealed rule still shows the success message.
+- **Rules that create an activity with AI create it again**
+  The AI service stops the generation flow for a plan review (`review_needed`) even when the plugin asks for automatic approval, and the plugin only recognised `completed` and `failed`, so the stream ended without a result, the fallback result endpoint answered 404 and no activity was ever created. The plugin now approves the plan once through `/activity/feedback` and keeps reading the flow. If the service asks for a review a second time, the plugin stops without further calls and logs the reason the service gave, and every failure line in the task log now names the stage that failed.
+- **A mixed one-shot rule no longer notifies the same student twice**
+  The event path executed any active rule, including one whose one-shot date had already passed, while only the scheduled pass switches such a rule off, and that pass runs every 15 minutes. In that interval a completion event and the scheduled pass could both act on the same student. Rules with a one-shot condition are now executed only by the scheduled pass. The scheduled pass also no longer reads the expected completion date from conditions of other types, which raised an "Undefined property" notice.
+- **Saving two grades of the same activity in one operation notifies once**
+  The grade observer queued one evaluation per grade, so a teacher saving both grade items of a forum in a single gradebook operation produced two evaluations that were both true, and the student received the same notification twice. The evaluation is now queued once per activity and runs 30 seconds after the grading operation, so grades saved together are evaluated together. Regrading later still notifies again, and evaluations already queued by earlier versions are still processed.
+- **The inactivity task no longer repeats a notice when it runs twice in the same window**
+  Whether a student was notified only once per milestone depended on the task running exactly once inside each window. With the delivery record described above, a second run inside the same window sends nothing.
+
+## 1.8.7-500
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.0**.
+
+## Added
+- **Inactivity notices are recorded per milestone**
+  A new table, `local_coursedynamicrules_delivery`, records which inactivity milestone each student has already been notified for, keyed by condition, student, anchor date and milestone. The row is written only after the rule's actions have run, so an action that throws leaves the milestone unrecorded and it is retried on the next pass. Because the anchor is part of the key, moving the course start date still re-anchors the milestones and notifies once more. The rows are deleted with their rule, condition, course or user, and the privacy provider declares, exports and erases them in the course context. **Site administrators, note:** the rows are not included in course backups, so a restored course can notify again inside a window that is still open.
+
+## Changed
+- **The 5.0 line declares Moodle 4.5 and 5.0**
+  `$plugin->requires` moves back to the Moodle 4.5 release and `$plugin->supported` names both branches, so the same release installs on either. Continuous integration now runs the plugin against Moodle 4.5 (MariaDB and PostgreSQL) and Moodle 5.0 (MariaDB)
+
+## Fixed
+- **Editing a sealed rule from a tab opened before the seal now warns that the edits were discarded**
+  The form freezes the locked fields once a rule is sealed, and Moodle then returns the stored values instead of the submitted ones, so the discard check compared the stored rule with itself and the teacher saw "Rule updated successfully" even though their edits had been dropped. The check now reads the values the browser actually submitted, and the discard warning is shown. A normal save of a sealed rule still shows the success message.
+- **Rules that create an activity with AI create it again**
+  The AI service stops the generation flow for a plan review (`review_needed`) even when the plugin asks for automatic approval, and the plugin only recognised `completed` and `failed`, so the stream ended without a result, the fallback result endpoint answered 404 and no activity was ever created. The plugin now approves the plan once through `/activity/feedback` and keeps reading the flow. If the service asks for a review a second time, the plugin stops without further calls and logs the reason the service gave, and every failure line in the task log now names the stage that failed.
+- **A mixed one-shot rule no longer notifies the same student twice**
+  The event path executed any active rule, including one whose one-shot date had already passed, while only the scheduled pass switches such a rule off, and that pass runs every 15 minutes. In that interval a completion event and the scheduled pass could both act on the same student. Rules with a one-shot condition are now executed only by the scheduled pass. The scheduled pass also no longer reads the expected completion date from conditions of other types, which raised an "Undefined property" notice.
+- **Saving two grades of the same activity in one operation notifies once**
+  The grade observer queued one evaluation per grade, so a teacher saving both grade items of a forum in a single gradebook operation produced two evaluations that were both true, and the student received the same notification twice. The evaluation is now queued once per activity and runs 30 seconds after the grading operation, so grades saved together are evaluated together. Regrading later still notifies again, and evaluations already queued by earlier versions are still processed.
+- **The inactivity task no longer repeats a notice when it runs twice in the same window**
+  Whether a student was notified only once per milestone depended on the task running exactly once inside each window. With the delivery record described above, a second run inside the same window sends nothing.
+
+## 1.8.6-502
+
+**Compatibility note:** This version is compatible only with **Moodle 5.2**. It is the
+5.2 line of release 1.8.6: same functionality, same code, and the only difference is the
+compatibility declared in `version.php`. The 4.5 line continues as 1.8.6 on `main`.
+
+## Changed
+- **The plugin declares Moodle 5.2 instead of Moodle 4.5**
+  `$plugin->supported` named the 4.5 branch only, so a Moodle 5.2 site reported the plugin
+  as not supported. It now names the 5.2 branch, and `$plugin->requires` moves to the 5.2
+  branching date so the floor matches the branch rather than inviting an install on an
+  earlier release, where this line is not the one to use. No behaviour changes: the whole
+  plugin was exercised against Moodle 5.2.3 with the manual test suite before this
+  declaration was moved.
+
+## 1.8.6-500
+
+**Compatibility note:** This version is compatible only with **Moodle 5.0**. It is the
+5.0 line of release 1.8.6: same functionality, same code, and the only difference is the
+compatibility declared in `version.php`. The 4.5 line continues as 1.8.6 on `main`.
+
+## Changed
+- **The plugin declares Moodle 5.0 instead of Moodle 4.5**
+  `$plugin->supported` named the 4.5 branch only, and Moodle checks that declaration
+  before letting an upgrade proceed, so the plugin could not be installed on a 5.0 site
+  at all. It now names the 5.0 branch, and `$plugin->requires` moves to the 5.0 branching
+  date so the floor matches the branch rather than inviting an install on 4.5, where this
+  line is not the one to use. No behaviour changes: the whole plugin was exercised against
+  Moodle 5.0.10 with the manual test suite before this declaration was moved.
+
 ## 1.8.6
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
