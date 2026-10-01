@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/coursedynamicrules/db" VERSION="20250226" COMMENT="XMLDB file for Moodle local/coursedynamicrules"
+<XMLDB PATH="local/coursedynamicrules/db" VERSION="20260930" COMMENT="XMLDB file for Moodle local/coursedynamicrules"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -50,6 +50,25 @@
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
         <KEY NAME="ruleid" TYPE="foreign" FIELDS="ruleid" REFTABLE="local_coursedynamicrules_rule" REFFIELDS="id"/>
       </KEYS>
+    </TABLE>
+    <TABLE NAME="local_coursedynamicrules_delivery" COMMENT="Inactivity milestones already delivered: one row per condition, student, anchor and milestone, so a later run inside the same window does not notify again">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="ruleid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="conditionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="milestonekey" TYPE="char" LENGTH="64" NOTNULL="true" SEQUENCE="false" COMMENT="The anchor and the milestone the delivery was for, as unix timestamps: anchor:milestone"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="ruleid" TYPE="foreign" FIELDS="ruleid" REFTABLE="local_coursedynamicrules_rule" REFFIELDS="id"/>
+        <KEY NAME="conditionid" TYPE="foreign" FIELDS="conditionid" REFTABLE="local_coursedynamicrules_condition" REFFIELDS="id"/>
+        <KEY NAME="userid" TYPE="foreign" FIELDS="userid" REFTABLE="user" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="conditionid-userid-milestonekey" UNIQUE="true" FIELDS="conditionid, userid, milestonekey"/>
+      </INDEXES>
     </TABLE>
   </TABLES>
 </XMLDB>

@@ -294,6 +294,7 @@ abstract class condition {
         $record = $DB->get_record('local_coursedynamicrules_condition', ['id' => $this->id]);
 
         $result = $DB->delete_records('local_coursedynamicrules_condition', ['id' => $this->id]);
+        \local_coursedynamicrules\helper\delivery_ledger::delete_for_condition((int) $this->id);
 
         $event = \local_coursedynamicrules\event\condition_deleted::create([
             'context' => \context_course::instance($this->courseid),
@@ -423,5 +424,19 @@ abstract class condition {
      */
     public function is_one_shot(): bool {
         return false;
+    }
+
+    /**
+     * Called once the rule's actions have run for one user, after every condition was met.
+     *
+     * Nothing by default. A condition that must remember what it already delivered - the inactivity
+     * condition and its milestones - records it here and not in evaluate(): evaluate() is reached
+     * also when a sibling condition keeps the actions from running, and a milestone recorded then
+     * would never be delivered at all.
+     *
+     * @param stdClass $rulecontext The context the conditions were evaluated with (courseid, userid).
+     * @return void
+     */
+    public function actions_executed(stdClass $rulecontext): void {
     }
 }
