@@ -50,18 +50,58 @@ class user_graded {
             // User that completed the module.
             $userid = $eventdata["relateduserid"];
 
-            // Create an instance of the custom adhoc task with required data, including grade ID.
-            // The grade ID is used to ensure the uniqueness of the task based on the specific grade_grade record.
-            $task = rule_task::instance((object)[
-                'gradeid' => $grade->id,
+            // Nothing of this plugin can act on a course that holds no rule, and queueing an
+            // evaluation for one costs a slot in a queue every other plugin shares. See
+            // rule::course_has_any_rule() for why this does not ask whether the rule is active.
+            if (!\local_coursedynamicrules\core\rule::course_has_any_rule((int) $courseid)) {
+                return;
+            }
+
+            // One evaluation per (course, student, activity), not per grade row: saving the two grade
+            // items of one activity together (a forum's rating and its whole-forum grade) fires one
+            // event per item, and keying by the grade row queued two evaluations that each saw both
+            // grades and notified twice (MDL-UNIT-012). With the activity as the key the second event
+            // finds identical custom data still queued and adds nothing. The rule reads the current
+            // grades when it runs, so nothing is lost; a regrade after that run queues a fresh one.
+            // An item whose activity cannot be resolved keeps the old per-grade key.
+            $customdata = [
                 'courseid' => $courseid,
                 'userid' => $userid,
-                'conditiontypes' => self::$conditiontypes,
-            ]);
+            ];
+            $cmid = self::resolve_cmid((int) $courseid, $grade->grade_item);
+            if ($cmid) {
+                $customdata['cmid'] = $cmid;
+            } else {
+                $customdata['gradeid'] = $grade->id;
+            }
+            $customdata['conditiontypes'] = self::$conditiontypes;
+            $task = rule_task::instance((object) $customdata);
 
-            // Queue the adhoc task for execution. The second parameter 'true' ensures that only one
-            // unique task is queued for the given grade ID, preventing duplicate executions.
+            // Delay the run by a short window. Without it cron could take the first evaluation
+            // between the two writes of one save: the second event would then be dropped as a
+            // duplicate (the running task's row stays in the queue) and the evaluation would have
+            // seen only the first grade. queue_adhoc_task() compares custom data only, so the
+            // duplicate check still applies to a delayed task.
+            $clock = \core\di::get(\core\clock::class);
+            $task->set_next_run_time($clock->time() + rule_task::COALESCE_DELAY);
+
             \core\task\manager::queue_adhoc_task($task, true);
         }
+    }
+
+    /**
+     * Course module id of a module grade item, or null when it cannot be resolved.
+     *
+     * @param int $courseid Course id.
+     * @param \grade_item $gradeitem Grade item of the event.
+     * @return int|null
+     */
+    private static function resolve_cmid(int $courseid, $gradeitem): ?int {
+        if (empty($gradeitem->itemmodule) || empty($gradeitem->iteminstance)) {
+            return null;
+        }
+        $instances = get_fast_modinfo($courseid)->get_instances_of($gradeitem->itemmodule);
+        $cm = $instances[(int) $gradeitem->iteminstance] ?? null;
+        return $cm ? (int) $cm->id : null;
     }
 }

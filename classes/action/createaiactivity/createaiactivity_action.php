@@ -16,17 +16,17 @@
 
 namespace local_coursedynamicrules\action\createaiactivity;
 
+use moodle_url;
 use aiprovider_datacurso\httpclient\ai_course_api;
 use core_availability\tree;
-use tool_tenant\tenancy;
+use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\createaiactivity_form;
+use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\local\payload_anonymizer;
 use local_coursegen\ai_context;
-use local_coursegen\mod_manager;
-use moodle_url;
-use stdClass;
+use local_coursegen\local\service\create_mod_service;
 
 /**
  * Class createaiactivity_action
@@ -36,6 +36,18 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class createaiactivity_action extends action {
+    /** @var int Minimum local_coursegen version providing the create_mod_service API. */
+    public const COURSEGEN_MIN_VERSION = 2026082400;
+
+    /** @var int Maximum seconds to keep the activity generation stream open. */
+    public const STREAM_TIMEOUT = 600;
+
+    /** @var int Plan approvals sent per generation before giving up on a service that keeps asking. */
+    public const MAX_APPROVAL_ROUNDS = 1;
+
+    /** @var string[] Stream event types that end a stream read. */
+    public const TERMINAL_EVENT_TYPES = ['completed', 'failed', 'error', 'review_needed'];
+
     /** @var string type of the action */
     protected $type = 'createaiactivity';
 
@@ -45,11 +57,22 @@ class createaiactivity_action extends action {
      * @param object $context Context of the rule
      */
     public function execute($context) {
-        global $CFG, $DB;
+        global $CFG, $COURSE, $DB, $OUTPUT, $PAGE;
 
-        $plugininfo = \core_plugin_manager::instance()->get_plugin_info('local_coursegen');
-        if (!$plugininfo) {
+        $coursegenversion = $this->get_coursegen_versiondb();
+        if ($coursegenversion === null) {
             debugging(get_string('error_required_local_coursegen', 'local_coursedynamicrules'), DEBUG_DEVELOPER);
+            return;
+        }
+        if ($coursegenversion < self::COURSEGEN_MIN_VERSION) {
+            debugging(
+                get_string(
+                    'error_required_local_coursegen_version',
+                    'local_coursedynamicrules',
+                    self::COURSEGEN_MIN_VERSION
+                ),
+                DEBUG_DEVELOPER
+            );
             return;
         }
 
@@ -62,6 +85,8 @@ class createaiactivity_action extends action {
             return;
         }
 
+        // The step being attempted, reported with a failure so the task log tells which call failed.
+        $stage = 'init';
         try {
             require_once($CFG->dirroot . '/course/lib.php');
             require_once($CFG->dirroot . '/course/modlib.php');
@@ -76,18 +101,24 @@ class createaiactivity_action extends action {
 
             $prompt = $this->build_prompt($message, $course, $user);
 
+            // The v2 service has no server-side course context: a custom prompt is the
+            // only context type it can honor, inlined as a preamble of the instructions.
             $aicontext = ai_context::get_valid_course_context($courseid);
-
-            $courseurl = new moodle_url('/course/view.php', ['id' => $courseid]);
+            $instructions = $prompt;
+            if (!empty($aicontext->prompt_text)) {
+                $instructions = trim(html_to_text($aicontext->prompt_text, 0, false)) . "\n\n" . $instructions;
+            }
 
             $payload = [
-                'message' => $prompt,
-                'course_id' => $courseid,
+                'instructions' => $instructions,
+                'lang' => $this->resolve_request_language($user, $course),
+                'with_images' => $generateimages,
                 'userid' => (string) $userid,
-                'generate_images' => $generateimages,
-                'url' => $courseurl->out(false),
-                'context_type' => $aicontext ? $aicontext->context_type : null,
-                'model_name' => $aicontext ? $aicontext->model_name : null,
+                'site_url' => $CFG->wwwroot,
+                // Rules run unattended from cron: nobody can approve the plan.
+                'auto_approve' => true,
+                // Billing identity: consumption belongs to SmartRules, not coursegen.
+                'service_id' => 'local_coursedynamicrules',
             ];
 
             $anonymized = payload_anonymizer::anonymize($payload, $user);
@@ -99,18 +130,112 @@ class createaiactivity_action extends action {
             raise_memory_limit(MEMORY_EXTRA);
             \core\session\manager::write_close();
 
-            $tenantid = tenancy::get_tenant_id($userid);
-            $client = new ai_course_api(null, $tenantid);
-            $result = $client->request('POST', '/smartrules/create-mod', $payload);
-            $result = payload_anonymizer::deanonymize_data($result, $replacements);
+            $baseurl = get_config('local_coursegen', 'datacurso_service_url') ?: null;
+            $baseurleu = get_config('local_coursegen', 'datacurso_service_url_eu') ?: null;
+            $client = $this->get_api_client($baseurl, $baseurleu);
 
-            $newcm = mod_manager::create_from_ai_result($result, $course, $sectionnum, $beforemod);
+            $init = $client->request('POST', '/activity/init', $payload);
+            $threadid = is_array($init) ? ($init['thread_id'] ?? null) : null;
+            if (!is_string($threadid) || $threadid === '') {
+                throw new \moodle_exception('error_unexpected_airesponse', 'local_coursedynamicrules');
+            }
 
-            // Restrict the new activity to the current user only.
-            $availabilityoptions = (object) [
-                'type' => 'user',
-                'userids' => [$userid],
-            ];
+            // The graph only advances while the stream is open: consume it until a lifecycle
+            // event. The service ignores auto_approve and stops on review_needed once the plan
+            // is drafted: nobody can review it under cron, so the plan is approved on the
+            // student's behalf and the stream is read again - once, so a service that keeps
+            // asking cannot spend credits in a loop.
+            $streamurl = $client->get_base_url() . 'activity/stream/' . rawurlencode($threadid);
+            $stage = 'stream';
+            $event = $this->read_activity_stream($streamurl);
+            $approvals = 0;
+            while (($event['type'] ?? '') === 'review_needed') {
+                $stage = 'feedback';
+                if ($approvals >= self::MAX_APPROVAL_ROUNDS) {
+                    throw new \moodle_exception(
+                        'error_aiactivity_review_loop',
+                        'local_coursedynamicrules',
+                        '',
+                        self::event_message($event)
+                    );
+                }
+                $client->request('POST', '/activity/feedback', [
+                    'thread_id' => $threadid,
+                    'approval_status' => 'accept',
+                    'instruction' => '',
+                    // Explicit: under cron the provider would otherwise bill $USER, the administrator.
+                    'userid' => (string) $userid,
+                ]);
+                $approvals++;
+                $stage = 'stream';
+                $event = $this->read_activity_stream($streamurl);
+            }
+
+            $eventtype = $event['type'] ?? '';
+            if ($eventtype === 'failed' || $eventtype === 'error') {
+                throw new \moodle_exception(
+                    'error_aiactivity_generation_failed',
+                    'local_coursedynamicrules',
+                    '',
+                    self::event_message($event)
+                );
+            }
+
+            $resultinfo = ($eventtype === 'completed' && !empty($event['result'])) ? $event['result'] : null;
+            if (!is_array($resultinfo)) {
+                // The stream may have been cut right at the end: the persisted result
+                // is the source of truth for a finished thread.
+                $stage = 'result';
+                $resultinfo = $client->request('GET', '/activity/result/' . rawurlencode($threadid));
+            }
+            $stage = 'create';
+
+            $resultinfo = payload_anonymizer::deanonymize_data($resultinfo, $replacements);
+
+            if (!is_array($resultinfo) || empty($resultinfo['resource_type'])) {
+                throw new \moodle_exception('error_unexpected_airesponse', 'local_coursedynamicrules');
+            }
+
+            // The service may omit mod_settings for simple module types, but
+            // create_mod_service reads the key unconditionally.
+            if (isset($resultinfo['parameters']) && is_array($resultinfo['parameters'])) {
+                $resultinfo['parameters']['mod_settings'] = $resultinfo['parameters']['mod_settings'] ?? null;
+            }
+
+            // The module form built by create_mod_service reads the current course from the
+            // $COURSE global, and building it initialises the page theme, which resets
+            // $COURSE to the site when the current page has no course. Under cron both
+            // globals point at the site course, so module creation runs against a fresh
+            // page bound to the target course, restored afterwards.
+            $previouspage = $PAGE;
+            $previouscourse = $COURSE;
+            $previousoutput = $OUTPUT;
+            $PAGE = new \moodle_page();
+            $PAGE->set_course($course);
+            try {
+                $newcm = create_mod_service::create_from_ai_result($resultinfo, $course, $sectionnum, $beforemod);
+            } finally {
+                $PAGE = $previouspage;
+                $COURSE = $previouscourse;
+                $OUTPUT = $previousoutput;
+            }
+
+            // Restrict the new activity to the current user only, and stamp the restriction as this
+            // plugin's own. The stamp is what makes the student's id REACHABLE: nothing in core
+            // accounts for course_modules.availability - availability_user is a null provider - so
+            // this plugin's privacy provider is the only thing that can export or erase that id, and
+            // it will only claim a node it can prove it wrote, because claiming an unmarked one would
+            // mean rewriting restrictions teachers added by hand. Written bare, as it was until now,
+            // the id was invisible to a data-subject request while tool_dataprivacy reported it
+            // erased. The activity this action creates is recorded in no params and in no table of
+            // the plugin, so the node itself is the only place that ownership can be recorded.
+            $availabilityoptions = enableactivity_action::mark_node(
+                (object) [
+                    'type' => 'user',
+                    'userids' => [$userid],
+                ],
+                (int) $this->get_id()
+            );
             $availability = tree::get_root_json([$availabilityoptions], tree::OP_AND, false);
 
             $DB->set_field(
@@ -123,6 +248,10 @@ class createaiactivity_action extends action {
             set_coursemodule_visible($newcm->coursemodule, 1);
             rebuild_course_cache($courseid, true);
         } catch (\Throwable $e) {
+            // The task log keeps a durable record even with debugging off: a failed PAID
+            // generation must never be invisible (final-review finding - the same silence this
+            // release's changelog criticizes about the 1.8.x breakage).
+            mtrace('local_coursedynamicrules createaiactivity failed: [stage: ' . $stage . '] ' . $e->getMessage());
             debugging(
                 get_string('error_unexpected_creating_aiactivity', 'local_coursedynamicrules', $e->getMessage()),
                 DEBUG_DEVELOPER
@@ -165,10 +294,9 @@ class createaiactivity_action extends action {
      * Saves the action after it has been created or edited.
      *
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     public function save_action($formdata) {
-        global $DB;
-
         $params = [
             'message' => trim($formdata->message),
             'generateimages' => !empty($formdata->generateimages),
@@ -176,13 +304,7 @@ class createaiactivity_action extends action {
             'beforemod' => empty($formdata->beforemod) ? null : (int) $formdata->beforemod,
         ];
 
-        $action = new stdClass();
-        $action->ruleid = $formdata->ruleid;
-        $action->actiontype = $this->type;
-        $action->params = json_encode($params);
-
-        $this->set_data($action);
-        $DB->insert_record('local_coursedynamicrules_action', $action);
+        return $this->upsert($params, $formdata);
     }
 
     /**
@@ -191,21 +313,239 @@ class createaiactivity_action extends action {
      * @return string
      */
     public function get_description() {
+        return $this->build_description(false);
+    }
+
+    #[\Override]
+    public function get_listing_description() {
+        return $this->build_description(true);
+    }
+
+    /**
+     * Compose the description, with the AI prompt either whole or cut for the listing.
+     *
+     * @param bool $forlisting Whether to cut the prompt to the listing budget.
+     * @return string
+     */
+    private function build_description(bool $forlisting) {
         global $CFG;
         require_once($CFG->dirroot . '/course/lib.php');
 
         $course = get_course($this->courseid);
         $sectionnum = (int) ($this->params->sectionnum ?? 0);
         $sectionname = get_section_name($course, $sectionnum);
+        // On the component page the WHOLE prompt, never a teaser: the operator reading that card
+        // is reading what the AI service will actually receive (product ask 2026-08-31).
         $prompt = $this->params->message ?? '';
-        $shortprompt = shorten_text($prompt, 80);
+        if ($forlisting) {
+            $prompt = component_renderer::cut_freetext($prompt);
+        }
 
         $data = (object) [
             'section' => $sectionname,
-            'prompt' => $shortprompt,
+            'prompt' => $prompt,
         ];
 
-        return get_string('createaiactivity_description', 'local_coursedynamicrules', $data);
+        $description = get_string('createaiactivity_description', 'local_coursedynamicrules', $data);
+
+        $generateimages = !empty($this->params->generateimages) ? get_string('yes') : get_string('no');
+        $description .= ' ' . get_string(
+            'createaiactivity_description_generateimages',
+            'local_coursedynamicrules',
+            $generateimages
+        );
+
+        $beforemod = !empty($this->params->beforemod) ? (int) $this->params->beforemod : null;
+        if ($beforemod) {
+            $modinfo = get_fast_modinfo($course);
+            $cm = $modinfo->cms[$beforemod] ?? null;
+            if ($cm) {
+                $description .= ' ' . get_string(
+                    'createaiactivity_description_beforemod',
+                    'local_coursedynamicrules',
+                    $cm->name
+                );
+            }
+        }
+
+        return $description;
+    }
+
+    /**
+     * Build the HTTP client for the Datacurso AI course service.
+     *
+     * Protected factory so tests can inject a double, mirroring the seam used by
+     * local_coursegen's web services.
+     *
+     * @param string|null $baseurl Configured service URL override, or null for the provider default.
+     * @param string|null $baseurleu Configured EU service URL override, or null for the provider default.
+     * @return ai_course_api
+     */
+    protected function get_api_client(?string $baseurl, ?string $baseurleu): ai_course_api {
+        return new ai_course_api(null, $baseurl, $baseurleu);
+    }
+
+    /**
+     * Consume the activity generation SSE stream until a lifecycle event.
+     *
+     * The v2 service only advances the generation graph while this stream is
+     * open, so the connection is held until a "completed", "failed", "error" or
+     * "review_needed" event arrives (or STREAM_TIMEOUT expires). Returns that
+     * event's data, or an empty array when the stream ended without one.
+     *
+     * @param string $streamurl Absolute URL of the activity stream.
+     * @return array
+     */
+    protected function read_activity_stream(string $streamurl): array {
+        $finalevent = [];
+        $buffer = '';
+
+        $curl = new \curl();
+        $curl->setopt([
+            'CURLOPT_TIMEOUT' => self::STREAM_TIMEOUT,
+            'CURLOPT_HTTPHEADER' => ['Accept: text/event-stream'],
+            'CURLOPT_RETURNTRANSFER' => false,
+            'CURLOPT_WRITEFUNCTION' => function ($handle, $chunk) use (&$buffer, &$finalevent) {
+                $buffer .= $chunk;
+                while (($pos = strpos($buffer, "\n")) !== false) {
+                    $line = substr($buffer, 0, $pos);
+                    $buffer = substr($buffer, $pos + 1);
+                    $event = self::terminal_event_from_line($line);
+                    if ($event !== null) {
+                        $finalevent = $event;
+                        // Abort the transfer: the lifecycle event arrived.
+                        return 0;
+                    }
+                }
+                return strlen($chunk);
+            },
+        ]);
+
+        $curl->get($streamurl);
+
+        return $finalevent;
+    }
+
+    /**
+     * Parse one SSE line and return its event when it ends a stream read.
+     *
+     * Only "data:" lines carrying a JSON object whose type is one of TERMINAL_EVENT_TYPES
+     * count; progress events (status, token, done), comments and malformed lines return null.
+     *
+     * @param string $line One line of the event stream.
+     * @return array|null The decoded event, or null when the line does not end the read.
+     */
+    public static function terminal_event_from_line(string $line): ?array {
+        $line = trim($line);
+        if (strpos($line, 'data:') !== 0) {
+            return null;
+        }
+        $data = json_decode(trim(substr($line, 5)), true);
+        if (!is_array($data)) {
+            return null;
+        }
+        $type = $data['type'] ?? '';
+        return in_array($type, self::TERMINAL_EVENT_TYPES, true) ? $data : null;
+    }
+
+    /**
+     * Return the readable message of a stream event.
+     *
+     * The service localizes event messages as {string_id, string} objects; older events carry a
+     * plain string.
+     *
+     * @param array $event Decoded stream event.
+     * @return string
+     */
+    protected static function event_message(array $event): string {
+        $message = $event['message'] ?? '';
+        if (is_array($message)) {
+            $message = $message['string'] ?? json_encode($message);
+        }
+        return (string) $message;
+    }
+
+    /**
+     * Return the installed local_coursegen version, or null when it is not installed.
+     *
+     * @return int|null
+     */
+    protected function get_coursegen_versiondb(): ?int {
+        $plugininfo = \core_plugin_manager::instance()->get_plugin_info('local_coursegen');
+        if (!$plugininfo || empty($plugininfo->versiondb)) {
+            return null;
+        }
+
+        return (int) $plugininfo->versiondb;
+    }
+
+    /**
+     * Resolve the language to request from the AI service.
+     *
+     * Under cron the current language is the site default, so the target user's language
+     * is preferred, then the course language. The result is normalised to the primary
+     * language subtag (e.g. "es_MX" or "es-mx" become "es").
+     *
+     * @param \stdClass $user Target user of the rule.
+     * @param \stdClass $course Course the activity is created in.
+     * @return string
+     */
+    protected function resolve_request_language(\stdClass $user, \stdClass $course): string {
+        $candidates = [
+            $user->lang ?? '',
+            $course->lang ?? '',
+            current_language(),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $normalized = trim(\core_text::strtolower(str_replace('-', '_', (string) $candidate)));
+            if ($normalized === '') {
+                continue;
+            }
+            $parts = explode('_', $normalized);
+            if ($parts[0] !== '') {
+                return $parts[0];
+            }
+        }
+
+        return 'en';
+    }
+
+    /**
+     * The plugins the AI activity form needs: the gate it writes, the generator it calls and the
+     * provider that answers.
+     *
+     * @return array
+     */
+    public static function required_plugins(): array {
+        return [
+            [
+                'pluginname' => 'availability_user',
+                'enableurl' => new moodle_url('/admin/tool/availabilityconditions/'),
+                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
+            ],
+            [
+                'pluginname' => 'local_coursegen',
+                'downloadurl' => 'https://moodle.org/plugins/local_coursegen/versions',
+            ],
+            [
+                'pluginname' => 'aiprovider_datacurso',
+                'downloadurl' => 'https://moodle.org/plugins/aiprovider_datacurso/versions',
+            ],
+        ];
+    }
+
+    /**
+     * The markers this action substitutes, in the order the help should list them.
+     *
+     * The form asks the action instead of repeating the list, so the help cannot drift from what is
+     * actually replaced below - which is exactly how the AI form came to offer {$a->courselink}, a
+     * marker its own action never knew, leaving the literal text in the prompt.
+     *
+     * @return string[] Marker names, without the {$a->...} wrapper.
+     */
+    public static function placeholder_markers(): array {
+        return ['coursename', 'courseurl', 'fullname', 'firstname', 'lastname'];
     }
 
     /**

@@ -54,16 +54,30 @@ function createDynamicForm(container) {
 /**
  * Handles the form loading process.
  *
+ * On an edit, the outer form's hidden 'cmid'/'gradeitems' fields already hold the stored condition
+ * (preloaded server-side via grade_in_activity_form::preload_defaults(), D5): this initial load
+ * forwards them as-is so the dynamic sub-form renders the correct activity's grade items and
+ * set_data_for_dynamic_submission() can pre-check/prefill them. On create both hidden fields are
+ * empty, so the load renders the picker with nothing chosen and no threshold elements.
+ *
  * @param {DynamicForm} dynamicForm The dynamic form instance.
  */
 function handleLoadForm(dynamicForm) {
     const loadPromise = new Pending(' local_coursedynamicrules/grade_in_activity_form:load');
     const courseId = document.querySelector('[name=courseid]').value;
-    dynamicForm.load({courseid: courseId})
+    const cmId = document.querySelector('[name=cmid]').value;
+    const gradeItems = document.querySelector('[name=gradeitems]').value;
+
+    const loadArgs = {courseid: courseId};
+    if (cmId) {
+        loadArgs.coursemodule = cmId;
+        loadArgs.gradeitems = gradeItems;
+    }
+
+    dynamicForm.load(loadArgs)
         .then(() => {
             attachCourseModuleChangeListener(dynamicForm);
-            resetGradeItems();
-            updateGradeItems();
+            rebuildGradeItems();
             handleSubmitForm();
             return loadPromise.resolve();
         })
@@ -81,6 +95,9 @@ function handleSubmitForm() {
         // this is to prevent the form from submitting when the user clicks the cancel button.
         if (e.submitter.name === 'submitbutton') {
             e.preventDefault();
+            // Serialize the grade conditions from the final DOM state, so values are captured
+            // even when the inputs never fired a change event (selects on default option, etc.).
+            rebuildGradeItems();
             const formIsValid = await formValidation();
             if (e.submitter.name === 'submitbutton' && dynamicGradeInActivityForm.checkValidity() && formIsValid) {
                 gradeInActivityForm.submit();
@@ -160,6 +177,10 @@ async function attachCourseModuleChangeListener(dynamicForm) {
 /**
  * Handles the course module change event.
  *
+ * Intentionally does NOT forward 'gradeitems': switching activity must always start from a blank
+ * set of thresholds, whether the form is in create or edit mode, since a previously stored
+ * condition belongs to a different course module.
+ *
  * @param {DynamicForm} dynamicForm The dynamic form instance.
  * @param {string} courseModuleValue The selected course module value.
  */
@@ -170,8 +191,7 @@ function handleCourseModuleChange(dynamicForm, courseModuleValue) {
     dynamicForm.load({coursemodule: courseModuleValue, courseid: courseId})
         .then(() => {
             attachCourseModuleChangeListener(dynamicForm);
-            resetGradeItems();
-            updateGradeItems(dynamicForm);
+            rebuildGradeItems();
             handleSubmitForm();
             return updatePromise.resolve();
         })
@@ -179,51 +199,29 @@ function handleCourseModuleChange(dynamicForm, courseModuleValue) {
 }
 
 /**
- * Resets the grade items field.
- */
-function resetGradeItems() {
-    document.querySelector('[name=gradeitems]').value = JSON.stringify({});
-}
-
-/**
- * Updates the grade items based on the current form state.
+ * Rebuilds the gradeitems hidden field from the current DOM state.
  *
+ * The disabled state is read from the input property (kept in sync by Moodle's disabledIf
+ * dependency manager) instead of the attribute, which is not reliably updated.
  */
-function updateGradeItems() {
+function rebuildGradeItems() {
     const cmId = document.querySelector('[name=coursemodule]').value;
     document.querySelector('[name=cmid]').value = cmId;
-    const cmConditionInputs = document.querySelectorAll(`[data-cmid='${cmId}']`);
 
-    cmConditionInputs.forEach((input) => {
-        updateGradeItem(input);
-
-        input.addEventListener('change', (e) => {
-            updateGradeItem(e.target);
-        });
+    const gradeItemsObject = {};
+    document.querySelectorAll(`[data-cmid='${cmId}']`).forEach((input) => {
+        // Key by the STABLE itemnumber, not the grade item's database id: Moodle recreates that id
+        // when the activity's grade settings change or the course is restored, which orphaned the
+        // stored condition (card blank, rule silently dead). gradeitem is kept for diagnostics only.
+        const gradeItemKey = `${input.dataset.condition}_${input.dataset.itemnumber}`;
+        gradeItemsObject[gradeItemKey] = {
+            itemnumber: input.dataset.itemnumber,
+            gradeitem: input.dataset.gradeitem,
+            condition: input.dataset.condition,
+            value: input.value,
+            disabled: input.disabled,
+        };
     });
-}
-
-/**
- * Updates a single grade item based on the input element.
- *
- * @param {HTMLElement} input The input element.
- */
-function updateGradeItem(input) {
-    const gradeItems = document.querySelector('[name=gradeitems]').value;
-    const gradeItemsObject = JSON.parse(gradeItems);
-
-    const condition = input.dataset.condition;
-    const gradeItem = input.dataset.gradeitem;
-    const value = input.value;
-    const disabled = input.getAttribute('disabled') === 'disabled';
-    const gradeItemKey = `${condition}_${gradeItem}`;
-
-    gradeItemsObject[gradeItemKey] = {
-        gradeitem: gradeItem,
-        condition: condition,
-        value: value,
-        disabled: disabled,
-    };
 
     document.querySelector('[name=gradeitems]').value = JSON.stringify(gradeItemsObject);
 }

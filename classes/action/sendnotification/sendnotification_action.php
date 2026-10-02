@@ -18,11 +18,12 @@ namespace local_coursedynamicrules\action\sendnotification;
 
 use context_course;
 use html_writer;
+use moodle_url;
+use stdClass;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\sendnotification_form;
-use moodle_url;
-use stdClass;
+use local_coursedynamicrules\helper\component_renderer;
 
 /**
  * Class sendnotification_action
@@ -32,10 +33,34 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class sendnotification_action extends action {
+    /**
+     * Every `params` key that has ever held a list of recipient role ids, current and legacy.
+     *
+     * resolve_roleids() applies a precedence among them to decide who is notified; anything that
+     * must treat these ids AS ids - the backup annotating them, the restore remapping them - has to
+     * cover them ALL instead, or an action stored in an older shape keeps role ids nobody remapped.
+     *
+     * @var string[]
+     */
+    public const ROLE_PARAM_KEYS = [
+        'primaryroleids',
+        'observedroleids',
+        'roleids',
+        'copyroleids',
+        'observerroleids',
+    ];
+
     /** @var string type of the action, should be overridden by each action type */
     protected $type = 'sendnotification';
 
     /** @var string related user id to the event */
+
+    /**
+     * @var array<int, string> Memoised formatted message body, keyed by course id (micro-sweep):
+     *      a bare "already computed" flag would silently return the WRONG course's formatted body
+     *      if this action instance were ever reused for execute() calls against different courses.
+     */
+    private $cachedmessagebodies = [];
 
     /**
      * Executes the action
@@ -50,35 +75,36 @@ class sendnotification_action extends action {
         $courseid = $rulecontext->courseid;
 
         $messagesubject = $this->params->messagesubject;
-        $messagebody = $this->params->messagebody;
-        $primaryroleids = $this->params->primaryroleids
-            ?? $this->params->observedroleids
-            ?? $this->params->roleids
-            ?? [];
-        $copyroleids = $this->params->copyroleids
-            ?? $this->params->observerroleids
-            ?? [];
+        $messagebody = $this->get_formatted_messagebody($courseid);
+        $roleids = self::resolve_roleids($this->params);
+        $primaryroleids = $roleids['primary'];
+        $copyroleids = $roleids['copy'];
+
+        if (empty($primaryroleids) && empty($copyroleids)) {
+            return false;
+        }
 
         $user = $DB->get_record('user', ['id' => $userid], '*', MUST_EXIST);
         $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 
         $coursecontext = context_course::instance($course->id);
 
-        if (empty($primaryroleids)) {
-            return false;
-        }
-
-        $userroles = get_user_roles($coursecontext, $userid, false);
-        $isobserveduser = false;
-        foreach ($userroles as $userrole) {
-            if (in_array($userrole->roleid, $primaryroleids)) {
-                $isobserveduser = true;
-                break;
+        // Primary is optional. When no primary role is configured, no per-user role gate applies:
+        // the action fires for every user the rule condition matched, it just never messages that
+        // user directly.
+        $sendtoprimary = false;
+        if (!empty($primaryroleids)) {
+            $userroles = get_user_roles($coursecontext, $userid, false);
+            foreach ($userroles as $userrole) {
+                if (in_array($userrole->roleid, $primaryroleids)) {
+                    $sendtoprimary = true;
+                    break;
+                }
             }
-        }
 
-        if (!$isobserveduser) {
-            return false;
+            if (!$sendtoprimary) {
+                return false;
+            }
         }
 
         $messagebody = $this->replace_placeholders($messagebody, $course, $user);
@@ -86,8 +112,10 @@ class sendnotification_action extends action {
         $smallmessagetext = $this->sanitize_html_message_twilio($smallmessagehtml);
         $messageids = [];
 
-        $message = $this->create_message($userid, $messagesubject, $messagebody, $smallmessagetext);
-        $messageids[] = message_send($message);
+        if ($sendtoprimary) {
+            $message = $this->create_message($userid, $messagesubject, $messagebody, $smallmessagetext);
+            $messageids[] = message_send($message);
+        }
 
         $recipients = $this->get_recipients_by_roles($copyroleids, $coursecontext);
         unset($recipients[$userid]);
@@ -146,6 +174,38 @@ class sendnotification_action extends action {
     }
 
     /**
+     * Resolve the message body to send, computed once per action instance (FIX2-5) rather than
+     * once per matched user: rule::execute_actions() calls execute() on the SAME action instance
+     * for every user matched in a single rule run, so memoising here means format_text() runs
+     * exactly once per rule run, not once per matched user.
+     *
+     * Honours the raw-vs-legacy invariant (FIX2-6): rows saved by save_action() (this version
+     * onward) carry params->bodyisraw, meaning the stored value is the RAW submitted editor text -
+     * format_text() is applied here, at send time, with the course context (instead of silently
+     * falling back to $PAGE->context = system, which cron execution would otherwise hit). Rows
+     * saved before this marker existed stored the ALREADY-formatted body, so they are sent
+     * verbatim: running format_text() on them again would be a second, unwanted filter pass.
+     *
+     * @param int $courseid Course id, used as the format_text() context for raw rows.
+     * @return string
+     */
+    private function get_formatted_messagebody(int $courseid): string {
+        if (!array_key_exists($courseid, $this->cachedmessagebodies)) {
+            $raw = $this->params->messagebody ?? '';
+            if (!empty($this->params->bodyisraw)) {
+                $formatted = format_text($raw, FORMAT_HTML, ['context' => context_course::instance($courseid)]);
+            } else {
+                // Legacy row without the marker: already formatted at save time by an older
+                // version - send verbatim, never re-format.
+                $formatted = $raw;
+            }
+            $this->cachedmessagebodies[$courseid] = $formatted;
+        }
+
+        return $this->cachedmessagebodies[$courseid];
+    }
+
+    /**
      * Creates and returns an instance of the form for editing the item
      *
      * @param mixed $action the action attribute for the form. If empty defaults to auto detect the
@@ -190,30 +250,71 @@ class sendnotification_action extends action {
     /**
      * Saves the action after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     public function save_action($formdata) {
-        global $DB;
-
         $primaryrecipients = $formdata->primaryrecipients ?? [];
         $copyrecipients = $formdata->copyrecipients ?? [];
         $primaryroleids = array_keys($primaryrecipients, 1);
         $copyroleids = array_keys($copyrecipients, 1);
 
+        // FIX3-5: preserve the LOADED record's raw/legacy marker instead of unconditionally
+        // stamping bodyisraw => true. A brand-new row (no id yet) has nothing to preserve and is
+        // always raw. An EXISTING row keeps being raw only if it already was; a legacy row (no
+        // marker at all) stays unmarked on edit too, so get_formatted_messagebody() keeps sending
+        // it verbatim instead of double-filtering it (the bug this fix closes: re-saving a legacy
+        // row used to stamp bodyisraw => true, causing it to be format_text()'d a SECOND time at
+        // send).
+        $isnew = empty($this->get_id());
+        $wasraw = $isnew || !empty($this->params->bodyisraw);
+
         $params = [
             'messagesubject' => $formdata->messagesubject,
-            'messagebody' => format_text($formdata->messagebody['text'], FORMAT_HTML),
+            // Store the RAW submitted editor text (G6): formatting is applied once, at render/send
+            // time (see get_formatted_messagebody()), instead of at every save, so re-editing and
+            // re-saving without any change cannot progressively reformat (and eventually corrupt)
+            // the stored body. FIX3-4: purify it with clean_text() (the same purifier format_text()
+            // uses) before storing - re-opening this action's own edit form materialises the stored
+            // value inside the WYSIWYG unescaped, so an unpurified payload here is an editor XSS /
+            // privilege-escalation sink. clean_text() is idempotent, so this does not conflict with
+            // the "store raw, format once at send" invariant below: re-editing and re-saving without
+            // changes still leaves the stored body byte-identical.
+            'messagebody' => clean_text($formdata->messagebody['text'], FORMAT_HTML),
             'primaryroleids' => $primaryroleids,
             'copyroleids' => $copyroleids,
         ];
 
-        $action = new stdClass();
-        $action->ruleid = $formdata->ruleid;
-        $action->actiontype = $this->type;
-        $action->params = json_encode($params);
+        // INVARIANT (FIX2-6, refined by FIX3-5): 'bodyisraw' marks this row as "raw at rest,
+        // formatted at render" - get_formatted_messagebody() only calls format_text() when this
+        // marker is present, so a legacy row saved by an older version (which stored the
+        // ALREADY-formatted body, no marker) is sent verbatim instead of being filtered twice, even
+        // across an edit.
+        if ($wasraw) {
+            $params['bodyisraw'] = true;
+        }
 
-        $this->set_data($action);
+        return $this->upsert($params, $formdata);
+    }
 
-        $DB->insert_record('local_coursedynamicrules_action', $action);
+    /**
+     * Resolve primary/copy role ids from stored params, honouring legacy key fallbacks.
+     *
+     * Shared by execute(), get_description() and sendnotification_form::preload_defaults() so the
+     * legacy fallback chain (observedroleids/roleids/observerroleids) lives in exactly one place.
+     *
+     * @param object $params Decoded stored params.
+     * @return array{primary: array, copy: array}
+     */
+    public static function resolve_roleids($params): array {
+        return [
+            'primary' => $params->primaryroleids
+                ?? $params->observedroleids
+                ?? $params->roleids
+                ?? [],
+            'copy' => $params->copyroleids
+                ?? $params->observerroleids
+                ?? [],
+        ];
     }
 
     /**
@@ -222,8 +323,70 @@ class sendnotification_action extends action {
      * @return string
      */
     public function get_description() {
-        $messagesubject = $this->params->messagesubject;
-        return get_string('sendnotification_description', 'local_coursedynamicrules', $messagesubject);
+        return $this->build_description(false);
+    }
+
+    #[\Override]
+    public function get_listing_description() {
+        return $this->build_description(true);
+    }
+
+    /**
+     * Compose the description, with the message body either whole or cut for the listing.
+     *
+     * The body is the only part a teacher writes with no limit, so it is the only part the listing
+     * cuts. Subject and role names stay whole: cutting the composed sentence instead is what made
+     * the rules list show no body at all, because this preamble alone runs to 120 characters with
+     * one recipient role and 196 with five.
+     *
+     * @param bool $forlisting Whether to cut the body to the listing budget.
+     * @return string
+     */
+    private function build_description(bool $forlisting) {
+        $messagesubject = $this->params->messagesubject ?? '';
+        $subjectpart = get_string('sendnotification_description', 'local_coursedynamicrules', $messagesubject);
+
+        $roleids = self::resolve_roleids($this->params);
+        $primaryroleids = $roleids['primary'];
+        $copyroleids = $roleids['copy'];
+
+        $coursecontext = context_course::instance($this->courseid);
+        $rolenames = role_get_names($coursecontext, ROLENAME_ALIAS, true);
+
+        $messagebody = $this->params->messagebody ?? '';
+        // On the component page the WHOLE body, never a teaser: the operator reading that card is
+        // reading what learners will actually receive (product ask 2026-08-31). html_to_text with
+        // width 0 keeps lines unwrapped; trim only strips the conversion's edge whitespace.
+        $bodytext = trim(html_to_text($messagebody, 0, false));
+        if ($forlisting) {
+            $bodytext = component_renderer::cut_freetext($bodytext);
+        }
+
+        $details = get_string('sendnotification_description_details', 'local_coursedynamicrules', (object) [
+            'primaryroles' => $this->get_role_names_string($primaryroleids, $rolenames),
+            'copyroles' => $this->get_role_names_string($copyroleids, $rolenames),
+            'body' => $bodytext,
+        ]);
+
+        return $subjectpart . ' ' . $details;
+    }
+
+    /**
+     * Builds a comma separated list of role names for the given role ids.
+     *
+     * @param array $roleids Role ids configured in the action.
+     * @param array $rolenames Localised role names indexed by role id.
+     * @return string
+     */
+    private function get_role_names_string($roleids, $rolenames) {
+        $names = [];
+        foreach ((array) $roleids as $roleid) {
+            if (isset($rolenames[$roleid])) {
+                $names[] = $rolenames[$roleid];
+            }
+        }
+
+        return $names ? implode(', ', $names) : get_string('none');
     }
 
     /**
@@ -258,6 +421,19 @@ class sendnotification_action extends action {
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5);
 
         return $text;
+    }
+
+    /**
+     * The markers this action substitutes, in the order the help should list them.
+     *
+     * The form asks the action instead of repeating the list, so the help cannot drift from what is
+     * actually replaced below - which is exactly how the AI form came to offer {$a->courselink}, a
+     * marker its own action never knew, leaving the literal text in the prompt.
+     *
+     * @return string[] Marker names, without the {$a->...} wrapper.
+     */
+    public static function placeholder_markers(): array {
+        return ['coursename', 'courselink', 'fullname', 'firstname', 'lastname'];
     }
 
     /**

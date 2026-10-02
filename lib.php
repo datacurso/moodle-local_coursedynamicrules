@@ -30,7 +30,14 @@
  * @param stdClass $context the context
  */
 function local_coursedynamicrules_extend_navigation_course($navigation, $course, $context) {
-    if (has_capability('local/coursedynamicrules:managerule', $context)) {
+    // The same PAIR rules.php enforces at its door: offering the entry on managerule alone put a
+    // permanent permission-error click in front of every manage-only custom role - the exact
+    // custom-role seam the changelog warns administrators about, reproduced in the plugin's own
+    // menu. Never offer what would be refused.
+    if (
+        has_capability('local/coursedynamicrules:managerule', $context)
+            && has_capability('local/coursedynamicrules:viewrule', $context)
+    ) {
         $url = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $course->id]);
         $name = get_string('pluginname', 'local_coursedynamicrules');
         $navigation->add($name, $url, navigation_node::TYPE_SETTING, null, null, new pix_icon('i/settings', ''));

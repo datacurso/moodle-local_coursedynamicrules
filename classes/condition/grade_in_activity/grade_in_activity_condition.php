@@ -23,7 +23,7 @@ use grade_item;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\grade_in_activity_form;
-use stdClass;
+use local_coursedynamicrules\helper\grade_condition_thresholds;
 
 defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/completionlib.php');
@@ -52,11 +52,6 @@ class grade_in_activity_condition extends condition {
         $cmid = $this->params->cmid;
         $gradeitemsconditions = $this->params->gradeitemsconditions;
 
-        // This is for evaluate the condition only for the course module obtained from event observer related data.
-        if (isset($context->cmid) && $context->cmid != $cmid) {
-            return false;
-        }
-
         $cminfo = get_coursemodule_from_id(null, $cmid, $courseid);
         if (!$cminfo || $cminfo->deletioninprogress) {
             return false;
@@ -70,38 +65,51 @@ class grade_in_activity_condition extends condition {
         $allitemconditionsmet = true;
 
         /** @var grade_item[]  $gradeitems */
-        $gradeitems = grade_item::fetch_all(['iteminstance' => $cminfo->instance, 'itemmodule' => $cminfo->modname]);
+        $gradeitems = grade_item::fetch_all(['iteminstance' => $cminfo->instance, 'itemmodule' => $cminfo->modname]) ?: [];
+        // Order by itemnumber so thresholds resolve against the STABLE itemnumber, not the grade
+        // item's database id: Moodle recreates that id whenever the activity's grade settings are
+        // edited or the course is restored, and the old id-keyed lookup then matched nothing and the
+        // rule silently stopped firing. The reader also revives legacy id-keyed rows by position, so
+        // the deterministic itemnumber order matters.
+        usort($gradeitems, static fn($a, $b) => (int) $a->itemnumber <=> (int) $b->itemnumber);
+        $itemnumbers = array_map(static fn($gi) => (int) $gi->itemnumber, $gradeitems);
+        $thresholds = grade_condition_thresholds::by_itemnumber($gradeitemsconditions, $itemnumbers);
 
         foreach ($gradeitems as $gradeitem) {
-            $gradeitemid = $gradeitem->id;
-
-            $grade = grade_grade::fetch(['itemid' => $gradeitem->id, 'userid' => $userid]);
-            if (!$grade) {
-                return false;
+            $itemthresholds = $thresholds[(int) $gradeitem->itemnumber] ?? null;
+            if (!$itemthresholds) {
+                continue;
             }
-            $finalgrade = $grade->finalgrade;
 
-            $gradegtekey = 'gradegte' . '_' . $gradeitemid;
-            $gradegte = $gradeitemsconditions->$gradegtekey ?? null;
+            // A missing grade row, or a row without a final grade, means the user has no grade for this
+            // item: an ungraded user must not satisfy any threshold (in particular "grade less than X").
+            $grade = grade_grade::fetch(['itemid' => $gradeitem->id, 'userid' => $userid]);
+            $hasgrade = ($grade && $grade->finalgrade !== null);
+            $finalgrade = $hasgrade ? $grade->finalgrade : null;
 
-            if ($gradegte) {
-                $gradegtebounded = $gradeitem->bounded_grade($gradegte->value);
-                if ($finalgrade >= $gradegtebounded) {
-                    $hasgraderequire = true;
-                } else {
+            if ($itemthresholds->gradegte) {
+                if (!$hasgrade) {
                     $allitemconditionsmet = false;
+                } else {
+                    $gradegtebounded = $gradeitem->bounded_grade($itemthresholds->gradegte->value);
+                    if ($finalgrade >= $gradegtebounded) {
+                        $hasgraderequire = true;
+                    } else {
+                        $allitemconditionsmet = false;
+                    }
                 }
             }
 
-            $gradeltkey = 'gradelt' . '_' . $gradeitemid;
-            $gradelt = $gradeitemsconditions->$gradeltkey ?? null;
-
-            if ($gradelt) {
-                $gradeltbounded = $gradeitem->bounded_grade($gradelt->value);
-                if ($finalgrade < $gradeltbounded) {
-                    $hasgraderequire = true;
-                } else {
+            if ($itemthresholds->gradelt) {
+                if (!$hasgrade) {
                     $allitemconditionsmet = false;
+                } else {
+                    $gradeltbounded = $gradeitem->bounded_grade($itemthresholds->gradelt->value);
+                    if ($finalgrade < $gradeltbounded) {
+                        $hasgraderequire = true;
+                    } else {
+                        $allitemconditionsmet = false;
+                    }
                 }
             }
 
@@ -132,10 +140,14 @@ class grade_in_activity_condition extends condition {
         $cmid = $this->params->cmid;
         $modinfo = get_fast_modinfo($courseid);
         $cms = $modinfo->get_cms();
-        $cminfo = $cms[$cmid];
+        $cminfo = $cms[$cmid] ?? null;
 
-        if (!$cminfo) {
-            return '';
+        // A deleted (or being-deleted) activity leaves a ghost: it must still describe itself so the
+        // components page and the rules list keep showing it, trash can included. Deletion in
+        // progress counts as gone - the recycle bin leaves a deleted module in that state until cron
+        // runs, and evaluate() already refuses to fire on it.
+        if (!$cminfo || $cminfo->deletioninprogress) {
+            return $this->get_missing_target_description();
         }
 
         $component = 'mod_' . $cminfo->modname;
@@ -143,20 +155,24 @@ class grade_in_activity_condition extends condition {
         // Get the itemnames mapping for the component. This is used to display the grade item names in the form.
         $itemnames = component_gradeitems::get_itemname_mapping_for_component($component);
 
-        $gradeitemsconditions = $this->params->gradeitemsconditions;
+        // Resolve the stored thresholds by the STABLE itemnumber (see grade_condition_thresholds):
+        // the card used to rebuild the key from the grade item's live database id, which Moodle
+        // recreates on activity edit/restore, so the threshold silently vanished from the listing.
+        // The form uses itemnumber 0 for a single-item activity and the mapping keys otherwise.
+        $itemnumbers = count($itemnames) === 1 ? [0] : array_keys($itemnames);
+        $thresholds = grade_condition_thresholds::by_itemnumber($this->params->gradeitemsconditions, $itemnumbers);
 
         $gradestrings = [];
         if (count($itemnames) === 1) {
-            $itemnamestring = get_string('gradenoun');
-            $gradestrings[] = $this->get_grades_string($cminfo, 0, $itemnamestring, $gradeitemsconditions);
+            $gradestrings[] = $this->grade_threshold_string($thresholds[0] ?? null, get_string('gradenoun'));
         } else if (count($itemnames) > 1) {
             foreach ($itemnames as $itemnumber => $itemname) {
                 $itemnamestring = get_string("grade_{$itemname}_name", $component);
-                $gradestrings[] = $this->get_grades_string($cminfo, $itemnumber, $itemnamestring, $gradeitemsconditions);
+                $gradestrings[] = $this->grade_threshold_string($thresholds[$itemnumber] ?? null, $itemnamestring);
             }
         }
 
-        $gradestring = implode(', ', $gradestrings);
+        $gradestring = implode(', ', array_filter($gradestrings));
 
         return get_string(
             'grade_in_activity_description',
@@ -169,40 +185,27 @@ class grade_in_activity_condition extends condition {
     }
 
     /**
-     * Generates a string representation of grade conditions for a given activity.
+     * Render one grade item's resolved thresholds as human-readable text.
      *
-     * @param cm_info $cminfo Information about the course module instance.
-     * @param int $itemnumber The item number of the grade item.
+     * @param \stdClass|null $itemthresholds The resolved thresholds (->gradegte, ->gradelt) or null.
      * @param string $itemnamestring The name of the grade item.
-     * @param object $gradeitemsconditions Conditions related to grade items.
-     * @return string A string representing the grade conditions for the specified activity.
+     * @return string The threshold text, or '' when the item carries no threshold.
      */
-    private function get_grades_string($cminfo, $itemnumber, $itemnamestring, $gradeitemsconditions) {
-        $gradeitem = grade_item::fetch(
-            [
-                'iteminstance' => $cminfo->instance,
-                'itemmodule' => $cminfo->modname,
-                'itemtype' => 'mod',
-                'itemnumber' => $itemnumber,
-            ]
-        );
-
-        $gradeitemid = $gradeitem->id;
-
-        $gradestrings = [];
-
-        $gradegtekey = 'gradegte' . '_' . $gradeitemid;
-        $gradegte = $gradeitemsconditions->$gradegtekey ?? null;
-
-        if ($gradegte) {
-            $gradestrings[] = get_string('gradegreaterthanorequalvalue', 'local_coursedynamicrules', $gradegte->value);
+    private function grade_threshold_string($itemthresholds, $itemnamestring) {
+        if (!$itemthresholds) {
+            return '';
         }
 
-        $gradeltkey = 'gradelt' . '_' . $gradeitemid;
-        $gradelt = $gradeitemsconditions->$gradeltkey ?? null;
-
-        if ($gradelt) {
-            $gradestrings[] = get_string('gradelessthanvalue', 'local_coursedynamicrules', $gradelt->value);
+        $gradestrings = [];
+        if ($itemthresholds->gradegte) {
+            $gradestrings[] = get_string(
+                'gradegreaterthanorequalvalue',
+                'local_coursedynamicrules',
+                $itemthresholds->gradegte->value
+            );
+        }
+        if ($itemthresholds->gradelt) {
+            $gradestrings[] = get_string('gradelessthanvalue', 'local_coursedynamicrules', $itemthresholds->gradelt->value);
         }
 
         if (empty($gradestrings)) {
@@ -257,26 +260,38 @@ class grade_in_activity_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
-        global $DB;
-
         $gradeitems = json_decode($formdata->gradeitems, true);
+        if (!is_array($gradeitems)) {
+            throw new \invalid_parameter_exception('Invalid gradeitems data: expected a JSON object of grade conditions');
+        }
         $gradeitemsconditions = [];
         foreach ($gradeitems as $gradeitemkey => $gradeitem) {
-            $value = clean_param($gradeitem['value'], PARAM_FLOAT);
-            $disabled = $gradeitem['disabled'];
-
-            if (!empty($value) && !$disabled) {
-                $gradeitemkey = clean_param($gradeitemkey, PARAM_RAW);
-                $gradeitemid = clean_param($gradeitem['gradeitem'], PARAM_INT);
-                $gradeitemcondition = clean_param($gradeitem['condition'], PARAM_TEXT);
-                $gradeitemsconditions[$gradeitemkey] = [
-                    'gradeitem' => $gradeitemid,
-                    'condition' => $gradeitemcondition,
-                    'value' => $value,
-                ];
+            if (!is_array($gradeitem)) {
+                continue;
             }
+
+            $disabled = !empty($gradeitem['disabled']);
+            $rawvalue = $gradeitem['value'] ?? '';
+            // Emptiness is checked on the raw value so a legitimate threshold of 0 is preserved.
+            if ($disabled || $rawvalue === '' || $rawvalue === null) {
+                continue;
+            }
+
+            $gradeitemkey = clean_param($gradeitemkey, PARAM_RAW);
+            $gradeitemcondition = clean_param($gradeitem['condition'], PARAM_TEXT);
+            $gradeitemsconditions[$gradeitemkey] = [
+                // The itemnumber is the STABLE identity of a grade item within its activity; the
+                // reader resolves thresholds by it so a recreated grade_item id (activity edit or
+                // course restore) no longer orphans the condition. The gradeitem id is still stored
+                // as a diagnostic breadcrumb but is no longer load-bearing.
+                'itemnumber' => clean_param($gradeitem['itemnumber'] ?? 0, PARAM_INT),
+                'gradeitem' => clean_param($gradeitem['gradeitem'] ?? 0, PARAM_INT),
+                'condition' => $gradeitemcondition,
+                'value' => clean_param($rawvalue, PARAM_FLOAT),
+            ];
         }
 
         $params = [
@@ -284,13 +299,6 @@ class grade_in_activity_condition extends condition {
             'gradeitemsconditions' => $gradeitemsconditions,
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
-
-        $this->set_data($condition);
-
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        return $this->upsert($params, $formdata);
     }
 }

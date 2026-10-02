@@ -1,0 +1,1016 @@
+<?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+namespace local_coursedynamicrules\action\createaiactivity;
+
+use aiprovider_datacurso\httpclient\ai_course_api;
+use local_coursedynamicrules\action\enableactivity\enableactivity_action;
+use local_coursedynamicrules\core\action;
+
+defined('MOODLE_INTERNAL') || die();
+
+require_once(__DIR__ . '/../../fixtures/testable_createaiactivity_action.php');
+
+/**
+ * Tests for create AI activity action.
+ *
+ * @package    local_coursedynamicrules
+ * @category   test
+ * @coversDefaultClass \local_coursedynamicrules\action\createaiactivity\createaiactivity_action
+ * @copyright  2026 Industria Elearning <info@industriaelearning.com>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+final class createaiactivity_action_test extends \advanced_testcase {
+    /**
+     * Build an action instance from raw params.
+     *
+     * @param array $params Action params.
+     * @param int $courseid Course id.
+     * @return createaiactivity_action
+     */
+    private function create_test_action(array $params, int $courseid): createaiactivity_action {
+        $record = (object) [
+            'id' => 1,
+            'ruleid' => 1,
+            'actiontype' => 'createaiactivity',
+            'params' => json_encode($params),
+        ];
+
+        return new createaiactivity_action($record, $courseid);
+    }
+
+    /**
+     * Insert a rule row belonging to the given course and return its id.
+     *
+     * @param int $courseid Course id.
+     * @return int Rule id.
+     */
+    private function create_rule(int $courseid): int {
+        global $DB;
+        return $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'A rule',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
+     * MDL-UNIT-020: the action persists and preloads its defaults (beforemod null maps to 0).
+     *
+     * A round-trip create -> edit must persist exactly one row, update the mutated field, leave
+     * lastexecutiontime untouched, and map an unselected beforemod (null) to 0.
+     *
+     * @covers ::save_action
+     */
+    public function test_save_action_round_trip_persists_single_row_with_beforemod_null_to_zero(): void {
+        global $DB;
+
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $ruleid = $this->create_rule($course->id);
+
+        $record = (object) [
+            'id' => null, 'ruleid' => $ruleid, 'actiontype' => 'createaiactivity', 'params' => json_encode([]),
+        ];
+        $action = new createaiactivity_action($record, $course->id);
+        $action->save_action((object) [
+            'ruleid' => $ruleid,
+            'message' => 'Original prompt',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ]);
+
+        $id = $action->get_id();
+        $DB->set_field(action::TABLE, 'lastexecutiontime', 55555, ['id' => $id]);
+
+        $stored = $DB->get_record(action::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+
+        $defaults = \local_coursedynamicrules\local\form_preload::createaiactivity($storedparams);
+        $this->assertSame(0, $defaults['beforemod']);
+
+        $editaction = new createaiactivity_action($stored, $course->id);
+        $editaction->save_action((object) [
+            'ruleid' => $ruleid,
+            'message' => 'Updated prompt',
+            'generateimages' => true,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ]);
+
+        $this->assertEquals($id, $editaction->get_id());
+        $this->assertEquals(1, $DB->count_records(action::TABLE, ['ruleid' => $ruleid]));
+
+        $final = $DB->get_record(action::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $this->assertEquals(55555, $final->lastexecutiontime);
+        $finalparams = json_decode($final->params);
+        $this->assertEquals('Updated prompt', $finalparams->message);
+        $this->assertTrue($finalparams->generateimages);
+        $this->assertNull($finalparams->beforemod);
+    }
+
+    /**
+     * MDL-UNIT-013: the component page description shows the whole prompt, never the 80-char cut.
+     *
+     * Test description shows image generation status and the module the activity is inserted before.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_shows_generateimages_and_beforemod(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $assign = $this->getDataGenerator()->create_module('assign', [
+            'course' => $course->id,
+            'name' => 'Reference assignment',
+        ]);
+
+        $prompt = 'Create a reinforcement activity about polynomial factorization with several'
+            . ' worked examples and practice questions for struggling students';
+
+        $action = $this->create_test_action([
+            'message' => $prompt,
+            'generateimages' => true,
+            'sectionnum' => 0,
+            'beforemod' => $assign->cmid,
+        ], $course->id);
+
+        $description = $action->get_description();
+
+        $this->assertStringContainsString(get_section_name($course, 0), $description);
+        // Full text, never the 80-char cut: the operator reading the card must see the whole
+        // prompt the AI will receive (product ask 2026-08-31 - "que se vea todo sin cortar").
+        $this->assertStringContainsString($prompt, $description);
+        $this->assertStringContainsString(get_string('yes'), $description);
+        $this->assertStringContainsString('Reference assignment', $description);
+    }
+
+    /**
+     * MDL-UNIT-013: the description omits the insert-position line when there is no beforemod.
+     *
+     * Test description without image generation and without insert position.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_without_images_or_beforemod(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+
+        $action = $this->create_test_action([
+            'message' => 'Short prompt',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $description = $action->get_description();
+
+        $generateimagesstring = get_string(
+            'createaiactivity_description_generateimages',
+            'local_coursedynamicrules',
+            get_string('no')
+        );
+
+        $this->assertStringContainsString($generateimagesstring, $description);
+        $this->assertStringNotContainsString(
+            get_string('createaiactivity_description_beforemod', 'local_coursedynamicrules', ''),
+            $description
+        );
+    }
+
+    /**
+     * MDL-UNIT-013: a deleted beforemod module renders a clean description, no stale id shown.
+     *
+     * Test description does not fail when beforemod points to a deleted module.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_with_stale_beforemod(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+
+        $action = $this->create_test_action([
+            'message' => 'Short prompt',
+            'generateimages' => true,
+            'sectionnum' => 0,
+            'beforemod' => 999999,
+        ], $course->id);
+
+        $description = $action->get_description();
+
+        $this->assertStringContainsString(get_string('yes'), $description);
+        $this->assertStringNotContainsString('999999', $description);
+    }
+
+    /**
+     * Reset the testable action static seams after every test.
+     */
+    protected function tearDown(): void {
+        testable_createaiactivity_action::reset();
+        parent::tearDown();
+    }
+
+    /**
+     * Build a testable action wired to the given params and course.
+     *
+     * @param array $params Action params.
+     * @param int $courseid Course id.
+     * @return testable_createaiactivity_action
+     */
+    private function create_testable_action(array $params, int $courseid): testable_createaiactivity_action {
+        $record = (object) [
+            'id' => 1,
+            'ruleid' => 1,
+            'actiontype' => 'createaiactivity',
+            'params' => json_encode($params),
+        ];
+
+        return new testable_createaiactivity_action($record, $courseid);
+    }
+
+    /**
+     * Build an AI client double whose request() records its arguments and returns a canned response.
+     *
+     * @param array $response Decoded response the double must return.
+     * @param array|null $captured Filled with ['method', 'path', 'body'] on the request() call.
+     * @param bool $expectcall Whether request() must be called exactly once (never when false).
+     * @return ai_course_api
+     */
+    private function mock_api_client(array $response, ?array &$captured = null, bool $expectcall = true): ai_course_api {
+        $client = $this->getMockBuilder(ai_course_api::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['request', 'get_base_url'])
+            ->getMock();
+
+        $client->expects($expectcall ? $this->once() : $this->never())
+            ->method('request')
+            ->willReturnCallback(function ($method, $path, $body = []) use (&$captured, $response) {
+                $captured = ['method' => $method, 'path' => $path, 'body' => $body];
+                return $response;
+            });
+
+        $client->method('get_base_url')->willReturn('https://ai.example.test/api/v1/');
+
+        return $client;
+    }
+
+    /**
+     * Canned flat activity result, as the v2 service returns it (no envelope).
+     *
+     * @param string $name Module name for the generated page.
+     * @return array
+     */
+    private function page_ai_result(string $name = 'AI reinforcement page'): array {
+        return [
+            'action' => 'create',
+            'resource_type' => 'page',
+            'parameters' => [
+                'modulename' => 'page',
+                'name' => $name,
+                'introeditor' => ['text' => '<p>Intro</p>', 'format' => FORMAT_HTML, 'itemid' => 0],
+                'page' => ['text' => '<p>Reinforcement content</p>', 'format' => FORMAT_HTML, 'itemid' => 0],
+                'display' => 5,
+                'printintro' => 0,
+                'printlastmodified' => 1,
+                'visible' => 1,
+                'cmidnumber' => '',
+            ],
+        ];
+    }
+
+    /**
+     * Canned /activity/init response.
+     *
+     * @return array
+     */
+    private function init_response(): array {
+        return ['thread_id' => 'thread-1', 'status' => 'pending'];
+    }
+
+    /**
+     * Arm the testable action with a successful init + completed stream event.
+     *
+     * @param array|null $captured Filled with the init request arguments.
+     * @return void
+     */
+    private function arm_happy_path(?array &$captured = null): void {
+        testable_createaiactivity_action::$client = $this->mock_api_client($this->init_response(), $captured);
+        testable_createaiactivity_action::$streamevent = [
+            'type' => 'completed',
+            'result' => $this->page_ai_result(),
+        ];
+    }
+
+    /**
+     * Create a course plus an enrolled student and return both.
+     *
+     * @return array [course, user]
+     */
+    private function create_course_and_student(): array {
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, 'student');
+
+        return [$course, $user];
+    }
+
+    /**
+     * MDL-UNIT-022: a well-formed AI result creates the module, restricted to the user and visible.
+     *
+     * The action must create the module from the AI result envelope, restrict it to the
+     * target user and leave it visible.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_creates_module_restricted_to_user(): void {
+        $this->require_ai_stack();
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+
+        $this->arm_happy_path();
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertNotNull(testable_createaiactivity_action::$laststreamurl);
+        $this->assertStringContainsString(
+            '/activity/stream/thread-1',
+            testable_createaiactivity_action::$laststreamurl
+        );
+
+        $pages = $DB->get_records('page', ['course' => $course->id]);
+        $this->assertCount(1, $pages);
+        $page = reset($pages);
+        $this->assertSame('AI reinforcement page', $page->name);
+
+        $cm = get_coursemodule_from_instance('page', $page->id, $course->id, false, MUST_EXIST);
+        $this->assertEquals(1, $cm->visible);
+
+        $availability = $DB->get_field('course_modules', 'availability', ['id' => $cm->id]);
+        $this->assertNotEmpty($availability);
+        $this->assertStringContainsString('"type":"user"', $availability);
+        $this->assertStringContainsString((string) $user->id, $availability);
+    }
+
+    /**
+     * The restriction this action writes must be attributable to the plugin, or privacy cannot see it.
+     *
+     * The action restricts the activity it generates to the one student it generated it for, which
+     * puts that student's user id into {course_modules}.availability. Nothing in core accounts for
+     * that column - availability_user is a null_provider - so this plugin's own privacy provider is
+     * the only thing that can export or erase the id. And the provider can only claim a node it can
+     * PROVE it wrote, because claiming an unmarked one would mean rewriting restrictions teachers
+     * added by hand.
+     *
+     * Until this test existed the node was written bare: indistinguishable from a teacher's own
+     * restriction, on a module recorded in no action's params and in no table of the plugin. A
+     * deletion request would have told the student their data was erased while this id stayed.
+     *
+     * The second assertion is the one that matters - the marker is a means, and being reachable
+     * through the privacy provider is the end.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_marks_its_restriction_so_privacy_can_reach_it(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+        $this->arm_happy_path();
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $pages = $DB->get_records('page', ['course' => $course->id]);
+        $this->assertCount(1, $pages, 'Sanity: the action must have created the activity, or nothing below is exercised.');
+        $page = reset($pages);
+        $cm = get_coursemodule_from_instance('page', $page->id, $course->id, false, MUST_EXIST);
+
+        $tree = json_decode($DB->get_field('course_modules', 'availability', ['id' => $cm->id]));
+        $owned = enableactivity_action::owned_user_nodes($tree);
+        $this->assertCount(1, $owned, 'The restriction the action writes must carry this plugin\'s ownership marker.');
+        $this->assertSame([(int) $user->id], array_map('intval', $owned[0]->userids));
+
+        $contexts = \local_coursedynamicrules\privacy\provider::get_contexts_for_userid((int) $user->id);
+        $this->assertSame(
+            [(int) \context_module::instance($cm->id)->id],
+            array_map('intval', $contexts->get_contextids()),
+            'The generated activity holds the student\'s id, so it must be one of their privacy contexts.'
+        );
+    }
+
+    /**
+     * MDL-CTR-001, MDL-UNIT-015: the init payload carries the full outbound contract (anonymized,
+     * at the configured URL) including the resolved request language.
+     *
+     * The /activity/init payload must carry the v2 contract (instructions, with_images,
+     * userid, site_url, auto_approve, service_id), anonymize the instructions, drop the
+     * legacy keys, and hit the configured service URL.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_sends_expected_init_payload(): void {
+        $this->require_ai_stack();
+        global $CFG;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        set_config('datacurso_service_url', 'https://svc.example.test', 'local_coursegen');
+
+        [$course, $user] = $this->create_course_and_student();
+
+        $captured = null;
+        $this->arm_happy_path($captured);
+
+        $action = $this->create_testable_action([
+            'message' => 'Help {$a->firstname} with fractions',
+            'generateimages' => true,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertNotNull($captured);
+        $this->assertSame('POST', $captured['method']);
+        $this->assertSame('/activity/init', $captured['path']);
+
+        $payload = $captured['body'];
+        $this->assertSame('Help [STUDENT_FIRSTNAME] with fractions', $payload['instructions']);
+        $this->assertSame((string) $user->id, $payload['userid']);
+        $this->assertTrue($payload['with_images']);
+        $this->assertSame('en', $payload['lang']);
+        $this->assertSame($CFG->wwwroot, $payload['site_url']);
+        $this->assertTrue($payload['auto_approve']);
+        $this->assertSame('local_coursedynamicrules', $payload['service_id']);
+        $this->assertArrayNotHasKey('message', $payload);
+        $this->assertArrayNotHasKey('generate_images', $payload);
+        $this->assertArrayNotHasKey('course_id', $payload);
+        $this->assertArrayNotHasKey('model_name', $payload);
+        $this->assertArrayNotHasKey('context_type', $payload);
+
+        $this->assertSame('https://svc.example.test', testable_createaiactivity_action::$lasturls['baseurl']);
+    }
+
+    /**
+     * MDL-UNIT-021: an unsupported system-instruction context is ignored, instructions stay untouched.
+     *
+     * The v2 service has no channel for the system instruction context: the payload
+     * must not carry legacy context keys and the instructions must stay untouched.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_ignores_system_instruction_context(): void {
+        $this->require_ai_stack();
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+
+        $instructionid = $DB->insert_record('local_coursegen_system_instruction', (object) [
+            'name' => 'Math tutor',
+            'content' => 'Act as a math tutor.',
+            'deleted' => 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'usermodified' => get_admin()->id,
+        ]);
+        $DB->insert_record('local_coursegen_course_context', (object) [
+            'courseid' => $course->id,
+            'context_type' => \local_coursegen\ai_context::CONTEXT_TYPE_SYSTEM_INSTRUCTION,
+            'system_instruction_id' => $instructionid,
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'usermodified' => get_admin()->id,
+        ]);
+
+        $captured = null;
+        $this->arm_happy_path($captured);
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a reinforcement page',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $payload = $captured['body'];
+        $this->assertSame('Create a reinforcement page', $payload['instructions']);
+        $this->assertArrayNotHasKey('context_type', $payload);
+        $this->assertArrayNotHasKey('system_instruction_name', $payload);
+        $this->assertArrayNotHasKey('prompt_text', $payload);
+    }
+
+    /**
+     * MDL-UNIT-021: a custom prompt context is prepended as a plain-text preamble to the instructions.
+     *
+     * A custom prompt AI context is inlined as a preamble of the instructions,
+     * the only context channel the v2 service supports.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_inlines_custom_prompt_context(): void {
+        $this->require_ai_stack();
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+
+        $DB->insert_record('local_coursegen_course_context', (object) [
+            'courseid' => $course->id,
+            'context_type' => \local_coursegen\ai_context::CONTEXT_TYPE_CUSTOM_PROMPT,
+            'prompt_text' => '<p>Focus on the basics.</p>',
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'usermodified' => get_admin()->id,
+        ]);
+
+        $captured = null;
+        $this->arm_happy_path($captured);
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a reinforcement page',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $payload = $captured['body'];
+        $this->assertStringStartsWith('Focus on the basics.', $payload['instructions']);
+        $this->assertStringContainsString('Create a reinforcement page', $payload['instructions']);
+        $this->assertArrayNotHasKey('context_type', $payload);
+        $this->assertArrayNotHasKey('prompt_text', $payload);
+    }
+
+    /**
+     * MDL-CTR-002: an init response with no thread id fails controlled - no stream, no creation.
+     *
+     * An init response without a thread id must not open the stream nor create anything.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_skips_creation_when_init_has_no_thread(): void {
+        $this->require_ai_stack();
+        // The failure now reaches the task log by contract (final-review observability fix):
+        // this asserts the mtrace happens - delete it and this test names the regression.
+        $this->expectOutputRegex('/createaiactivity failed/');
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->mock_api_client(['ok' => true]);
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertDebuggingCalledCount(1);
+        $this->assertNull(testable_createaiactivity_action::$laststreamurl);
+        $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * MDL-CTR-002: a failed stream event propagates its localized message - no result call, no creation.
+     *
+     * A failed stream event must be reported without touching the result endpoint
+     * and without creating anything.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_skips_creation_when_stream_fails(): void {
+        $this->require_ai_stack();
+        // The failure now reaches the task log by contract (final-review observability fix):
+        // this asserts the mtrace happens - delete it and this test names the regression.
+        $this->expectOutputRegex('/createaiactivity failed/');
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->mock_api_client($this->init_response());
+        testable_createaiactivity_action::$streamevent = [
+            'type' => 'failed',
+            // The service localizes event messages as {string_id, string} objects.
+            'message' => [
+                'string_id' => 'stream_generic_error',
+                'string' => 'We could not complete your request right now.',
+            ],
+            'code' => 'stream_error',
+            'retriable' => false,
+        ];
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertDebuggingCalledCount(1);
+        $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * MDL-UNIT-024: an outdated coursegen version is reported without any paid AI call.
+     *
+     * An outdated coursegen install must be reported without calling the AI service.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_reports_outdated_coursegen(): void {
+        $this->require_ai_stack();
+        global $DB;
+
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->mock_api_client([], $captured, false);
+        testable_createaiactivity_action::$coursegenversiondb = 2025112000;
+
+        $action = $this->create_testable_action([
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ], $course->id);
+
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertDebuggingCalledCount(1);
+        $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * Build an AI client double that answers by route and records every request it receives.
+     *
+     * POST /activity/init answers with a thread, POST /activity/feedback with the service's
+     * acknowledgement and GET /activity/result/{thread} with the given result.
+     *
+     * @param array|null $calls Filled with one ['method', 'path', 'body'] entry per request() call.
+     * @param array $result Decoded response for GET /activity/result/{thread}.
+     * @return ai_course_api
+     */
+    private function routing_api_client(?array &$calls, array $result = []): ai_course_api {
+        $calls = [];
+        $client = $this->getMockBuilder(ai_course_api::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['request', 'get_base_url'])
+            ->getMock();
+
+        $client->method('request')
+            ->willReturnCallback(function ($method, $path, $body = []) use (&$calls, $result) {
+                $calls[] = ['method' => $method, 'path' => $path, 'body' => $body];
+                if ($method === 'POST' && $path === '/activity/init') {
+                    return $this->init_response();
+                }
+                if ($method === 'POST' && $path === '/activity/feedback') {
+                    return ['approval_status' => $body['approval_status'] ?? ''];
+                }
+                return $result;
+            });
+        $client->method('get_base_url')->willReturn('https://ai.example.test/api/v1/');
+
+        return $client;
+    }
+
+    /**
+     * Stream event the service emits when it stops the generation for a plan review.
+     *
+     * @return array
+     */
+    private function review_needed_event(): array {
+        return [
+            'type' => 'review_needed',
+            'current_plan' => ['resource_type' => 'page', 'title' => 'Fractions reinforcement'],
+        ];
+    }
+
+    /**
+     * Keep only the calls made to one method and path prefix.
+     *
+     * @param array $calls Calls recorded by routing_api_client().
+     * @param string $method HTTP method.
+     * @param string $pathprefix Path or path prefix.
+     * @return array
+     */
+    private function calls_to(array $calls, string $method, string $pathprefix): array {
+        return array_values(array_filter($calls, function ($call) use ($method, $pathprefix) {
+            return $call['method'] === $method && strpos($call['path'], $pathprefix) === 0;
+        }));
+    }
+
+    /**
+     * Params of the AI action used by the review tests.
+     *
+     * @return array
+     */
+    private function page_action_params(): array {
+        return [
+            'message' => 'Create a page about fractions',
+            'generateimages' => false,
+            'sectionnum' => 0,
+            'beforemod' => null,
+        ];
+    }
+
+    /**
+     * SYS-E2E-001: a plan stopped for review is approved once and the activity is then created.
+     *
+     * The service ignores auto_approve and pauses on review_needed; the action must approve the
+     * plan, read the stream again and create the module restricted to the user and visible.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_approves_review_needed_plan_and_creates_module(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            ['type' => 'completed', 'result' => $this->page_ai_result()],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertSame(2, testable_createaiactivity_action::$streamreads);
+        $this->assertStringContainsString('/activity/stream/thread-1', testable_createaiactivity_action::$laststreamurl);
+
+        $pages = $DB->get_records('page', ['course' => $course->id]);
+        $this->assertCount(1, $pages);
+        $page = reset($pages);
+        $this->assertSame('AI reinforcement page', $page->name);
+
+        $cm = get_coursemodule_from_instance('page', $page->id, $course->id, false, MUST_EXIST);
+        $this->assertEquals(1, $cm->visible);
+        $availability = $DB->get_field('course_modules', 'availability', ['id' => $cm->id]);
+        $this->assertStringContainsString('"type":"user"', $availability);
+        $this->assertStringContainsString((string) $user->id, $availability);
+    }
+
+    /**
+     * SYS-E2E-001: the approval is exactly one feedback "accept" for the thread, on behalf of the student.
+     *
+     * Under cron $USER is the administrator, so the student's id must travel explicitly.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_sends_one_feedback_accept_for_the_thread(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            ['type' => 'completed', 'result' => $this->page_ai_result()],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $feedback = $this->calls_to($calls, 'POST', '/activity/feedback');
+        $this->assertCount(1, $feedback);
+        $this->assertSame([
+            'thread_id' => 'thread-1',
+            'approval_status' => 'accept',
+            'instruction' => '',
+            'userid' => (string) $user->id,
+        ], $feedback[0]['body']);
+    }
+
+    /**
+     * SYS-E2E-001: after an approved plan completes, the result endpoint is never queried.
+     *
+     * Querying /activity/result for a thread still paused for review answered 404: that was the
+     * error the task log showed.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_never_queries_result_after_review_needed(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            ['type' => 'completed', 'result' => $this->page_ai_result()],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertSame([], $this->calls_to($calls, 'GET', '/activity/result'));
+    }
+
+    /**
+     * SYS-E2E-001: a second review request after the approval stops the generation without more calls.
+     *
+     * One approval round only: approving in a loop could spend credits without limit.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_gives_up_after_a_second_review_needed(): void {
+        global $DB;
+        $this->require_ai_stack();
+        // The service's own reason for the second review must reach the task log.
+        $this->expectOutputRegex('/createaiactivity failed: \[stage: feedback\] .*The plan is missing the question types\./');
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        $secondreview = $this->review_needed_event();
+        $secondreview['message'] = [
+            'string_id' => 'plan_needs_review',
+            'string' => 'The plan is missing the question types.',
+        ];
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            $secondreview,
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertDebuggingCalledCount(1);
+        $this->assertCount(1, $this->calls_to($calls, 'POST', '/activity/feedback'));
+        $this->assertSame([], $this->calls_to($calls, 'GET', '/activity/result'));
+        $this->assertSame(2, testable_createaiactivity_action::$streamreads);
+        $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * SYS-E2E-001: a generation that fails after the approval reports the service's localized message.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_reports_failed_after_approval(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->expectOutputRegex('/createaiactivity failed: .*We could not complete your request right now\./');
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            $this->review_needed_event(),
+            [
+                'type' => 'failed',
+                'message' => [
+                    'string_id' => 'stream_generic_error',
+                    'string' => 'We could not complete your request right now.',
+                ],
+            ],
+        ];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertDebuggingCalledCount(1);
+        $this->assertCount(1, $this->calls_to($calls, 'POST', '/activity/feedback'));
+        $this->assertSame([], $this->calls_to($calls, 'GET', '/activity/result'));
+        $this->assertEquals(0, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * SYS-E2E-001: a stream cut before any lifecycle event still falls back to the persisted result.
+     *
+     * @covers ::execute
+     */
+    public function test_execute_still_falls_back_to_result_when_stream_is_cut(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls, $this->page_ai_result());
+        testable_createaiactivity_action::$streamevent = [];
+
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $result = $this->calls_to($calls, 'GET', '/activity/result');
+        $this->assertCount(1, $result);
+        $this->assertSame('/activity/result/thread-1', $result[0]['path']);
+        $this->assertSame([], $this->calls_to($calls, 'POST', '/activity/feedback'));
+        $this->assertEquals(1, $DB->count_records('page', ['course' => $course->id]));
+    }
+
+    /**
+     * SYS-E2E-001: only lifecycle events end a stream read; progress lines and noise never do.
+     *
+     * @covers ::terminal_event_from_line
+     */
+    public function test_terminal_event_from_line_recognises_lifecycle_events(): void {
+        foreach (['completed', 'failed', 'error', 'review_needed'] as $type) {
+            $event = ['type' => $type, 'thread_id' => 'thread-1'];
+            $this->assertSame(
+                $event,
+                createaiactivity_action::terminal_event_from_line('data: ' . json_encode($event)),
+                "A {$type} event must end the stream read."
+            );
+        }
+
+        $ignored = [
+            'data: ' . json_encode(['type' => 'token', 'content' => 'Frac']),
+            'data: ' . json_encode(['type' => 'done']),
+            'data: ' . json_encode(['type' => 'status', 'status' => 'planning']),
+            'data: ' . json_encode(['content' => 'no type']),
+            'event: message',
+            ': keep-alive',
+            '',
+            'data: {not json',
+            'data: "completed"',
+        ];
+        foreach ($ignored as $line) {
+            $this->assertNull(createaiactivity_action::terminal_event_from_line($line), "Line must be ignored: {$line}");
+        }
+    }
+
+    /**
+     * Skip when the AI companion plugins are absent, as they are on a CI checkout of this plugin alone.
+     *
+     * This guard is a stopgap, not the design. These tests build their client double by reflecting
+     * aiprovider_datacurso's own class, so they cannot run where that plugin is not installed - which is
+     * exactly where CI runs. The fix is a double this plugin owns, injected through a seam, so the
+     * boundary can also be driven into its edge cases: empty response, malformed payload, transport
+     * failure. Until that lands, CI covers none of the AI action's execution paths.
+     *
+     * @return void
+     */
+    private function require_ai_stack(): void {
+        foreach (['aiprovider_datacurso', 'local_coursegen'] as $component) {
+            if (!\core_plugin_manager::instance()->get_plugin_info($component)) {
+                $this->markTestSkipped($component . ' is not installed; the AI activity action requires it.');
+            }
+        }
+    }
+}

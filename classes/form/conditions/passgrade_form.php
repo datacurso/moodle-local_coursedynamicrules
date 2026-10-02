@@ -49,15 +49,21 @@ class passgrade_form extends condition_form {
         $cms = $modinfo->get_cms();
         $options = [];
         foreach ($cms as $cm) {
-            // Get only course modules that require passgrade.
-            if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && $cm->completionpassgrade) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+            // Get only course modules that require passgrade and are not being deleted.
+            if ($cm->completion == COMPLETION_TRACKING_AUTOMATIC && $cm->completionpassgrade && !$cm->deletioninprogress) {
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
             }
         }
 
+        // A blank option FIRST, with an empty label: when the stored activity is gone nothing matches,
+        // the browser selects the first option, and without this the widget would show - and Save
+        // would store - whichever activity happened to come first. Core skips empty-label options
+        // when rebuilding the selection, so this one lands as "no selection" and validation refuses.
+        $options = ['' => ''] + $options;
+
         $attributes = [
             'multiple' => false,
-            'noselectionstring' => get_string('allcourseactivitymodules', 'local_coursedynamicrules'),
+            'noselectionstring' => get_string('selectanactivity', 'local_coursedynamicrules'),
         ];
         $mform->addElement(
             'autocomplete',
@@ -71,6 +77,52 @@ class passgrade_form extends condition_form {
         );
         $mform->setType('coursemodule', PARAM_INT);
 
+        // Only a real ghost gets the notice: the stored activity is gone or being deleted. With the
+        // picker filtering such an activity out, the form would otherwise open blank with no explanation.
+        $stored = isset($customdata['record']) ? (object) $customdata['record'] : null;
+        $storedcmid = (int) ($stored->cmid ?? 0);
+        $storedcm = $storedcmid > 0 ? ($cms[$storedcmid] ?? null) : null;
+        if ($storedcmid > 0 && ($storedcm === null || $storedcm->deletioninprogress)) {
+            $mform->addElement(
+                'static',
+                'targetmissing',
+                '',
+                get_string('componenttargetmissing', 'local_coursedynamicrules')
+            );
+        }
+
         parent::definition();
+    }
+
+    /**
+     * Server side validation: an activity of this course must be selected, and it must not be
+     * one whose deletion is already running - the condition would be born unable to ever be met.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        $cmid = (int) ($data['coursemodule'] ?? 0);
+        $cms = get_fast_modinfo($this->courseid)->cms;
+        if ($cmid <= 0 || !isset($cms[$cmid])) {
+            $errors['coursemodule'] = get_string('errornocoursemodule', 'local_coursedynamicrules');
+        } else if ($cms[$cmid]->deletioninprogress) {
+            $errors['coursemodule'] = get_string('componenttargetmissing', 'local_coursedynamicrules');
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Map the stored 'cmid' param onto the 'coursemodule' autocomplete element.
+     *
+     * @param object $params Decoded stored params for the condition being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return \local_coursedynamicrules\local\form_preload::passgrade($params);
     }
 }

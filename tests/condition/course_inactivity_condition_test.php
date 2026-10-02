@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\condition;
 
 use local_coursedynamicrules\condition\course_inactivity\course_inactivity_condition;
+use local_coursedynamicrules\core\condition;
+use local_coursedynamicrules\form\conditions\course_inactivity_form;
 use stdClass;
 
 /**
@@ -47,10 +49,13 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     /** @var int $ruleid Rule ID for testing */
     private $ruleid;
 
+    /** @var int $courseid Course ID for testing */
+    private $courseid;
+
     /**
      * Test setup.
      */
-    public function setUp(): void {
+    protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest(true);
 
@@ -61,6 +66,7 @@ final class course_inactivity_condition_test extends \advanced_testcase {
 
         $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
         $user = $this->getDataGenerator()->create_user();
+        $this->courseid = $course->id;
 
         /** @var \local_coursedynamicrules_generator  $generator */
         $generator = $this->getDataGenerator()->get_plugin_generator('local_coursedynamicrules');
@@ -97,7 +103,111 @@ final class course_inactivity_condition_test extends \advanced_testcase {
 
         $currentime = $currentime ?? $this->currenttime;
 
-        return new course_inactivity_condition($conditionrecord, null, $currentime);
+        return new course_inactivity_condition($conditionrecord, $this->courseid, $currentime);
+    }
+
+    /**
+     * A round-trip create -> edit must persist exactly one row, same id, unchanged lastexecutiontime,
+     * and preload_defaults() must map the conditional timeintervals key ('recurringinterval' or
+     * 'customintervals') back onto the matching form field for both interval types.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_round_trip_persists_single_row(): void {
+        global $DB;
+
+        $condition = $this->create_test_condition();
+        $condition->save_condition((object) [
+            'ruleid' => $this->ruleid,
+            'intervaltype' => course_inactivity_condition::INTERVAL_RECURRING,
+            'recurringinterval' => '7',
+            'intervalunit' => 'days',
+            'basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT,
+        ]);
+
+        $id = $condition->get_id();
+        $DB->set_field('local_coursedynamicrules_condition', 'lastexecutiontime', 55555, ['id' => $id]);
+
+        $stored = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+        $this->assertSame('7', $storedparams->timeintervals);
+
+        $defaults = \local_coursedynamicrules\local\form_preload::course_inactivity($storedparams);
+        $this->assertSame('7', $defaults['recurringinterval']);
+
+        $editcondition = new course_inactivity_condition($stored, $this->courseid, $this->currenttime);
+        $editcondition->save_condition((object) [
+            'ruleid' => $this->ruleid,
+            'intervaltype' => course_inactivity_condition::INTERVAL_CUSTOM,
+            'customintervals' => '7,14,30',
+            'intervalunit' => 'weeks',
+            'basedatetype' => course_inactivity_condition::DATE_FROM_NOW,
+        ]);
+
+        $this->assertEquals($id, $editcondition->get_id());
+        $this->assertEquals(1, $DB->count_records(condition::TABLE, ['ruleid' => $this->ruleid]));
+
+        $final = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $this->assertEquals(55555, $final->lastexecutiontime);
+        $finalparams = json_decode($final->params);
+        $this->assertEquals(course_inactivity_condition::INTERVAL_CUSTOM, $finalparams->intervaltype);
+        $this->assertEquals('7,14,30', $finalparams->timeintervals);
+        $this->assertEquals('weeks', $finalparams->intervalunit);
+        $this->assertEquals(course_inactivity_condition::DATE_FROM_NOW, $finalparams->basedatetype);
+
+        $defaults2 = \local_coursedynamicrules\local\form_preload::course_inactivity($finalparams);
+        $this->assertSame('7,14,30', $defaults2['customintervals']);
+    }
+
+    /**
+     * A "from course start" base date is not configurable when the course has no start date.
+     *
+     * @covers ::basedate_is_configurable
+     */
+    public function test_basedate_is_configurable_course_start_requires_startdate(): void {
+        global $DB;
+
+        $nostart = $this->getDataGenerator()->create_course()->id;
+        $DB->set_field('course', 'startdate', 0, ['id' => $nostart]);
+        $withstart = $this->getDataGenerator()->create_course(['startdate' => strtotime('2025-01-01')])->id;
+
+        $this->assertFalse(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_COURSE_START,
+                $nostart
+            )
+        );
+        $this->assertTrue(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_COURSE_START,
+                $withstart
+            )
+        );
+    }
+
+    /**
+     * Enrolment and now base dates are always configurable regardless of the course start date.
+     *
+     * @covers ::basedate_is_configurable
+     */
+    public function test_basedate_is_configurable_other_types_ignore_startdate(): void {
+        global $DB;
+
+        $nostart = $this->getDataGenerator()->create_course()->id;
+        $DB->set_field('course', 'startdate', 0, ['id' => $nostart]);
+
+        $this->assertTrue(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_ENROLLMENT,
+                $nostart
+            )
+        );
+        $this->assertTrue(
+            course_inactivity_condition::basedate_is_configurable(
+                course_inactivity_condition::DATE_FROM_NOW,
+                $nostart
+            )
+        );
     }
 
     /**
@@ -221,6 +331,8 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-010: a custom milestone fires only within its 6-hour post-due window and only for a student with no access in the stretch.
+     *
      * Test for evaluate method with custom intervals.
      *
      * @dataProvider evaluate_provider
@@ -253,6 +365,8 @@ final class course_inactivity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-010: in recurrent mode the milestone fires within the window of each interval repetition.
+     *
      * Test for evaluate method with custom intervals.
      *
      * @dataProvider evaluate_provider
@@ -283,5 +397,329 @@ final class course_inactivity_condition_test extends \advanced_testcase {
 
         // Verify the result.
         $this->assertEquals($expected, $result);
+    }
+
+    /**
+     * Data provider of invalid recurring interval values.
+     *
+     * @return array
+     */
+    public static function invalid_recurring_provider(): array {
+        return [
+            'zero' => ['0'],
+            'non numeric' => ['abc'],
+            'empty' => [''],
+        ];
+    }
+
+    /**
+     * An invalid stored recurring interval must not crash the task; the condition returns false.
+     *
+     * @dataProvider invalid_recurring_provider
+     * @covers ::evaluate
+     * @param string $interval Invalid recurring interval.
+     */
+    public function test_evaluate_returns_false_for_invalid_recurring_interval(string $interval): void {
+        $params = [
+            'intervaltype' => course_inactivity_condition::INTERVAL_RECURRING,
+            'timeintervals' => $interval,
+            'basedatetype' => course_inactivity_condition::DATE_FROM_NOW,
+        ];
+        $condition = $this->create_test_condition($params, $this->currenttime);
+
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($user->id, $course->id);
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertFalse($result);
+        $this->assertDebuggingCalled();
+    }
+
+    /**
+     * Invalid recurring intervals are rejected at save time.
+     *
+     * @dataProvider invalid_recurring_provider
+     * @covers ::save_condition
+     * @param string $interval Invalid recurring interval.
+     */
+    public function test_save_condition_rejects_invalid_recurring_interval(string $interval): void {
+        global $DB;
+
+        $condition = $this->create_test_condition();
+
+        $formdata = new stdClass();
+        $formdata->ruleid = $this->ruleid;
+        $formdata->intervaltype = course_inactivity_condition::INTERVAL_RECURRING;
+        $formdata->recurringinterval = $interval;
+        $formdata->intervalunit = 'days';
+        $formdata->basedatetype = course_inactivity_condition::DATE_FROM_ENROLLMENT;
+
+        try {
+            $condition->save_condition($formdata);
+            $this->fail("Expected invalid_parameter_exception for recurring interval '{$interval}'");
+        } catch (\invalid_parameter_exception $e) {
+            $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition'));
+        }
+    }
+
+    /**
+     * Data provider of invalid custom interval strings.
+     *
+     * @return array
+     */
+    public static function invalid_custom_provider(): array {
+        return [
+            'non numeric' => ['abc'],
+            'descending' => ['30,7'],
+            'empty token' => ['7,,14'],
+            'zero token' => ['0,7'],
+            'empty' => [''],
+        ];
+    }
+
+    /**
+     * Invalid custom intervals are rejected at save time.
+     *
+     * @dataProvider invalid_custom_provider
+     * @covers ::save_condition
+     * @param string $intervals Invalid custom intervals string.
+     */
+    public function test_save_condition_rejects_invalid_custom_intervals(string $intervals): void {
+        global $DB;
+
+        $condition = $this->create_test_condition();
+
+        $formdata = new stdClass();
+        $formdata->ruleid = $this->ruleid;
+        $formdata->intervaltype = course_inactivity_condition::INTERVAL_CUSTOM;
+        $formdata->customintervals = $intervals;
+        $formdata->intervalunit = 'days';
+        $formdata->basedatetype = course_inactivity_condition::DATE_FROM_ENROLLMENT;
+
+        try {
+            $condition->save_condition($formdata);
+            $this->fail("Expected invalid_parameter_exception for custom intervals '{$intervals}'");
+        } catch (\invalid_parameter_exception $e) {
+            $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition'));
+        }
+    }
+
+    /**
+     * Valid interval values are persisted.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_persists_valid_intervals(): void {
+        global $DB;
+
+        // Recurring.
+        $recurring = $this->create_test_condition();
+        $fd1 = new stdClass();
+        $fd1->ruleid = $this->ruleid;
+        $fd1->intervaltype = course_inactivity_condition::INTERVAL_RECURRING;
+        $fd1->recurringinterval = '7';
+        $fd1->intervalunit = 'days';
+        $fd1->basedatetype = course_inactivity_condition::DATE_FROM_ENROLLMENT;
+        $recurring->save_condition($fd1);
+
+        // Custom, on a second rule belonging to the same course (upsert()'s insert branch validates
+        // the submitted ruleid against a real row via ownership::get_rule()).
+        $generator = $this->getDataGenerator()->get_plugin_generator('local_coursedynamicrules');
+        $secondruleid = $generator->create_rule($this->courseid, [])->get_id();
+
+        $custom = $this->create_test_condition();
+        $fd2 = new stdClass();
+        $fd2->ruleid = $secondruleid;
+        $fd2->intervaltype = course_inactivity_condition::INTERVAL_CUSTOM;
+        $fd2->customintervals = '7,14,30';
+        $fd2->intervalunit = 'days';
+        $fd2->basedatetype = course_inactivity_condition::DATE_FROM_ENROLLMENT;
+        $custom->save_condition($fd2);
+
+        $rec = json_decode($DB->get_field('local_coursedynamicrules_condition', 'params', ['ruleid' => $this->ruleid]));
+        $this->assertSame('7', (string) $rec->timeintervals);
+
+        $cus = json_decode($DB->get_field('local_coursedynamicrules_condition', 'params', ['ruleid' => $secondruleid]));
+        $this->assertSame('7,14,30', $cus->timeintervals);
+    }
+
+    /**
+     * Multiple enrolments with different start dates must not raise an exception.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_handles_multiple_enrolments(): void {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
+        $user = $this->getDataGenerator()->create_user();
+        $studentrole = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        // Two enrolments with DIFFERENT start dates (the case that currently throws).
+        $manual = enrol_get_plugin('manual');
+        $minstance = $DB->get_record('enrol', ['courseid' => $course->id, 'enrol' => 'manual'], '*', MUST_EXIST);
+        $manual->enrol_user($minstance, $user->id, $studentrole, $this->enrolltime);
+        $self = enrol_get_plugin('self');
+        $sinstanceid = $self->add_instance($course, ['status' => ENROL_INSTANCE_ENABLED, 'roleid' => $studentrole]);
+        $self->enrol_user(
+            $DB->get_record('enrol', ['id' => $sinstanceid], '*', MUST_EXIST),
+            $user->id,
+            $studentrole,
+            $this->enrolltime + (10 * DAYSECS)
+        );
+
+        $condition = $this->create_test_condition(
+            ['basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT, 'timeintervals' => '7'],
+            $this->currenttime
+        );
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertIsBool($result);
+    }
+
+    /**
+     * MDL-UNIT-010: a custom milestone fires within its window for a never-accessed student when the base date falls back to enrolment creation time.
+     *
+     * When the enrolment has timestart = 0 the base date must fall back to the enrolment creation
+     * time, not to the unix epoch.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_uses_timecreated_when_timestart_zero(): void {
+        global $DB;
+
+        $enroltime = strtotime('2025-01-10 08:00:00');
+
+        $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
+        $user = $this->getDataGenerator()->create_user();
+        $studentrole = $DB->get_field('role', 'id', ['shortname' => 'student'], MUST_EXIST);
+
+        // Enrol with timestart = 0, then pin timecreated to a known value.
+        $manual = enrol_get_plugin('manual');
+        $minstance = $DB->get_record('enrol', ['courseid' => $course->id, 'enrol' => 'manual'], '*', MUST_EXIST);
+        $manual->enrol_user($minstance, $user->id, $studentrole, 0);
+        $DB->set_field('user_enrolments', 'timecreated', $enroltime, ['userid' => $user->id]);
+
+        // Custom interval of 7 days from enrolment; evaluate one hour into the interval's window.
+        $currenttime = $enroltime + (7 * DAYSECS) + HOURSECS;
+        $condition = $this->create_test_condition(
+            [
+                'basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT,
+                'intervaltype' => course_inactivity_condition::INTERVAL_CUSTOM,
+                'timeintervals' => '7',
+                'intervalunit' => 'days',
+            ],
+            $currenttime
+        );
+
+        // User never accessed the course, so with a correct base date the condition must fire.
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertTrue($result);
+    }
+
+    /**
+     * A user with no enrolment must not raise an exception; the condition returns false.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_returns_false_without_enrolment(): void {
+        $course = $this->getDataGenerator()->create_course(['startdate' => $this->coursestarttime]);
+        $user = $this->getDataGenerator()->create_user();
+
+        $condition = $this->create_test_condition(
+            ['basedatetype' => course_inactivity_condition::DATE_FROM_ENROLLMENT],
+            $this->currenttime
+        );
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+        $this->assertFalse($result);
+    }
+
+    /**
+     * Provider for the previous-run tests: the condition's last run against the 7-day milestone.
+     *
+     * The student enrolled on 2025-01-10 08:00, so the 7-day milestone falls due on 2025-01-17
+     * 08:00 and this run, at 12:00, sits inside its six-hour window.
+     *
+     * @return array
+     */
+    public static function previous_run_provider(): array {
+        $custom = course_inactivity_condition::INTERVAL_CUSTOM;
+        $recurring = course_inactivity_condition::INTERVAL_RECURRING;
+        return [
+            'custom, never run' => [$custom, '7,14,21', null, true],
+            'recurring, never run' => [$recurring, '7', null, true],
+            'custom, run before the milestone fell due' => [$custom, '7,14,21', strtotime('2025-01-17 07:00:00'), true],
+            'recurring, run before the milestone fell due' => [$recurring, '7', strtotime('2025-01-17 07:00:00'), true],
+            'custom, run the moment it fell due' => [$custom, '7,14,21', strtotime('2025-01-17 08:00:00'), false],
+            'recurring, run the moment it fell due' => [$recurring, '7', strtotime('2025-01-17 08:00:00'), false],
+            'custom, run inside the same window' => [$custom, '7,14,21', strtotime('2025-01-17 09:00:00'), false],
+            'recurring, run inside the same window' => [$recurring, '7', strtotime('2025-01-17 09:00:00'), false],
+        ];
+    }
+
+    /**
+     * MDL-UNIT-010: a milestone is met once, by the first run after it fell due.
+     *
+     * The condition's lastexecutiontime is the start of its previous run: a milestone that fell due
+     * by then was already evaluated, so a second run inside the same window does not meet it again;
+     * one that fell due later (including during that previous run) still is. A condition that never
+     * ran (null, as a fresh or duplicated rule) behaves as before.
+     *
+     * @dataProvider previous_run_provider
+     *
+     * @param string $intervaltype Interval type.
+     * @param string $timeintervals Interval value(s), in days.
+     * @param int|null $lastexecutiontime Start of the condition's previous run.
+     * @param bool $expected Expected result.
+     * @covers ::evaluate
+     */
+    public function test_evaluate_meets_a_milestone_only_after_the_previous_run(
+        string $intervaltype,
+        string $timeintervals,
+        ?int $lastexecutiontime,
+        bool $expected
+    ): void {
+        $course = $this->getDataGenerator()->create_course(
+            ['startdate' => $this->coursestarttime, 'enddate' => $this->courseendtime]
+        );
+        $user = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, 'student', 'manual', $this->enrolltime);
+
+        $condition = $this->create_test_condition(
+            ['intervaltype' => $intervaltype, 'timeintervals' => $timeintervals],
+            strtotime('2025-01-17 12:00:00'),
+            $lastexecutiontime
+        );
+
+        $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
+
+        $this->assertSame($expected, $result);
+    }
+
+    /**
+     * MDL-UNIT-010: a later custom milestone is still met after an earlier one was covered.
+     *
+     * The previous run covered the 7-day milestone; at the 14-day one only the stamp of that run
+     * stands behind it, so it is met.
+     *
+     * @covers ::evaluate
+     */
+    public function test_evaluate_meets_the_next_custom_milestone_after_a_covered_one(): void {
+        $course = $this->getDataGenerator()->create_course(
+            ['startdate' => $this->coursestarttime, 'enddate' => $this->courseendtime]
+        );
+        $user = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, 'student', 'manual', $this->enrolltime);
+
+        $condition = $this->create_test_condition(
+            ['intervaltype' => course_inactivity_condition::INTERVAL_CUSTOM, 'timeintervals' => '7,14,21'],
+            strtotime('2025-01-24 12:00:00'),
+            strtotime('2025-01-17 12:00:00')
+        );
+
+        $this->assertTrue($condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]));
     }
 }

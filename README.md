@@ -38,7 +38,7 @@ Transform Moodle into a **smarter, faster, and more engaging** platform with the
 
 ## Prerequisites
 
-1. Have Moodle version 4.5.
+1. Have Moodle version 4.5 to 5.2.
    
 2. Have Moodle cron configured and running correctly.
    
@@ -141,7 +141,7 @@ This condition runs recurrently every day at `00:00`, `06:00`, `12:00`, and `18:
    Select the base date from which the condition will be evaluated. Available options:
    - `From enrolment date`: Intervals are counted from each user's enrolment date in the course.
    - `From course start date`: Intervals are counted from the course start date.
-   - `From now`: Intervals are counted from the date the rule is created.
+   - `From rule activation`: Intervals are counted from the moment the rule was first activated. Pausing and reactivating the rule does not restart the count.
 
     ![Base date](__docs/images/local_cdr_base-date.png)
    
@@ -251,13 +251,13 @@ Use this condition to evaluate whether users have completed an activity with a p
 
 ## Available actions
 
-### Create AI reinforcement activity (Only for moodle 4.5 or higher)
+### Create AI reinforcement activity (Moodle 4.5 to 5.2)
 
 #### Description
 This action will request the Datacurso AI service to generate a personalised reinforcement activity for users who meet the rule conditions.
 
 #### Pre-requisites
-1. Moodle 4.5 or higher
+1. Moodle 4.5 to 5.2
 2. Have the `Restriction by user` plugin installed and enabled, which can be downloaded for free from: [https://moodle.org/plugins/availability_user](https://moodle.org/plugins/availability_user).
 3. Have the `Course Creator AI` plugin installed and enabled, which can be downloaded for free from: [https://moodle.org/plugins/local_coursegen](https://moodle.org/plugins/local_coursegen).
 

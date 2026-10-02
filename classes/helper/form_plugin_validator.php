@@ -27,6 +27,46 @@ namespace local_coursedynamicrules\helper;
  */
 class form_plugin_validator {
     /**
+     * Which of these plugins are missing or disabled, asked WITHOUT a form.
+     *
+     * add_notifications_to_form() answers the same question, but only while building a form. A
+     * listing needs the answer before it offers a control that leads to that form, so the question
+     * exists on its own here. The two must never disagree - a pencil hidden because a plugin is
+     * missing and a form that explains why are the same verdict seen twice - and a test pins them
+     * together.
+     *
+     * @param array $requiredplugins List of plugin definitions, shaped as add_notifications_to_form() takes them.
+     * @return array Names of the plugins that are missing or disabled (empty array if all are OK).
+     */
+    public static function missing_plugins(array $requiredplugins): array {
+        $missing = [];
+
+        foreach ($requiredplugins as $plugin) {
+            if (self::is_unavailable($plugin)) {
+                $missing[] = $plugin['pluginname'];
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Whether one plugin is missing, or installed but disabled where it can be enabled.
+     *
+     * @param array $plugin Plugin definition with 'pluginname' and optionally 'enableurl'.
+     * @return bool True when the plugin cannot be relied on.
+     */
+    public static function is_unavailable(array $plugin): bool {
+        $plugininfo = \core_plugin_manager::instance()->get_plugin_info($plugin['pluginname']);
+
+        if (empty($plugininfo)) {
+            return true;
+        }
+
+        return $plugininfo->is_enabled() === false && !empty($plugin['enableurl']);
+    }
+
+    /**
      * Adds notifications to the form for any missing or disabled plugins.
      *
      * This method iterates through a given list of required plugins and verifies

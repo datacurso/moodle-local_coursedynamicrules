@@ -22,25 +22,31 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-// TODO Refactor this file.
-
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\availability_user_status;
+use local_coursedynamicrules\helper\page_gate;
+use local_coursedynamicrules\helper\rule_lock;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
 
 $courseid = required_param('courseid', PARAM_INT);
 $ruleid = required_param('ruleid', PARAM_INT);
-$type = optional_param('type', '', PARAM_TEXT);
+$type = optional_param('type', '', PARAM_ALPHAEXT);
 
 $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
-require_capability('local/coursedynamicrules:managecondition', $context);
+// The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
+// unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and
+// the wiring test there pins that this page still makes the call.
+page_gate::require_listing('condition', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/conditions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
-$rulesurl = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $courseid]);
+// Not necessarily the listing: this page demands the COMPONENT pair, and a role holding it
+// without the rule pair would be sent into a refusal (page_gate::listing_url).
+$rulesurl = page_gate::listing_url($courseid, $context);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);
@@ -49,68 +55,151 @@ $PAGE->set_url($url);
 $PAGE->set_context($context);
 $PAGE->set_pagelayout('incourse');
 
-$DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid, 'courseid' => $courseid], '*', MUST_EXIST);
+if (!\local_coursedynamicrules\helper\ownership::rule_belongs_to_course($ruleid, $courseid)) {
+    throw new moodle_exception('invalidruleid', 'local_coursedynamicrules');
+}
 
-// Process form submission BEFORE any output.
+// One lock query per request, not per row: the fact is rule-level and constant here
+// (round-3 confirmed suggestion - rules.php pays zero per-row queries for the same fact).
+$rulelocked = rule_lock::is_locked($ruleid);
+
+// Build and process the edit/create form BEFORE any output is echoed: a cancelled or submitted
+// form redirects, and redirect() cannot run after $OUTPUT->header() has already been sent.
+$editid = optional_param('edit', 0, PARAM_INT);
 $conditioninstance = null;
-if (!empty($type)) {
+$editingexisting = false;
+$formurl = $url;
+if ($editid > 0) {
+    // Bounded in-place editing (product directive 2026-08-31): a component can be edited only
+    // while its rule was never activated - the seal is exactly the advisory boundary the 1.8.1
+    // withholding was waiting for, so the editor returns inside that boundary. This branch must
+    // run before the create branch below, because an edit submission also carries a 'type' and
+    // would otherwise be read as a request to create a brand new condition.
+    require_capability('local/coursedynamicrules:updatecondition', $context);
+    rule_lock::require_unlocked($ruleid);
+    // Ownership binds the edited component to this course AND this rule before anything renders.
+    $conditionrecord = \local_coursedynamicrules\helper\ownership::get_condition($editid, $courseid, $ruleid);
+    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord, $courseid);
+    $editingexisting = true;
+    // The form must post back into THIS branch, or the hidden 'type' would create a duplicate.
+    $formurl = new moodle_url($url, ['edit' => $editid]);
+} else if (!empty($type)) {
+    // The add menu is only rendered for a role that holds this, but the type is a URL
+    // parameter: refuse it here as well.
+    page_gate::require_creation('condition', $context);
+    // A locked rule accepts no new components - the menu below is hidden too, but a URL is
+    // not a menu.
+    rule_lock::require_unlocked($ruleid);
     $conditionrecord = (object) [
+        'ruleid' => $ruleid,
         'conditiontype' => $type,
         'params' => json_encode([]),
-        'ruleid' => $ruleid,
     ];
-    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord);
+    $conditioninstance = rule_component_loader::create_condition_instance($conditionrecord, $courseid);
+}
 
+if ($conditioninstance !== null) {
     $customdata = [
         'courseid' => $courseid,
         'ruleid' => $ruleid,
     ];
-    $conditioninstance->build_editform($url, $customdata, 'post', '', ['class' => 'card p-4']);
+    if ($editingexisting) {
+        // The stored params preload the form (condition_form reads customdata['record']); without
+        // this the pencil would open every field empty.
+        $customdata['record'] = json_decode((string) $conditionrecord->params);
+    }
+    $conditioninstance->build_editform($formurl, $customdata, 'post', '', ['class' => 'card p-4']);
 
     if ($conditioninstance->is_cancelled()) {
         redirect($url);
     } else if ($data = $conditioninstance->get_data()) {
-        $conditioninstance->save_condition($data);
+        $conditionid = $conditioninstance->save_condition($data);
+        $eventclass = $editingexisting
+            ? \local_coursedynamicrules\event\condition_updated::class
+            : \local_coursedynamicrules\event\condition_created::class;
+        $eventclass::create([
+            'context' => $context,
+            'objectid' => $conditionid,
+        ])->trigger();
         redirect($url);
     }
 }
+
+echo $OUTPUT->header();
 
 $conditions = $DB->get_records('local_coursedynamicrules_condition', ['ruleid' => $ruleid]);
 
 $conditionsfortemplate = [];
 foreach ($conditions as $condition) {
-    $conditionitem = rule_component_loader::create_condition_instance($condition, $courseid);
+    $listedconditioninstance = rule_component_loader::create_condition_instance($condition, $courseid);
 
-    $header = $conditionitem->get_header();
-    $description = $conditionitem->get_description();
+    $header = $listedconditioninstance->get_header();
+    $description = $listedconditioninstance->get_description();
 
     if (!empty($header) && !empty($description)) {
-        $deleteurl = new moodle_url(
-            '/local/coursedynamicrules/deletecondition.php',
-            ['id' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
-        );
-        $conditionsfortemplate[] = [
+        $row = [
             'id' => $condition->id,
             'header' => $header,
             'description' => $description,
-            'deleteurl' => $deleteurl->out(false),
         ];
+
+        // Bounded editing: the pencil appears only while the rule was never activated and the
+        // role holds updatecondition - the same pair of gates the edit endpoint enforces.
+        if (has_capability('local/coursedynamicrules:updatecondition', $context) && !$rulelocked) {
+            $editurl = new moodle_url(
+                '/local/coursedynamicrules/conditions.php',
+                ['edit' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['editurl'] = $editurl->out(false);
+            $row['edittitle'] = get_string('editcondition', 'local_coursedynamicrules');
+        }
+
+        // The trash can needs deletecondition - held by managers AND, since 1.8.3, the editing
+        // teacher archetype (RISK_DATALOSS, explicit PROHIBITs respected) - and the shared
+        // template renders it whenever 'deleteurl' is present. Offering it to a role without the
+        // capability puts a control in front of them that the endpoint then refuses with an
+        // error page: never offer what would be refused. The endpoint keeps its own check either
+        // way; this only aligns the offer with it.
+        if (has_capability('local/coursedynamicrules:deletecondition', $context) && !$rulelocked) {
+            $deleteurl = new moodle_url(
+                '/local/coursedynamicrules/deletecondition.php',
+                ['id' => $condition->id, 'ruleid' => $ruleid, 'courseid' => $courseid]
+            );
+            $row['deleteurl'] = $deleteurl->out(false);
+            $row['deletetitle'] = get_string('deletecondition', 'local_coursedynamicrules');
+        }
+
+        $conditionsfortemplate[] = $row;
     }
 }
 
 $conditionoptions = local_coursedynamicrules_load_condition_options();
 
-// Output starts here.
-echo $OUTPUT->header();
-
 // Render heading and branding using reusable renderable.
 $headerrow = new \local_coursedynamicrules\output\header_with_brand('conditions');
 echo $OUTPUT->render($headerrow);
 echo html_writer::link($rulesurl, get_string('backtolistrules', 'local_coursedynamicrules'), ['class' => 'mb-3 d-block']);
+// Losing the per-user availability restriction silently un-hides every activity the rules
+// gate, so the operator has to be told here rather than discovering it through exposed
+// content.
+if (!availability_user_status::is_enabled()) {
+    echo $OUTPUT->notification(
+        get_string('availabilityuserdisabledwarning', 'local_coursedynamicrules'),
+        \core\output\notification::NOTIFY_WARNING
+    );
+}
+
 echo html_writer::start_div('d-flex h-100');
-echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', ['options' => $conditionoptions]);
+
+if (has_capability('local/coursedynamicrules:createcondition', $context) && !$rulelocked) {
+    echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions_menu', [
+        'options' => $conditionoptions,
+        'menulabel' => get_string('addconditions', 'local_coursedynamicrules'),
+    ]);
+}
 echo html_writer::start_div('col-8 h-100');
 echo $OUTPUT->render_from_template('local_coursedynamicrules/conditions', ['conditions' => $conditionsfortemplate]);
+
 if ($conditioninstance !== null) {
     $conditioninstance->show_editform();
 }

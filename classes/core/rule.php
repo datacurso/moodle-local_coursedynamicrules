@@ -28,6 +28,29 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class rule {
+    /**
+     * Whether a course holds any rule of this plugin at all.
+     *
+     * The event observers ask this before queueing an immediate evaluation. Without it they queued
+     * one adhoc task per module grade and per completion on the WHOLE site, including every course
+     * that had never heard of this plugin; each of those tasks loaded the course's rules, found none
+     * and returned. A teacher grading a batch of submissions therefore filled a shared, serial queue
+     * with one no-op task per submission, at the expense of every other plugin's scheduled work.
+     *
+     * Deliberately indifferent to whether the rule is ACTIVE. A narrower check would stop being a
+     * removal of waste and start being a change of behaviour: grade conditions are evaluated from
+     * the observer path and from no scheduled task, so a rule activated between the event and the
+     * task running would silently lose that evaluation. A course holding an inactive rule is a
+     * course where something can still happen; a course holding no rule is not.
+     *
+     * @param int $courseid The course the event happened in.
+     * @return bool Whether anything of this plugin could possibly act on it.
+     */
+    public static function course_has_any_rule(int $courseid): bool {
+        global $DB;
+        return $DB->record_exists('local_coursedynamicrules_rule', ['courseid' => $courseid]);
+    }
+
     /** @var int ID of the rule on the DB */
     private $id;
 
@@ -43,37 +66,39 @@ class rule {
     /** @var action[] List of actions instances */
     private $actions = [];
 
-    /** @var stdClass[] List of users to validate this rule */
+    /** @var iterable<stdClass> Users to validate this rule; objects carrying at least "id". Walked once. */
     private $users;
 
     /** @var array Additional data to add extra checks in conditions to avoid unexpected executions */
     private $additionaldata;
 
+    /** @var string[] Condition types that triggered this evaluation (empty = scheduled/full evaluation) */
+    private $conditiontypes;
+
     /**
      * Rule constructor.
      * @param object $rule
-     * @param stdClass[] $users List of users to validate this rule
+     * @param iterable $users Users to validate this rule - stdClass objects carrying at least "id"; an
+     * array or a single-pass generator, walked once by execute()
      * @param string[] $conditiontypes list of conditions to include in the executions
      * @param array $additionaldata additional data to add extra checks in conditions to avoid unexpected executions
      * of rules if not pass all conditions for each rule of the course are added
      */
-    public function __construct($rule, $users, $conditiontypes = [], $additionaldata = []) {
+    public function __construct($rule, iterable $users, $conditiontypes = [], $additionaldata = []) {
         global $DB;
         $this->id = $rule->id;
         $this->courseid = $rule->courseid;
         $this->users = $users;
         $this->active = $rule->active;
         $this->additionaldata = $additionaldata;
+        $this->conditiontypes = $conditiontypes;
 
-        // Load conditions and actions from the DB.
+        // Load conditions and actions from the DB. ALL conditions are loaded so the rule is always
+        // evaluated as a full AND; $conditiontypes only records which trigger fired (see is_relevant_trigger).
         $conditions = $DB->get_records('local_coursedynamicrules_condition', ['ruleid' => $this->id]);
         $actions = $DB->get_records('local_coursedynamicrules_action', ['ruleid' => $this->id]);
 
         foreach ($conditions as $conditionrecord) {
-            if (!empty($conditiontypes) && !in_array($conditionrecord->conditiontype, $conditiontypes)) {
-                // Skip condition.
-                continue;
-            }
             $this->conditions[] = rule_component_loader::create_condition_instance($conditionrecord, $this->courseid);
         }
 
@@ -99,10 +124,8 @@ class rule {
         if (empty($this->conditions)) {
             return false;
         }
-        $cmid = $this->get_cmid_from_additionaldata();
-        if ($cmid) {
-            $rulecontext->cmid = $cmid;
-        }
+        // Every condition must be satisfied (AND). Each condition evaluates its own current state;
+        // trigger relevance is handled at rule level in is_relevant_trigger().
         foreach ($this->conditions as $condition) {
             if (!$condition->evaluate($rulecontext)) {
                 return false;
@@ -112,12 +135,67 @@ class rule {
     }
 
     /**
+     * Whether the trigger that caused this evaluation is relevant to the rule.
+     *
+     * Scheduled/full evaluations (no trigger types) are always relevant. Event evaluations are
+     * relevant only when a condition of the triggering family targets the activity the event
+     * was fired for; this prevents a rule from firing on unrelated events without forcing sibling
+     * conditions to false (which would break the AND).
+     *
+     * A rule holding a one-shot condition is never relevant to an event: the scheduled pass is its
+     * only executor and switches it off in the same operation, so an event evaluation could only
+     * add a second notification to the same arming (MDL-INT-021). Nothing legitimate is lost:
+     * before the date the one-shot condition is false, and after it the pass evaluates everyone.
+     *
+     * @return bool
+     */
+    private function is_relevant_trigger() {
+        if (empty($this->conditiontypes)) {
+            return true;
+        }
+
+        foreach ($this->conditions as $condition) {
+            if ($condition->is_one_shot()) {
+                return false;
+            }
+        }
+
+        $cmid = $this->get_cmid_from_additionaldata();
+        if (!$cmid) {
+            return false;
+        }
+
+        foreach ($this->conditions as $condition) {
+            if (!in_array($condition->get_type(), $this->conditiontypes)) {
+                continue;
+            }
+            $params = $condition->get_params();
+            if (isset($params->cmid) && (int) $params->cmid === (int) $cmid) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Execute all actions of the rule if the conditions are true
      */
     public function execute() {
         if (empty($this->conditions) || empty($this->actions)) {
             return;
         }
+
+        // Only fire when the trigger concerns this rule (an event on a referenced activity, or a
+        // scheduled task for a condition type the rule uses).
+        if (!$this->is_relevant_trigger()) {
+            return;
+        }
+
+        // The stamp is the moment the run started, not the one it ended: a condition reading it
+        // as "evaluated up to here" (the inactivity milestones) must not lose a milestone that fell
+        // due while a long run walked the course.
+        $runstart = time();
 
         foreach ($this->users as $user) {
             $rulecontext = (object)[
@@ -134,7 +212,7 @@ class rule {
         }
 
         // After the rule is executed, set the last execution time.
-        $this->set_last_execution_time(time());
+        $this->set_last_execution_time($runstart);
     }
 
     /**
@@ -150,17 +228,68 @@ class rule {
     /**
      * Set the active status of the rule
      * @param bool $active 1 indicates that the rule is active, 0 indicates that the rule is inactive
+     *
+     * NOTE (round-3 review): activating here does NOT re-check completeness - that gate lives in
+     * the endpoints (rule_form::validation() and editrule's doactivate/confirm), the only paths a
+     * user can take. Production calls this with false only (the one-shot task's self-pause); a
+     * future caller passing true for an incomplete rule would seal a rule that can never fire -
+     * route new activations through the editrule flow instead.
      */
     public function set_active($active) {
         global $DB;
+
+        // Read the stored value before writing over it. The event below means "the engine switched
+        // this off", and only a real 1 -> 0 transition is that: writing 0 over a 0 stopped nothing.
+        // The row is asked rather than $this->active because an instance can outlive the value it
+        // was built with.
+        $wasactive = (int) $DB->get_field('local_coursedynamicrules_rule', 'active', ['id' => $this->id]);
+
         $this->active = $active ? 1 : 0;
         $DB->set_field('local_coursedynamicrules_rule', 'active', $this->active, ['id' => $this->id]);
+
+        // The engine calls this to switch a one-shot cron rule off right after it runs
+        // (no_complete_activity_task is its only caller). Stamping THAT moment is what lets the badge
+        // tell an engine-executed rule apart from one a teacher paused by hand: a manual pause never
+        // reaches here (editrule.php writes 'active' directly and rule_lock::sanitise_locked_write
+        // clears this stamp), so only a genuine self-deactivation carries it. Reactivation clears it
+        // so a later manual pause reads as 'paused', never a stale 'executed'.
+        $DB->set_field(
+            'local_coursedynamicrules_rule',
+            'timeautodeactivated',
+            $this->active ? null : time(),
+            ['id' => $this->id]
+        );
+
+        // After the write, never before: the stamp is conditional on what the ROW says, and it is
+        // idempotent, so every path that touches 'active' calls it unconditionally.
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active((int) $this->id);
+
+        // Only a real stop is audited. Reactivation is not an engine decision, and recording it
+        // under this type would answer "who stopped this rule?" with the opposite of the truth; a
+        // stop on a rule that was already stopped would answer it about an event that never
+        // happened. The timeautodeactivated stamp above is deliberately left unguarded: its
+        // reactivation branch must stay idempotent, and production's only caller - the one-shot
+        // task - cannot reach the double-stop path.
+        //
+        // The actor is named explicitly. Core defaults it to $USER->id, and cron runs as a copy of
+        // the site administrator, so the default would answer that same question with the name of a
+        // person who did nothing - the very confusion this event exists to remove. USER_OTHER is
+        // core's own value for "system, cli or cron", used by the grade engine for the same reason.
+        if (!$this->active && $wasactive) {
+            \local_coursedynamicrules\event\rule_autodeactivated::create([
+                'context' => \context_course::instance((int) $this->courseid),
+                'objectid' => (int) $this->id,
+                'userid' => \core\event\base::USER_OTHER,
+            ])->trigger();
+        }
     }
 
     /**
      * Sets the last execution time for the rule.
      *
      * This method updates the 'lastexecutiontime' field in the 'local_coursedynamicrules_rule' table
+     * and in each of its conditions and actions. An event evaluation leaves out the conditions
+     * whose stamp belongs to the scheduled pass (condition::is_clocked_by_schedule()).
      *
      * @param int $time The timestamp of the last execution time.
      */
@@ -169,6 +298,9 @@ class rule {
         $DB->set_field('local_coursedynamicrules_rule', 'lastexecutiontime', $time, ['id' => $this->id]);
 
         foreach ($this->conditions as $condition) {
+            if (!empty($this->conditiontypes) && $condition->is_clocked_by_schedule()) {
+                continue;
+            }
             $condition->set_last_execution_time($time);
         }
 
@@ -195,6 +327,8 @@ class rule {
     public function delete() {
         global $DB;
 
+        $record = $DB->get_record('local_coursedynamicrules_rule', ['id' => $this->id]);
+
         foreach ($this->conditions as $condition) {
             $condition->delete();
         }
@@ -203,17 +337,32 @@ class rule {
             $action->delete();
         }
 
-        return $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
+        $result = $DB->delete_records('local_coursedynamicrules_rule', ['id' => $this->id]);
+
+        $event = \local_coursedynamicrules\event\rule_deleted::create([
+            'context' => \context_course::instance($this->courseid),
+            'objectid' => $this->id,
+        ]);
+        if ($record) {
+            $event->add_record_snapshot('local_coursedynamicrules_rule', $record);
+        }
+        $event->trigger();
+
+        return $result;
     }
 
     /**
      * Retrieves the course module ID (cmid) from the additional data.
-     * Tries using completion ID first, then grade ID.
+     * Uses the cmid itself when the evaluation carries it (grade events), then the completion ID,
+     * then the grade ID (evaluations queued before grade events carried the cmid).
      *
      * @return int|null Course module ID if found, or null if not available.
      */
     private function get_cmid_from_additionaldata() {
         global $DB;
+        if (!empty($this->additionaldata['cmid'])) {
+            return (int) $this->additionaldata['cmid'];
+        }
         if (isset($this->additionaldata['completionid'])) {
             return $this->get_cmid_from_completionid();
         }
@@ -258,6 +407,8 @@ class rule {
             ]
         );
 
+        // The grade row may have been deleted between the event dispatch and this run; degrade to
+        // null (handled as "not relevant") instead of dereferencing a false record.
         return $record ? $record->cmid : null;
     }
 }

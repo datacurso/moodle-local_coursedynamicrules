@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\enrolled_users;
+use local_coursedynamicrules\helper\task_batch;
 
 /**
  * Class no_complete_activity_task
@@ -46,6 +48,9 @@ class no_complete_activity_task extends \core\task\scheduled_task {
     public function execute() {
         global $DB;
 
+        $starttime = microtime(true);
+        $batchsize = task_batch::size();
+
         $rules = $DB->get_records_sql(
             "SELECT DISTINCT r.*
             FROM
@@ -57,15 +62,43 @@ class no_complete_activity_task extends \core\task\scheduled_task {
             ['conditiontype' => $this->conditiontype]
         );
 
+        $executed = 0;
+        $totalusers = 0;
+
         foreach ($rules as $rule) {
-            $users = enrol_get_course_users($rule->courseid);
+            // Active-only enrolled users (excludes suspended and deleted users, one row per user however
+            // many enrolments they hold), walked in pages of $batchsize ids: the rule engine reads
+            // nothing but the id, and a course is never held in memory whole. Nothing is queried
+            // until the rule is really executed; the walk itself is live (see helper\enrolled_users).
+            $context = \context_course::instance($rule->courseid);
+            $users = enrolled_users::ids($context, $batchsize);
+
             $ruleinstance = new rule($rule, $users);
             $conditions = $ruleinstance->get_conditions();
 
             if ($this->is_time_to_execute_rule($ruleinstance) && !empty($conditions)) {
+                // Counted only for a rule that runs, for the report and the threshold notice.
+                $usercount = count_enrolled_users($context, '', 0, true);
+                $totalusers += $usercount;
+                if ($usercount > $batchsize) {
+                    mtrace("local_coursedynamicrules: course {$rule->courseid} has {$usercount} enrolled users "
+                        . "(over batch threshold {$batchsize}) while evaluating rule {$rule->id}.");
+                }
                 $ruleinstance->execute();
                 $ruleinstance->set_active(false);
+                $executed++;
             }
+        }
+
+        if (!empty($rules)) {
+            mtrace(sprintf(
+                'local_coursedynamicrules: %s evaluated %d active rules and %d users, executed %d, in %.2fs.',
+                $this->conditiontype,
+                count($rules),
+                $totalusers,
+                $executed,
+                microtime(true) - $starttime
+            ));
         }
     }
 
@@ -77,12 +110,13 @@ class no_complete_activity_task extends \core\task\scheduled_task {
         $conditions = $rule->get_conditions();
 
         foreach ($conditions as $condition) {
-            $now = time();
+            // Only this task's own condition carries a date: a sibling condition of a mixed rule
+            // (e.g. complete_activity) has no expectedcompletiondate to read.
+            if ($condition->get_type() != $this->conditiontype) {
+                continue;
+            }
 
-            $params = $condition->get_params();
-            $expectedcompletiondate = $params->expectedcompletiondate;
-
-            if ($condition->get_type() == $this->conditiontype && $now < $expectedcompletiondate) {
+            if (time() < $condition->get_params()->expectedcompletiondate) {
                 return false;
             }
         }
