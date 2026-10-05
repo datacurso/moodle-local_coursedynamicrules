@@ -20,7 +20,6 @@ use completion_info;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\complete_activity_form;
-use stdClass;
 
 /**
  * Class complete_activity_condition
@@ -90,17 +89,9 @@ class complete_activity_condition extends condition {
         $userid = $context->userid;
         $cmid = $this->params->cmid;
 
-        // This is for evaluate the condition only for the course module obtained from event observer related data.
-        if (isset($context->cmid) && $context->cmid != $cmid) {
-            return false;
-        }
-
         $modinfo = get_fast_modinfo($courseid, $userid);
         // Get in this form because the $modinfo->get_cm($cmid) throws an error if the activity module is not found.
-        if (!array_key_exists($cmid, $modinfo->cms)) {
-            return false;
-        }
-        $cminfo = $modinfo->cms[$cmid];
+        $cminfo = $modinfo->cms[$cmid] ?? null;
         if (!$cminfo || $cminfo->deletioninprogress) {
             return false;
         }
@@ -125,19 +116,15 @@ class complete_activity_condition extends condition {
      * @param object $formdata
      */
     public function save_condition($formdata) {
-        global $DB;
+        $cmid = clean_param($formdata->coursemodule ?? 0, PARAM_INT);
+        if ($cmid <= 0) {
+            throw new \invalid_parameter_exception('A course module must be selected');
+        }
         $params = [
-            'cmid' => $formdata->coursemodule,
+            'cmid' => $cmid,
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
-
-        $this->set_data($condition);
-
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        return $this->upsert($params, $formdata);
     }
 
     /**
@@ -159,13 +146,14 @@ class complete_activity_condition extends condition {
         $cmid = $this->params->cmid;
         $modinfo = get_fast_modinfo($courseid);
         $cms = $modinfo->get_cms();
-        if (!array_key_exists($cmid, $cms)) {
-            return '';
-        }
-        $cminfo = $cms[$cmid];
+        $cminfo = $cms[$cmid] ?? null;
 
-        if (!$cminfo) {
-            return '';
+        // A deleted (or being-deleted) activity leaves a ghost: it must still describe itself so the
+        // components page and the rules list keep showing it, trash can included. Deletion in
+        // progress counts as gone - the recycle bin leaves a deleted module in that state until cron
+        // runs, and evaluate() already refuses to fire on it.
+        if (!$cminfo || $cminfo->deletioninprogress) {
+            return $this->get_missing_target_description();
         }
         $options = [
             'moddescription' => ucfirst($cminfo->modname) . " - " . $cminfo->name,

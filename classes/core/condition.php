@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\core;
 
 use local_coursedynamicrules\form\conditions\condition_form;
+use local_coursedynamicrules\helper\ownership;
 use stdClass;
 
 /**
@@ -27,6 +28,9 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 abstract class condition {
+    /** @var string DB table storing condition rows. */
+    const TABLE = 'local_coursedynamicrules_condition';
+
     /** @var int ID of the condition on the DB */
     private $id;
 
@@ -90,6 +94,112 @@ abstract class condition {
     }
 
     /**
+     * This condition's params for a DUPLICATED copy, decoded and ready to json_encode() into the
+     * copy's row. Verbatim by default - duplication promises to reproduce the rule's ideas exactly
+     * - overridden by a concrete condition that stores something a copy must not carry over
+     * unchanged (contrast with runtime_param_keys()/adjust_runtime_param(), the different, EDIT-time
+     * contract for preserving a stored value across an operator's save).
+     *
+     * A params column that does not decode to an object (a stray scalar, list or invalid JSON - the
+     * state upsert() guards against for the same reason) has no fields to copy: the copy starts empty
+     * rather than inheriting a shape no consumer can read.
+     *
+     * @return array
+     */
+    public function params_for_duplicate(): array {
+        return is_object($this->params) ? (array) $this->params : [];
+    }
+
+    /**
+     * Runtime-only param keys whose stored value must survive an edit even though the operator
+     * form does not submit them (e.g. a throttle timestamp maintained by the condition itself).
+     *
+     * @return array
+     */
+    protected function runtime_param_keys(): array {
+        return [];
+    }
+
+    /**
+     * Adjust a runtime-only param before it overwrites the freshly submitted value in $params
+     * (FIX3-10). The base behaviour is a blunt force-win: the stored value survives byte-for-byte,
+     * unconditionally. Concrete conditions may override this to refine preservation with domain
+     * logic instead - e.g. a throttle timestamp that should still advance when the operator-facing
+     * value driving it changes, rather than being blindly clobbered back to what was stored.
+     *
+     * @param string $key Runtime param key currently being reconciled.
+     * @param mixed $storedvalue The value currently stored for $key.
+     * @param array $newparams The full new params about to be persisted (already contains whatever
+     *              the operator submitted this save).
+     * @return mixed The value to persist for $key.
+     */
+    protected function adjust_runtime_param(string $key, $storedvalue, array $newparams) {
+        return $storedvalue;
+    }
+
+    /**
+     * Insert or update this condition's DB row.
+     *
+     * On update, only {id, params} are written: ruleid, conditiontype and lastexecutiontime are
+     * never part of the UPDATE, so a tampered hidden ruleid becomes inert and runtime scheduling
+     * state is preserved by construction.
+     *
+     * @param array $params Params to persist, built by the concrete save_condition().
+     * @param stdClass $formdata Submitted form data.
+     * @return int The condition id.
+     */
+    protected function upsert(array $params, stdClass $formdata): int {
+        global $DB;
+
+        // Read before set_data() below, which nulls $this->id when given an id-less record.
+        $existingid = $this->get_id();
+        $record = new stdClass();
+
+        // The lock is enforced AT THE WRITE, not only at the endpoint: conditions.php checked the
+        // URL's ruleid, but the insert below targets the form's hidden ruleid - the same
+        // decided-here-written-there seam as the editrule capability bug. Resolve the rule this
+        // write actually lands on (the stored component's rule on update, the ownership-validated
+        // form ruleid on insert) and refuse if it is sealed. Rule deletion is NOT gated here:
+        // deleting a whole rule deletes its components and stays allowed by contract.
+        $targetruleid = !empty($existingid)
+            ? (int) $this->ruleid
+            : (int) ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+        \local_coursedynamicrules\helper\rule_lock::require_unlocked($targetruleid);
+
+        if (!empty($existingid)) {
+            foreach ($this->runtime_param_keys() as $key) {
+                // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
+                // still be reconciled via adjust_runtime_param() instead of silently falling through
+                // to whatever default the concrete save_*() method computed for a brand-new row -
+                // which would silently re-arm a throttle on edit (FIX3-10). is_object() guard
+                // (FIX4): property_exists() throws a TypeError on a non-object under PHP 8, and
+                // $this->params can be non-object if the stored 'params' column ever decodes to
+                // something other than a JSON object (e.g. a stray JSON scalar/array).
+                if (is_object($this->params) && property_exists($this->params, $key)) {
+                    $params[$key] = $this->adjust_runtime_param($key, $this->params->$key, $params);
+                }
+            }
+            $record->id = $existingid;
+            $record->params = json_encode($params);
+            $DB->update_record(static::TABLE, $record);
+
+            // Re-hydrate fields dropped from the update object, for the set_data() call below.
+            $record->ruleid = $this->ruleid;
+            $record->conditiontype = $this->type;
+            $record->lastexecutiontime = $this->lastexecutiontime;
+        } else {
+            // The very id the lock was decided on - one resolution, one write target.
+            $record->ruleid = $targetruleid;
+            $record->conditiontype = $this->type;
+            $record->params = json_encode($params);
+            $record->id = $DB->insert_record(static::TABLE, $record);
+        }
+
+        $this->set_data($record, $this->courseid);
+        return $record->id;
+    }
+
+    /**
      * Set the data of the condition
      * @param object $record Record that represents data stored in DB
      * @param int $courseid the course id
@@ -98,9 +208,11 @@ abstract class condition {
         $this->id = $record->id ?? null;
         $this->type = $record->conditiontype;
         $this->courseid = $courseid;
+        // The create-branch seed record built by conditions.php always carries a ruleid, but this
+        // stays defensive against any other caller that does not.
         $this->ruleid = $record->ruleid ?? null;
         $this->lastexecutiontime = $record->lastexecutiontime ?? null;
-        $this->params = json_decode($record->params ?? '{}');
+        $this->params = json_decode($record->params);
     }
 
     /**
@@ -162,6 +274,15 @@ abstract class condition {
     }
 
     /**
+     * Rule id this component belongs to, or null before it is loaded.
+     *
+     * @return int|null
+     */
+    public function get_ruleid() {
+        return $this->ruleid;
+    }
+
+    /**
      * Deletes a condition record from the 'local_coursedynamicrules_condition' table. and related information with it.
      *
      * @return bool True on success, false on failure.
@@ -170,7 +291,20 @@ abstract class condition {
     public function delete() {
         global $DB;
 
-        return $DB->delete_records('local_coursedynamicrules_condition', ['id' => $this->id]);
+        $record = $DB->get_record('local_coursedynamicrules_condition', ['id' => $this->id]);
+
+        $result = $DB->delete_records('local_coursedynamicrules_condition', ['id' => $this->id]);
+
+        $event = \local_coursedynamicrules\event\condition_deleted::create([
+            'context' => \context_course::instance($this->courseid),
+            'objectid' => $this->id,
+        ]);
+        if ($record) {
+            $event->add_record_snapshot('local_coursedynamicrules_condition', $record);
+        }
+        $event->trigger();
+
+        return $result;
     }
 
     /**
@@ -193,6 +327,50 @@ abstract class condition {
      * @return string
      */
     abstract public function get_description();
+
+    /**
+     * The description as the RULES LIST should show it: free text cut, everything else whole.
+     *
+     * Two screens read a component's description and they need different things. The conditions
+     * and actions pages, reached through a rule's magnifier, show what the component will really
+     * do - the whole notification body, the whole AI prompt - and get get_description(). The rules
+     * list summarises one row per rule and needs bounded height, so it gets this.
+     *
+     * The default is get_description(), unchanged, because most components have nothing unbounded
+     * to cut: a condition's description is 83-126 characters of fixed text plus an activity name.
+     * Only the components carrying free text a teacher types without limit override this, and each
+     * cuts ITS OWN part.
+     *
+     * That is the whole point, and the reason the previous attempt failed. Cutting the COMPOSED
+     * sentence at a fixed length cannot work: a notification's description opens with "Enviar
+     * notificacion '<asunto>' a los usuarios Destinatarios: <roles>. Con copia a: <roles>.
+     * Mensaje: " - measured at 120 characters with one role and 196 with five, in Spanish with
+     * default role names - so the budget was spent before the message began and the list showed no
+     * body at all. Neither the subject (CHAR 255) nor the role list has an upper bound, so no
+     * single number over the composed string can both bound the row and guarantee visible text.
+     *
+     * @return string
+     */
+    public function get_listing_description() {
+        return $this->get_description();
+    }
+
+    /**
+     * The description of a component whose target activity no longer exists in the course.
+     *
+     * A component is rendered only while it has a description: conditions.php, actions.php and
+     * component_renderer::descriptions_html() all skip an empty one. Returning '' for a deleted
+     * activity therefore made the component vanish from every listing while its row stayed in the
+     * database - evaluating false forever, still counting towards the rule's completeness, and
+     * unreachable by the only trash can the operator has. A ghost must describe itself, with a
+     * warning, so it can be seen and removed. One string for every component type, so the listing
+     * reads the same whichever condition lost its activity.
+     *
+     * @return string
+     */
+    protected function get_missing_target_description(): string {
+        return get_string('componenttargetmissing', 'local_coursedynamicrules');
+    }
 
     /**
      * Creates and returns an instance of the form for editing the item
@@ -229,6 +407,36 @@ abstract class condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     abstract public function save_condition($formdata);
+
+    /**
+     * Whether this condition makes its rule one-shot.
+     *
+     * A one-shot rule is executed by a single scheduled pass, which switches the rule off in the
+     * same operation; no event evaluation may ever execute it (see rule::is_relevant_trigger()).
+     * Otherwise an event arriving after the condition became true would notify a student, and the
+     * next pass would notify the same student again within the same arming.
+     *
+     * @return bool
+     */
+    public function is_one_shot(): bool {
+        return false;
+    }
+
+    /**
+     * Whether this condition's lastexecutiontime belongs to the scheduled pass alone.
+     *
+     * A condition that reads its own stamp as the start of the previous scheduled pass - the
+     * inactivity condition, which meets a milestone only once that pass is behind it - must not be
+     * stamped by an event evaluation (see rule::set_last_execution_time()). An event evaluates the
+     * rule for the one student it concerns; its stamp would put a milestone already due behind the
+     * next pass's horizon, and every other student would miss it.
+     *
+     * @return bool
+     */
+    public function is_clocked_by_schedule(): bool {
+        return false;
+    }
 }

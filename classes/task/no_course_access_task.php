@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\enrolled_users;
+use local_coursedynamicrules\helper\task_batch;
 
 /**
  * Class no_course_access_task
@@ -47,6 +49,8 @@ class no_course_access_task extends \core\task\scheduled_task {
         global $DB;
 
         $conditiontype = $this->conditiontype;
+        $starttime = microtime(true);
+        $batchsize = task_batch::size();
 
         // Retrieve all active rules with the specified condition type.
         $rules = $DB->get_records_sql(
@@ -60,14 +64,42 @@ class no_course_access_task extends \core\task\scheduled_task {
             ['conditiontype' => $conditiontype]
         );
 
+        $executed = 0;
+        $totalusers = 0;
+
         // Iterate through each rule and execute if conditions are met.
         foreach ($rules as $rule) {
-            $users = enrol_get_course_users($rule->courseid);
+            // Active-only enrolled users (excludes suspended and deleted users, one row per user however
+            // many enrolments they hold), walked in pages of $batchsize ids: the rule engine reads
+            // nothing but the id, and a course is never held in memory whole. Nothing is queried
+            // until the rule is really executed; the walk itself is live (see helper\enrolled_users).
+            $context = \context_course::instance($rule->courseid);
+            $users = enrolled_users::ids($context, $batchsize);
+
             $ruleinstance = new rule($rule, $users);
             if ($this->could_be_execute_rule($ruleinstance)) {
+                // Counted only for a rule that runs, for the report and the threshold notice.
+                $usercount = count_enrolled_users($context, '', 0, true);
+                $totalusers += $usercount;
+                if ($usercount > $batchsize) {
+                    mtrace("local_coursedynamicrules: course {$rule->courseid} has {$usercount} enrolled users "
+                        . "(over batch threshold {$batchsize}) while evaluating rule {$rule->id}.");
+                }
                 $ruleinstance->execute();
                 $this->set_time_period($ruleinstance);
+                $executed++;
             }
+        }
+
+        if (!empty($rules)) {
+            mtrace(sprintf(
+                'local_coursedynamicrules: %s evaluated %d active rules and %d users, executed %d, in %.2fs.',
+                $conditiontype,
+                count($rules),
+                $totalusers,
+                $executed,
+                microtime(true) - $starttime
+            ));
         }
     }
 

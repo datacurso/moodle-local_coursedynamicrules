@@ -16,8 +16,8 @@
 
 namespace local_coursedynamicrules\form\actions;
 
+use local_coursedynamicrules\action\createaiactivity\createaiactivity_action;
 use local_coursedynamicrules\helper\form_plugin_validator;
-use moodle_url;
 
 /**
  * Class createaiactivity_form
@@ -76,7 +76,17 @@ class createaiactivity_form extends action_form {
         $mform->addRule('message', null, 'required', null, 'client');
         $mform->addHelpButton('message', 'createaiactivity_prompt', 'local_coursedynamicrules');
 
-        $placeholderstext = $OUTPUT->render_from_template('local_coursedynamicrules/notification_placeholders', []);
+        $markers = [];
+        foreach (createaiactivity_action::placeholder_markers() as $marker) {
+            $markers[] = [
+                'name' => $marker,
+                'label' => get_string($marker, 'local_coursedynamicrules'),
+            ];
+        }
+        $placeholderstext = $OUTPUT->render_from_template(
+            'local_coursedynamicrules/notification_placeholders',
+            ['markers' => $markers]
+        );
         $mform->addElement('static', 'message_placeholders', '', $placeholderstext);
 
         $mform->addElement(
@@ -110,7 +120,7 @@ class createaiactivity_form extends action_form {
             if ($cm->deletioninprogress) {
                 continue;
             }
-            $beforeoptions[$cm->id] = ucfirst($cm->modname) . ' - ' . $cm->name;
+            $beforeoptions[$cm->id] = ucfirst($cm->modname) . ' - ' . $cm->get_formatted_name();
         }
 
         $mform->addElement(
@@ -127,23 +137,23 @@ class createaiactivity_form extends action_form {
     }
 
     /**
+     * Map stored params into the defaults consumed by set_data().
+     *
+     * @param object $params Decoded stored params for the action being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return \local_coursedynamicrules\local\form_preload::createaiactivity($params);
+    }
+
+    /**
      * Returns the required plugins needed by the action.
      *
      * @return array
      */
     private function get_required_plugins() {
-        $plugins = [
-            [
-                'pluginname' => 'availability_user',
-                'enableurl' => new moodle_url('/admin/tool/availabilityconditions/'),
-                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
-            ],
-            [
-                'pluginname' => 'local_coursegen',
-                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
-            ],
-        ];
-
-        return $plugins;
+        // Asked of the action, so the pencil in the listing and the notifications on this form can
+        // never disagree about what is needed.
+        return createaiactivity_action::required_plugins();
     }
 }

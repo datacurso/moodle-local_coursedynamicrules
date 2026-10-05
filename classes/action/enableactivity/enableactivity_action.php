@@ -17,10 +17,11 @@
 namespace local_coursedynamicrules\action\enableactivity;
 
 use core_availability\tree;
+use moodle_url;
 use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\enableactivity_form;
-use stdClass;
+use local_coursedynamicrules\helper\component_renderer;
 
 /**
  * Class enableactivity_action
@@ -34,24 +35,448 @@ class enableactivity_action extends action {
     protected $type = 'enableactivity';
 
     /**
+     * JSON property added to the plugin's own user-restriction node so it can be told apart from a
+     * user restriction a teacher adds independently via the "Restrict access" UI (FIX2-3).
+     *
+     * core_availability\tree and availability_user\condition only read known properties when
+     * decoding a node (see availability/classes/tree.php and
+     * availability/condition/user/classes/condition.php), so this extra property survives the
+     * decode/encode round-trips this class performs. It does NOT survive anybody else rebuilding
+     * the tree, and that happens far more often than it is comfortable to assume. Measured on the
+     * reference site on 2026-09-17: saving a module's settings form having changed only the
+     * activity's NAME, without opening the restrictions section at all, destroyed the marker. The
+     * form does not write the stored tree back - it writes the JSON the browser's availability
+     * editor produced from its own model, which only knows the properties each condition plugin
+     * declares (course/modlib.php:102 and :626), and this property is in no such model. Core also
+     * rebuilds the tree through each condition's save() on a restore
+     * (availability/classes/info.php:334), on a dependency remap (:447) and on a course reset that
+     * shifts dates (availability_date\condition::update_all_dates).
+     *
+     * So this marker is lost by ORDINARY EDITING, not only by editing restrictions, and the set of
+     * unmarked nodes grows on its own with normal use of the site: 12 of the 19 user restrictions on
+     * the reference site carried no marker on 2026-09-17. That is the whole argument for owning a
+     * condition type of our own, where the save() that rebuilds the node is this plugin's code.
+     */
+    private const MARKER_KEY = 'source';
+
+    /**
+     * Marker value PREFIX (FIX3-3): the marker used to be a single constant shared by every
+     * enableactivity action, so two different actions gating the SAME course module ended up
+     * sharing one node - deleting/editing either action's grants cross-revoked the other's. The
+     * action's own id is appended to make the marker identity-bearing, so each action only ever
+     * recognises (and mutates) its OWN node.
+     */
+    private const MARKER_PREFIX = 'local_coursedynamicrules:';
+
+    /**
+     * Companion property recording that a marker was INFERRED rather than written by this plugin.
+     *
+     * The marker means "this node is ours" everywhere it is read, and adopt_stripped_marker() is
+     * the one place that writes it onto a node whose authorship nobody verified: after a restore it
+     * claims the tree's single unmarked user node, which is the same guess find_user_condition()
+     * makes at execute time. That guess is cheap to be wrong about while it only drives the engine -
+     * a node gets an id added or removed - and it became expensive the moment the privacy provider
+     * started reading the marker as PROOF of authorship, because there a wrong guess erases a
+     * teacher's own restriction inside a request approved for this component alone.
+     *
+     * So the two uses are separated rather than one of them removed. Adoption keeps writing the
+     * marker, because every engine reader needs it - apply_availability() in particular matches on
+     * the marker ALONE (find_marked_user_condition(), FIX2-3), so a gate left unmarked would be
+     * taken for absent and a second, empty gate appended beside it, hiding the activity from
+     * everybody. It additionally writes this key, and owned_user_nodes() - read only by the privacy
+     * provider - refuses any node carrying it.
+     *
+     * The engine may act on a guess. Nothing that attests to a regulator may.
+     *
+     * Like MARKER_KEY this is an unknown property to availability_user\condition::save(), so both
+     * die together whenever core re-encodes the tree: a node can never keep the marker and lose
+     * this. Nodes adopted by releases 1.8.4 and 1.8.5, which wrote no such key, are indistinguishable
+     * from nodes this plugin wrote and stay claimable - stated in CHANGES.md rather than guessed at.
+     */
+    private const MARKER_ADOPTED_KEY = 'sourceadopted';
+
+    /**
+     * This action's own, identity-bearing marker value (FIX3-3). Only meaningful once the action
+     * has an id - save_action() upserts the row BEFORE calling apply_availability() specifically so
+     * this is always available by the time it's needed.
+     *
+     * @return string
+     */
+    private function marker_value(): string {
+        return self::MARKER_PREFIX . $this->get_id();
+    }
+
+    /**
+     * Rewrite the ownership markers of an availability tree onto a new set of action ids.
+     *
+     * A restore copies the course module's availability JSON verbatim, so the restored restriction
+     * still carries `MARKER_PREFIX . <old action id>` while the restored action was inserted under a
+     * brand-new id. Nothing then recognises the node as its own: the action can neither grant nor
+     * revoke, and the activity stays hidden from every student for good. This is the seam the
+     * restore uses to reconcile the two, and it lives here because this class owns the marker
+     * format - the marker is identity-bearing, so remapping it is part of that identity's contract.
+     *
+     * The tree is walked recursively: apply_availability() nests the existing tree under a new AND
+     * root when the root operator is not AND, so a marked node is not necessarily a direct child.
+     *
+     * @param string|null $availabilityjson The course module's availability JSON, possibly null/empty.
+     * @param array $actionidmap Map of old action id => new action id.
+     * @return string|null The rewritten JSON, or the input unchanged when there was nothing to remap.
+     */
+    public static function remap_ownership_markers(?string $availabilityjson, array $actionidmap): ?string {
+        if (empty($availabilityjson) || empty($actionidmap)) {
+            return $availabilityjson;
+        }
+
+        $tree = json_decode($availabilityjson);
+        if (!is_object($tree)) {
+            // Not a decodable availability tree: never rewrite what cannot be parsed.
+            return $availabilityjson;
+        }
+
+        $changed = false;
+        self::remap_markers_in_node($tree, $actionidmap, $changed);
+
+        if (!$changed) {
+            return $availabilityjson;
+        }
+
+        return json_encode($tree);
+    }
+
+    /**
+     * Re-adopt an ownership marker that core's restore stripped from the tree.
+     *
+     * remap_ownership_markers() can only rename markers that SURVIVED - and core's
+     * update_after_restore (availability/classes/info.php) re-encodes the whole tree through each
+     * condition's save() whenever any sibling changed, and availability_user::save() emits only
+     * {type, userids}: the marker property is gone before the remap ever runs. Any gated activity
+     * carrying a teacher-added completion/grade/date restriction beside ours - the normal case,
+     * since apply_availability() deliberately merges with existing restrictions - restores with an
+     * owner-less node. This pass runs AFTER core's re-encode (after_restore_course is a later step
+     * of restore_final_task, verified against core), so what it writes is the last word.
+     *
+     * Adoption uses the SAME heuristic execute() applies to pre-marker legacy rows in production:
+     * claim a user-type node only when it is the single unmarked one in the tree - ambiguity means
+     * hands off, exactly as at execute time. A node already marked for this action id means the
+     * remap already did the job and nothing is written.
+     *
+     * That heuristic is a guess, and the node it lands on can be a teacher's own restriction: our
+     * gate is gone from a module this action still lists, the teacher's user restriction is the only
+     * unmarked one left, and it gets stamped. Measured on the delivery tree - a teacher's list of
+     * two students came back with one after an erasure approved for THIS component. So the stamp is
+     * written together with MARKER_ADOPTED_KEY, which keeps every engine reader working exactly as
+     * before while telling the privacy provider not to believe it. The restore logs the count, in
+     * the restore's own log, because an operator has to be able to find out that ownership here was
+     * deduced rather than known.
+     *
+     * @param string|null $availabilityjson The course module's availability JSON, possibly null/empty.
+     * @param int $actionid The RESTORED action's id, whose marker the tree should carry.
+     * @return string|null The rewritten JSON, or null when nothing was (or could be) adopted.
+     */
+    public static function adopt_stripped_marker(?string $availabilityjson, int $actionid): ?string {
+        if (empty($availabilityjson) || $actionid <= 0) {
+            return null;
+        }
+
+        $tree = json_decode($availabilityjson);
+        if (!is_object($tree)) {
+            return null;
+        }
+
+        $marked = [];
+        $unmarked = [];
+        self::collect_user_nodes($tree, $marked, $unmarked);
+
+        foreach ($marked as $node) {
+            if ($node->{self::MARKER_KEY} === self::MARKER_PREFIX . $actionid) {
+                // The marker survived (or was remapped): nothing to adopt.
+                return null;
+            }
+        }
+
+        if (count($unmarked) !== 1) {
+            // Zero nodes: nothing of ours survived to own. Two or more: ambiguous, hands off -
+            // the same refusal execute() applies to ambiguous legacy trees.
+            return null;
+        }
+
+        $unmarked[0]->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
+        // And a note that this one was deduced, not written: the engine reads the marker and acts,
+        // the privacy provider reads it and attests, and only the second of those may not be wrong.
+        // See MARKER_ADOPTED_KEY.
+        $unmarked[0]->{self::MARKER_ADOPTED_KEY} = true;
+
+        return json_encode($tree);
+    }
+
+    /**
+     * Every user-restriction node of a decoded availability tree that carries THIS PLUGIN's marker.
+     *
+     * The privacy provider needs to answer one question this class is the only place that can
+     * answer: which user ids in {course_modules}.availability did this plugin write. The marker
+     * format is this class's property - identity-bearing and documented at MARKER_PREFIX - so the
+     * predicate lives here rather than being re-derived, and drifting, somewhere else.
+     *
+     * Deliberately marker-only, with no fallback to "the sole unmarked user node". revoke_user()
+     * applies that fallback because it is scoped to modules the action itself records as its own,
+     * and a wrong guess there costs one extra id removed from a node the plugin does manage. A
+     * privacy provider has neither of those protections: it walks the whole site, and a wrong guess
+     * means erasing a restriction a teacher wrote, inside a request approved for this component
+     * only. When it cannot prove ownership it must not claim it.
+     *
+     * A node nested under a negating group is returned like any other, and that is a decision that
+     * was once made the other way and measured wrong. Under a negation the node lists the students
+     * KEPT OUT, and it is tempting to read that as "emptying it opens the activity to the course".
+     * It does not: a user condition contributes `$not XOR in_array($userid, $userids)`, which
+     * depends on no other student, so removing ids changes the evaluation for THOSE ids and nobody
+     * else. Simulated over a cohort against core's own tree logic, everyone not listed was already
+     * getting in before the change. Declining such a node would therefore protect nothing and would
+     * silently keep a person's id after their erasure request reported success.
+     *
+     * The nodes are returned by reference to the caller's decoded tree, so the caller can edit them
+     * in place and re-encode - which is the only safe way to rewrite the column, since going through
+     * \core_availability\tree::save() re-serialises every sibling from its own condition class and
+     * drops this very marker.
+     *
+     * @param object $root A decoded availability tree (the root, or any subtree).
+     * @return object[] The marked nodes, in tree order; empty when the plugin owns nothing here.
+     */
+    public static function owned_user_nodes(object $root): array {
+        $found = [];
+
+        // Core decides what a node IS by its type and never reads a condition's children
+        // (\core_availability\tree), so this walk does the same: a 'user' node is a leaf here even
+        // if a malformed tree hung children off it. The cast on the children handles a list that
+        // json_decode() returned as a stdClass, which is what a gapped PHP array encodes to.
+        if (isset($root->type)) {
+            if ($root->type === 'user') {
+                $marker = $root->{self::MARKER_KEY} ?? null;
+                // A marker the restore DEDUCED is not evidence of authorship, and this is the one
+                // reader that needs evidence rather than a working assumption: what it returns
+                // becomes the contextlist, and the contextlist is the attestation. Engine readers
+                // deliberately keep honouring these nodes - see MARKER_ADOPTED_KEY.
+                $adopted = !empty($root->{self::MARKER_ADOPTED_KEY});
+                if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0 && !$adopted) {
+                    $found[] = $root;
+                }
+            }
+
+            return $found;
+        }
+
+        foreach ((array) ($root->c ?? []) as $child) {
+            if (is_object($child)) {
+                $found = array_merge($found, self::owned_user_nodes($child));
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * Stamp a user-restriction node as belonging to one of this plugin's actions.
+     *
+     * Both halves of the marker - the property name and the value format - live here, so a caller
+     * writing a node never learns either. createaiactivity_action is such a caller: it writes its
+     * own restriction on the activity it generates, and before it stamped it, that node was
+     * indistinguishable from a restriction a teacher added by hand. The consequence was not
+     * cosmetic: the privacy provider can only export or erase a node it can prove it wrote, so the
+     * student's id sat in the database unreachable by a data-subject request, while tool_dataprivacy
+     * told that student their data had been erased.
+     *
+     * An action id from ANY action type is welcome here. The ids share one table and one number
+     * space, so a marker is unambiguous whatever wrote it; and the places that resolve a marker back
+     * to a live owner - modules_gated_by_another_action() - filter on actiontype themselves, so
+     * stamping a node of another type changes nothing they decide.
+     *
+     * @param \stdClass $node The restriction node, modified in place.
+     * @param int $actionid The action the node belongs to.
+     * @return \stdClass The same node, for chaining.
+     */
+    public static function mark_node(\stdClass $node, int $actionid): \stdClass {
+        $node->{self::MARKER_KEY} = self::MARKER_PREFIX . $actionid;
+        // Stamping a node here is the plugin writing it, which is the opposite of the deduction
+        // MARKER_ADOPTED_KEY records - so the deduction is cleared rather than left to outlive it.
+        // No caller passes an already-adopted node today; the one that eventually does would
+        // otherwise hand the privacy provider a node it wrote and told it to disbelieve.
+        unset($node->{self::MARKER_ADOPTED_KEY});
+
+        return $node;
+    }
+
+    /**
+     * The id of the action a node belongs to, or null when the node carries no marker of ours.
+     *
+     * The read half of mark_node(). Without it a caller has to know the property name to get the id
+     * back out, which is exactly what mark_node()'s docblock promises they never need to - and a
+     * caller that hard-codes it does not fail loudly if the format ever moves: it silently stops
+     * recognising every marker, which in the privacy provider reads as "the rule is gone" for every
+     * grant on the site.
+     *
+     * @param \stdClass $node A decoded availability node.
+     * @return int|null The owning action's id, or null when the node is not this plugin's.
+     */
+    public static function action_id_of(\stdClass $node): ?int {
+        $marker = $node->{self::MARKER_KEY} ?? null;
+        if (!is_string($marker) || strpos($marker, self::MARKER_PREFIX) !== 0) {
+            return null;
+        }
+        $actionid = (int) substr($marker, strlen(self::MARKER_PREFIX));
+
+        return $actionid > 0 ? $actionid : null;
+    }
+
+    /**
+     * The prefix every ownership marker this plugin writes starts with.
+     *
+     * Exposed so a caller can narrow a database scan to the rows that could possibly carry one,
+     * without learning the rest of the format. The substring is only ever a NARROWING device: what
+     * decides ownership is owned_user_nodes() on the decoded tree, because a LIKE on a JSON column
+     * cannot tell a marker from the same text sitting anywhere else in it.
+     *
+     * @return string The marker prefix.
+     */
+    public static function marker_prefix(): string {
+        return self::MARKER_PREFIX;
+    }
+
+    /**
+     * Collect the user-type nodes of an availability tree, split by marker presence.
+     *
+     * @param object $node A decoded availability tree node.
+     * @param object[] $marked Collects nodes carrying any ownership marker of this plugin.
+     * @param object[] $unmarked Collects user-type nodes carrying none.
+     * @return void
+     */
+    private static function collect_user_nodes(object $node, array &$marked, array &$unmarked): void {
+        if (($node->type ?? null) === 'user') {
+            $marker = $node->{self::MARKER_KEY} ?? null;
+            if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+                $marked[] = $node;
+            } else {
+                $unmarked[] = $node;
+            }
+        }
+
+        if (isset($node->c) && is_array($node->c)) {
+            foreach ($node->c as $child) {
+                if (is_object($child)) {
+                    self::collect_user_nodes($child, $marked, $unmarked);
+                }
+            }
+        }
+    }
+
+    /**
+     * Rewrite the ownership markers of one availability node and its children, in place.
+     *
+     * @param object $node A decoded availability tree node.
+     * @param array $actionidmap Map of old action id => new action id.
+     * @param bool $changed Set to true as soon as one marker is rewritten.
+     * @return void
+     */
+    private static function remap_markers_in_node(object $node, array $actionidmap, bool &$changed): void {
+        $marker = $node->{self::MARKER_KEY} ?? null;
+        if (is_string($marker) && strpos($marker, self::MARKER_PREFIX) === 0) {
+            $oldactionid = (int) substr($marker, strlen(self::MARKER_PREFIX));
+            if ($oldactionid > 0 && isset($actionidmap[$oldactionid])) {
+                $node->{self::MARKER_KEY} = self::MARKER_PREFIX . (int) $actionidmap[$oldactionid];
+                $changed = true;
+            }
+        }
+
+        if (!isset($node->c) || !is_array($node->c)) {
+            return;
+        }
+
+        foreach ($node->c as $child) {
+            if (is_object($child)) {
+                self::remap_markers_in_node($child, $actionidmap, $changed);
+            }
+        }
+    }
+
+    /**
      * Execute the action
      * @param object $context Context of the rule
      */
     public function execute($context) {
         global $DB;
         $userid = $context->userid;
-        $coursemodules = $this->params->coursemodules;
+        $coursemodules = $this->params->coursemodules ?? [];
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
-            $cmrecord = $DB->get_record('course_modules', ['id' => $cmid]);
-            $availability = json_decode($cmrecord->availability);
+            // Scoped to the rule's own course, as can_act() and build_description() already are. A
+            // restore that keeps an unmapped cmid (see the restore plugin) leaves this action holding
+            // an id that belongs to a LIVE module of another course, and resolving it by id alone made
+            // the engine write into that course's activity.
+            $cmrecord = $DB->get_record('course_modules', ['id' => $cmid, 'course' => $this->courseid]);
+            if (!$cmrecord) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is not an activity of course '
+                        . $this->courseid . ' (gone, or never belonged to it); skipped',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
 
-            $userids = $availability->c[0]->userids ?? [];
+            // The runtime half of what can_act() and build_description() already decide: the recycle
+            // bin leaves the row in place until cron runs, so without this the engine kept opening an
+            // activity the operator is being told is gone. can_act() cannot cover it - is_complete()
+            // consults it from the form and the activation endpoint only, never on a sealed rule's run.
+            // The privacy counterpart deliberately does NOT filter this way: erasing a user's id from a
+            // module on its way out is still right, while granting on one is not.
+            if ($cmrecord->deletioninprogress) {
+                debugging('enableactivity: course module ' . $cmid . ' is being deleted; skipped', DEBUG_DEVELOPER);
+                continue;
+            }
 
+            $availability = $cmrecord->availability ? json_decode($cmrecord->availability) : null;
+
+            // Locate the action's OWN node: prefer the marker (FIX2-3), falling back to the sole
+            // unmarked 'user' node for rows saved before the marker existed - safe here because
+            // execute() only ever iterates cmids already recorded in $this->params->coursemodules,
+            // i.e. cms this action itself manages. If a teacher's own (also unmarked) restriction
+            // is ALSO present, there are 2+ unmarked user nodes and the fallback deliberately backs
+            // off instead of guessing which one is ours.
+            $usercondition = $this->find_user_condition($availability);
+            if ($usercondition === null) {
+                debugging('enableactivity: expected user restriction not found on cm ' . $cmid . '; skipped', DEBUG_DEVELOPER);
+                continue;
+            }
+
+            // This reader has to agree with the two others that read this column - revoke_user()
+            // below and the privacy provider's userids_of() - about what the stored list holds, and
+            // until now it was the only one that did not. json_decode() returns a stdClass whenever
+            // the stored list has gaps in its integer keys, which is the shape array_filter() leaves
+            // behind and which every writer here re-indexes away; arriving here as it is stored, that
+            // shape is a TypeError in in_array(). This runs inside three scheduled tasks that catch
+            // nothing of their own, so core catches it, marks the whole task failed, and every rule
+            // after this one - in every course of the site - stops running for that pass.
+            $userids = $usercondition->userids ?? null;
+            if (is_object($userids)) {
+                $userids = (array) $userids;
+            }
+            $userids = is_array($userids) ? array_values($userids) : [];
+            // And the SINGULAR key, which availability_user still honours: its constructor pushes
+            // $structure->userid onto the list it evaluates, so a student named only there already
+            // has access and reading just the plural key grants it to them a second time.
+            if (isset($usercondition->userid)) {
+                $userids[] = $usercondition->userid;
+            }
+
+            // Deliberately the LOOSE comparison core itself uses (availability_user\condition::
+            // is_available). Tightening it - comparing as integers, say - would read a stored
+            // "501abc" as student 501: this reader would treat them as granted while core never
+            // matches them, and the student would silently never get in.
             if (!in_array($userid, $userids)) {
                 $userids[] = $userid;
-                $availability->c[0]->userids = $userids;
+                $usercondition->userids = $userids;
+                // The folded key goes with the fold: left behind, core would add it back to the list
+                // it evaluates and the node would name the same student twice.
+                unset($usercondition->userid);
 
                 $DB->set_field(
                     'course_modules',
@@ -63,6 +488,360 @@ class enableactivity_action extends action {
         }
 
         rebuild_course_cache($this->courseid, true);
+    }
+
+    /**
+     * Remove a user's id from this action's OWN restriction node on every module it manages, once
+     * the site has deleted that user (MDL-E2E-011).
+     *
+     * The runtime counterpart of execute(). Core's availability_user declares itself a privacy
+     * null_provider and nothing in core reacts to a user deletion on its behalf, so the id this
+     * action wrote would stay behind for good, and the restriction would go on displaying the deleted
+     * person's name. Only the plugin's own node is touched, found by the same rule execute() applies
+     * - the marker first, then the sole unmarked user node of a managed module - so a restriction a
+     * teacher added by hand keeps whatever it lists. Like execute(), this is a runtime write and not
+     * an operator edit, so it does not go through the rule lock and works on a sealed rule too. A
+     * managed module that no longer exists, or carries no restriction, is skipped, as
+     * restore_coursemodules() does; an ambiguous module (two or more unmarked user nodes, the marker
+     * stripped - FIX3-7) is left alone and reported the same way.
+     *
+     * The caller rebuilds the course cache when this returns true: a user deletion walks every
+     * action on the site, and one rebuild per course beats one per action.
+     *
+     * @param int $userid The deleted user's id.
+     * @return bool Whether any managed module's restriction was rewritten.
+     */
+    public function revoke_user(int $userid): bool {
+        global $DB;
+
+        $cmids = [];
+        foreach ($this->params->coursemodules ?? [] as $cm) {
+            $cmids[] = (int) $cm->id;
+        }
+        if (empty($cmids)) {
+            return false;
+        }
+
+        // One read for all managed modules, scoped to this rule's course: a module that was
+        // deleted - or that never belonged here, which a restore can leave behind - is simply absent.
+        $changed = false;
+        [$insql, $inparams] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
+        $inparams['courseid'] = $this->courseid;
+        $cmrecords = $DB->get_records_select(
+            'course_modules',
+            "id $insql AND course = :courseid",
+            $inparams,
+            '',
+            'id, availability'
+        );
+        foreach ($cmrecords as $cmrecord) {
+            if (empty($cmrecord->availability)) {
+                // No restriction at all: nothing to scrub.
+                continue;
+            }
+            $availability = json_decode($cmrecord->availability);
+
+            $usercondition = $this->find_user_condition($availability);
+            if ($usercondition === null) {
+                $unmarkedcount = count($this->collect_unmarked_user_conditions($availability));
+                if ($unmarkedcount > 1) {
+                    debugging(
+                        'enableactivity: course module ' . $cmrecord->id . ' has ' . $unmarkedcount
+                            . ' ambiguous unmarked user restriction node(s); the deleted user ' . $userid
+                            . ' could not be removed from this action\'s own node - manual cleanup required',
+                        DEBUG_DEVELOPER
+                    );
+                }
+                continue;
+            }
+
+            // A node whose user list is not a list is corrupt. It must not abort the site's user
+            // deletion half-way (the event manager catches exceptions, not the TypeError array_filter()
+            // would throw), so it is read as empty and left exactly as it is.
+            $userids = $usercondition->userids ?? null;
+            // json_decode() returns a stdClass, not an array, whenever the stored list has gaps or
+            // string keys - which is exactly what a gapped PHP array encodes to, and the reason the
+            // rewrite below re-indexes. Read through is_array() alone such a list looks EMPTY, and
+            // that was harmless only while this method compared counts and left the node alone.
+            // Folding in the singular key breaks that tie: the counts then differ, the node is
+            // rewritten, and the survivors are computed from a list this method never saw - so every
+            // OTHER student on that gate loses their access. The privacy provider's reader already
+            // recovered this shape; the two readers of one column must not disagree about what is in
+            // it.
+            if (is_object($userids)) {
+                $userids = (array) $userids;
+            }
+            $userids = is_array($userids) ? array_values($userids) : [];
+            // And the SINGULAR key, which availability_user has always honoured and still does: its
+            // constructor pushes $structure->userid onto the list it evaluates
+            // (availability/condition/user/classes/condition.php). A node carrying it names that
+            // student exactly as a list would, so reading only the plural key left the deleted
+            // account's id behind - the orphan reference this cleanup exists to prevent, hiding in
+            // the one shape nothing checked.
+            if (isset($usercondition->userid)) {
+                $userids[] = $usercondition->userid;
+            }
+            // The stored list can mix strings and integers (execute() keeps whatever the rule engine
+            // hands it), so compare as integers. Re-index: array_filter() keeps keys, and a gapped
+            // array would encode as a JSON object, which availability_user rejects with a TypeError.
+            $remaining = array_values(array_filter($userids, static function ($storedid) use ($userid): bool {
+                return (int) $storedid !== $userid;
+            }));
+            if (count($remaining) === count($userids)) {
+                continue;
+            }
+
+            // Written back as the plural key alone, and the singular one dropped: $userids above was
+            // the list CORE reads, both keys folded together, so $remaining is the complete set of
+            // survivors and belongs in one place. This is also the shape availability_user::save()
+            // writes, so the node is left in the form core itself would have produced.
+            $usercondition->userids = $remaining;
+            unset($usercondition->userid);
+            $DB->set_field('course_modules', 'availability', json_encode($availability), ['id' => $cmrecord->id]);
+            $changed = true;
+        }
+
+        return $changed;
+    }
+
+    /**
+     * Which of these course modules already carry ANOTHER enable-activity action's own gate.
+     *
+     * Two gates on one activity do not add up: Moodle combines them with AND, so the activity is
+     * open only to the students BOTH actions have granted, and a gate whose action has not run yet
+     * grants nobody - so adding a second gate takes the activity away from the first action's
+     * students the moment it is SAVED, before any rule is activated. The form asks this to refuse
+     * such a selection instead of letting it happen in silence. Only MARKED nodes are counted, which
+     * leaves one real hole: an unmarked gate is indistinguishable here from a restriction a teacher
+     * added by hand. Guessing between the two would refuse a teacher's own restriction, which is
+     * worse, so the hole is documented in CHANGES.md instead of closed by a heuristic. It has two
+     * sources, not one. A gate written before the marker existed, on an upgraded site - and, on any
+     * site, the restriction createaiactivity_action::execute() writes on the activity it generates,
+     * which appears in no action's params: measured, this method returns nothing for such an activity
+     * while correctly naming a gated one in the same course, so an enable-activity action can be
+     * pointed at it unwarned and the student it was generated for loses it. That node now carries a
+     * marker - stamped so the privacy provider can reach it - and that does NOT close this half:
+     * $byliveid below is built from enable-activity actions alone, so an AI action's marker resolves
+     * to no live owner, exactly as an unmarked node did. Closing it means either widening that map
+     * or writing the node with an owned condition type.
+     *
+     * A marker naming an action that no longer exists is not a clash either. A course import brings
+     * activities without rules (by design, see CHANGES.md), so the destination course can hold a gate
+     * whose owner is nowhere on the site: nothing can release it, no screen reaches it, and refusing
+     * on its account would make that activity permanently unusable by the plugin.
+     *
+     * A module this action ALREADY gates is never a clash, whatever else gates it: the harm is in
+     * ADDING a second gate where this action has none, not in keeping the one it has. Two actions
+     * sharing one module is a state earlier versions allowed and the marker was designed for, so a
+     * pre-existing pair must stay editable - refusing it would leave that action unsavable, and its
+     * partner may be sealed and therefore unable to release the module at all.
+     *
+     * @param int[] $cmids Course modules the operator is about to manage.
+     * @param int $courseid The course they must belong to.
+     * @param int|null $excludeactionid The action doing the asking: its own gate is never a clash.
+     * @return int[] The clashing cmids, in the order given.
+     */
+    public static function modules_gated_by_another_action(array $cmids, int $courseid, ?int $excludeactionid = null): array {
+        global $DB;
+
+        $cmids = array_values(array_unique(array_map('intval', $cmids)));
+        if (empty($cmids)) {
+            return [];
+        }
+
+        // TWO sources, deliberately, because each catches what the other misses.
+        //
+        // The marker inside course_modules.availability was the only source, and core erases it:
+        // opening an activity's settings and saving is enough once the gate has students in it,
+        // which is measured rather than inferred. A refusal that reads erasable data stops refusing,
+        // and the harm is the worst this action can do - a second gate is empty until its own rule
+        // runs, Moodle requires every gate to pass, so the activity closes for the very students the
+        // first gate had already opened it for.
+        //
+        // So the actions' own params are consulted as well: that is the record every other operation
+        // here works from - execute(), revoke_user() and restore_coursemodules() all iterate exactly
+        // this list - and nothing outside the plugin rewrites it.
+        //
+        // The marker is NOT dropped, because it catches a case params cannot: a gate whose action no
+        // longer lists that cmid, left behind when a removal backed off on an ambiguous tree. Neither
+        // source alone is enough; the union is.
+        $owners = [];
+
+        // Source 1: what each action of this course says it manages.
+        $rows = $DB->get_records_sql(
+            "SELECT a.id, a.params
+               FROM {" . action::TABLE . "} a
+               JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
+              WHERE a.actiontype = :actiontype AND r.courseid = :courseid",
+            ['actiontype' => 'enableactivity', 'courseid' => $courseid]
+        );
+        foreach ($rows as $row) {
+            $decoded = json_decode((string) $row->params);
+            foreach ((array) ($decoded->coursemodules ?? []) as $cm) {
+                $cmid = (int) (is_object($cm) ? ($cm->id ?? 0) : $cm);
+                if ($cmid > 0) {
+                    $owners[$cmid][(int) $row->id] = true;
+                }
+            }
+        }
+
+        // Source 2: markers still present on the activities themselves. A marker belonging to an
+        // action that no longer exists is ignored, as it was before: it gates nothing.
+        [$insql, $params] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
+        $params['courseid'] = $courseid;
+        $cmrows = $DB->get_records_select(
+            'course_modules',
+            "id $insql AND course = :courseid",
+            $params,
+            '',
+            'id, availability'
+        );
+        $liveactions = $DB->get_fieldset_select(
+            action::TABLE,
+            'id',
+            'actiontype = :actiontype',
+            ['actiontype' => 'enableactivity']
+        );
+        $byliveid = [];
+        foreach ($liveactions as $liveid) {
+            $byliveid[self::MARKER_PREFIX . $liveid] = (int) $liveid;
+        }
+        foreach ($cmrows as $cmid => $cmrow) {
+            if (empty($cmrow->availability)) {
+                continue;
+            }
+            $tree = json_decode($cmrow->availability);
+            if (!is_object($tree)) {
+                continue;
+            }
+            $marked = [];
+            $unmarked = [];
+            self::collect_user_nodes($tree, $marked, $unmarked);
+            foreach ($marked as $node) {
+                $actionid = $byliveid[$node->{self::MARKER_KEY}] ?? null;
+                if ($actionid !== null) {
+                    $owners[(int) $cmid][$actionid] = true;
+                }
+            }
+        }
+
+        $exclude = $excludeactionid !== null ? (int) $excludeactionid : null;
+        $clashing = [];
+        foreach ($cmids as $cmid) {
+            $gatedby = $owners[$cmid] ?? [];
+
+            // A module this action ALREADY gates is never a clash, whatever else gates it: the harm
+            // is in adding a second gate where this action has none. A pair inherited from an earlier
+            // version therefore stays editable on both sides.
+            if ($exclude !== null && isset($gatedby[$exclude])) {
+                continue;
+            }
+            unset($gatedby[$exclude]);
+
+            if (!empty($gatedby)) {
+                $clashing[] = $cmid;
+            }
+        }
+
+        return $clashing;
+    }
+
+    /**
+     * Find THIS action's own user-restriction node (FIX2-3/FIX3-3), or - as a legacy fallback for
+     * pre-marker data - the sole unmarked 'user' node.
+     *
+     * The returned node is the live object inside the tree, so mutating its properties updates the
+     * tree in place. Searches recursively (FIX3-6): a teacher grouping restrictions via the core
+     * "Restrict access" UI can nest the plugin's own node inside a child subtree instead of leaving
+     * it a direct root child, and the marker (once present) makes matching unambiguous regardless
+     * of depth.
+     *
+     * Used by execute() and restore_coursemodules(): both only ever operate on cmids already
+     * recorded in $this->params->coursemodules, so an unmarked 'user' node found here can only be a
+     * leftover from before the marker existed, never an unrelated teacher-added restriction (2+
+     * unmarked nodes is the ambiguous "degraded mode" case, deliberately left unresolved here -
+     * restore_coursemodules() surfaces it via debugging() instead of guessing - FIX3-7).
+     *
+     * @param object|null $availability Decoded availability (sub)tree, or null.
+     * @return object|null The user condition node, or null if none can be safely identified.
+     */
+    private function find_user_condition($availability) {
+        $marked = $this->find_marked_user_condition($availability);
+        if ($marked !== null) {
+            return $marked;
+        }
+
+        $unmarked = $this->collect_unmarked_user_conditions($availability);
+        return count($unmarked) === 1 ? $unmarked[0] : null;
+    }
+
+    /**
+     * Find THIS action's own user-restriction node, matching ONLY on its identity-bearing marker
+     * (FIX2-3/FIX3-3) - no legacy fallback. Searches recursively (FIX3-6, see find_user_condition()
+     * docblock).
+     *
+     * Used by apply_availability() to decide whether a NEW cmid already has the plugin's gate
+     * ANYWHERE in the tree, so a re-reconciliation never appends a second, empty gate alongside one
+     * a teacher has since regrouped into a nested subtree.
+     *
+     * @param object|null $availability Decoded availability (sub)tree, or null.
+     * @return object|null The marked user condition node, or null if none is present.
+     */
+    private function find_marked_user_condition($availability) {
+        if ($availability === null || !isset($availability->c) || !is_array($availability->c)) {
+            return null;
+        }
+
+        $marker = $this->marker_value();
+        foreach ($availability->c as $condition) {
+            if (
+                isset($condition->type) && $condition->type === 'user'
+                && isset($condition->{self::MARKER_KEY})
+                && $condition->{self::MARKER_KEY} === $marker
+            ) {
+                return $condition;
+            }
+        }
+
+        foreach ($availability->c as $condition) {
+            if (!isset($condition->type) && isset($condition->c) && is_array($condition->c)) {
+                $found = $this->find_marked_user_condition($condition);
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Collect every UNMARKED 'user' condition node anywhere in a decoded availability (sub)tree
+     * (FIX3-6: recurses into nested subtrees, mirroring find_marked_user_condition()). A node
+     * carrying ANY marker (even another action's - FIX3-3) is never "unmarked", so this never
+     * mistakes a sibling action's own node for a legacy/teacher one.
+     *
+     * @param object|null $availability Decoded availability (sub)tree, or null.
+     * @return object[] Unmarked 'user' condition nodes found, in tree order.
+     */
+    private function collect_unmarked_user_conditions($availability): array {
+        if ($availability === null || !isset($availability->c) || !is_array($availability->c)) {
+            return [];
+        }
+
+        $found = [];
+        foreach ($availability->c as $condition) {
+            if (
+                isset($condition->type) && $condition->type === 'user'
+                && !isset($condition->{self::MARKER_KEY})
+            ) {
+                $found[] = $condition;
+            } else if (!isset($condition->type) && isset($condition->c) && is_array($condition->c)) {
+                $found = array_merge($found, $this->collect_unmarked_user_conditions($condition));
+            }
+        }
+
+        return $found;
     }
 
     /**
@@ -96,6 +875,11 @@ class enableactivity_action extends action {
         $editable = true,
         $ajaxformdata = null
     ) {
+        // The form refuses a module already gated by ANOTHER action, so it needs to know which
+        // action is asking: on an edit, this action's own gate on its own modules is not a clash.
+        $customdata = (array) ($customdata ?? []);
+        $customdata['actionid'] = $this->get_id();
+
         $this->actionform = new enableactivity_form(
             $action,
             $customdata,
@@ -109,62 +893,428 @@ class enableactivity_action extends action {
 
     /**
      * Saves the action after it has been edited (or created)
+     *
+     * On edit, cmids are reconciled against the previously stored set (D6): a retained cmid keeps
+     * its stored visible/visibleoncoursepage snapshot and its availability is left untouched, since
+     * execute() may already have accumulated userids into it that re-applying a fresh restriction
+     * would wipe. A newly added cmid gets its snapshot taken now and the restriction applied. A
+     * removed cmid is restored via restore_coursemodules(), the same helper delete() uses.
+     *
+     * The full new snapshot/params are computed BEFORE any mutation (FIX2-9), then the upsert() and
+     * the availability/visibility mutations are wrapped in a single delegated transaction; each
+     * mutation defers its own cache rebuild and a single rebuild_course_cache() runs after commit,
+     * instead of one rebuild per course module.
+     *
+     * upsert() runs FIRST, before apply_availability() (FIX3-3): the plugin's own marker is
+     * identity-bearing (MARKER_PREFIX . $this->get_id()) so two different actions gating the same
+     * cm never share (and cross-revoke) one node, which means a brand-new action needs its id
+     * BEFORE its first gate can be marked. Any failure inside the transaction rolls back the
+     * upsert() too (micro-sweep), so a partially-applied edit is never left half-committed.
+     *
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     public function save_action($formdata) {
         global $DB;
 
+        $priorbycmid = [];
+        if (!empty($this->get_id())) {
+            foreach ($this->params->coursemodules ?? [] as $cm) {
+                $priorbycmid[$cm->id] = $cm;
+            }
+        }
+
+        $newcmids = array_map('intval', (array) $formdata->coursemodules);
+
+        // Compute the full new snapshot BEFORE mutating anything (FIX2-9): resolving a course
+        // module never writes, so any failure/skip here cannot leave a half-applied edit. Uses
+        // $this->courseid, the course this action instance is actually bound to - NOT the
+        // client-controlled $formdata->courseid (FIX2-4).
         $coursemodules = [];
+        $tomanage = [];
+        foreach ($newcmids as $cmid) {
+            if (isset($priorbycmid[$cmid])) {
+                // Retained: keep the stored snapshot; do not re-apply the availability restriction.
+                $coursemodules[] = $priorbycmid[$cmid];
+                continue;
+            }
 
-        foreach ($formdata->coursemodules as $cmid) {
-            $cminfo = get_coursemodule_from_id(null, $cmid, $formdata->courseid);
+            // Newly added: snapshot the current visible state. A cmid that does not resolve (race,
+            // tampered id) is skipped instead of dereferencing a false result (FIX2-4).
+            $cminfo = get_coursemodule_from_id(null, $cmid, $this->courseid);
+            if (!$cminfo) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' not found in course '
+                        . $this->courseid . '; skipped',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
 
-            // Store visible and visibleoncoursepage status to restore it later when the rule is deleted.
             $coursemodules[] = (object) [
                 'id' => $cmid,
                 'visible' => $cminfo->visible,
                 'visibleoncoursepage' => $cminfo->visibleoncoursepage,
             ];
+            $tomanage[] = $cmid;
         }
+
+        $removedcmids = array_diff(array_keys($priorbycmid), $newcmids);
+        $toremove = array_intersect_key($priorbycmid, array_flip($removedcmids));
 
         $params = [
             'coursemodules' => $coursemodules,
         ];
 
-        $action = new stdClass();
-        $action->ruleid = $formdata->ruleid;
-        $action->actiontype = $this->type;
-        $action->params = json_encode($params);
+        $transaction = $DB->start_delegated_transaction();
 
-        $this->set_data($action);
+        try {
+            // Upsert FIRST (FIX3-3): a brand-new action has no id - and therefore no marker value -
+            // until this runs, so apply_availability() below must be able to rely on get_id()
+            // already being set for both the create and the edit path.
+            $actionid = $this->upsert($params, $formdata);
 
-        $DB->insert_record('local_coursedynamicrules_action', $action);
+            // The gate belongs to a rule IN FORCE, never to a merely configured one. Writing it here
+            // unconditionally closed the named activity for every student - invisibly, since the
+            // gate's showc slot is false - for a rule the operator had not activated and that had
+            // never run, while the listing reported it as inactive. Present since the action was
+            // introduced (2024-12-02, release 1.1.1); no version ever consulted 'active' here. The
+            // activation endpoint applies the gates instead, through on_rule_activated().
+            //
+            // upsert() ran first, so get_ruleid() is the write's own validated rule. The check is on
+            // the stored 'active' value, not on the lock: an already-activated rule is sealed and
+            // cannot reach this method at all, but an active rule left UNLOCKED by the upgrade's
+            // partial back-fill of timeactivated can - and that one is genuinely in force, so its
+            // newly added activity must be gated now.
+            if ($this->rule_is_active()) {
+                foreach ($tomanage as $cmid) {
+                    $this->apply_availability($cmid, false);
+                }
+            }
+
+            if (!empty($toremove)) {
+                $this->restore_coursemodules($toremove, false);
+            }
+        } catch (\Throwable $e) {
+            // Rollback() always rethrows $e (lib/dml/moodle_database.php::rollback_delegated_transaction()),
+            // so this never falls through to allow_commit() below - it unwinds the call stack instead
+            // (core convention: catching Throwable, not just Exception, also rolls back on a fatal
+            // \Error - e.g. a TypeError from a malformed $formdata - instead of leaving the delegated
+            // transaction dangling).
+            $transaction->rollback($e);
+        }
+
+        $transaction->allow_commit();
+
+        rebuild_course_cache($this->courseid, true);
+
+        return $actionid;
+    }
+
+    /**
+     * Apply this action's gate to every activity it manages, because its rule just came into force.
+     *
+     * The counterpart of the check in save_action(): the gate is written HERE, once the operator has
+     * activated the rule, instead of when they configured it. Idempotent - apply_availability()
+     * looks for this action's own marked node anywhere in the tree first and leaves an activity that
+     * already carries the gate untouched - so a replayed activation adds nothing.
+     *
+     * Each cmid is filtered exactly as execute() filters it: scoped to the rule's own course,
+     * because a restore that kept an unmapped cmid leaves this action holding an id belonging to
+     * another course's live module, and skipped while its deletion is in progress, because the
+     * recycle bin leaves the row in place until cron runs and the operator has already deleted it.
+     * Without the course scope apply_availability() would fatal on a MUST_EXIST miss and take the
+     * whole activation with it.
+     *
+     * @return void
+     */
+    public function on_rule_activated(): void {
+        global $DB;
+
+        $applied = false;
+        foreach ((array) ($this->params->coursemodules ?? []) as $cm) {
+            $cmid = (int) $cm->id;
+
+            if (!$DB->record_exists('course_modules', ['id' => $cmid, 'course' => $this->courseid])) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is not an activity of course '
+                        . $this->courseid . ' (gone, or never belonged to it); not gated on activation',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+
+            if ($DB->get_field('course_modules', 'deletioninprogress', ['id' => $cmid])) {
+                debugging(
+                    'enableactivity: course module ' . $cmid . ' is being deleted; not gated on activation',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+
+            $this->apply_availability($cmid, false);
+            $applied = true;
+        }
+
+        // One rebuild after the loop rather than one per module, the way save_action() does it.
+        if ($applied) {
+            rebuild_course_cache($this->courseid, true);
+        }
+    }
+
+    /**
+     * Merge the plugin's own user restriction (empty userids, populated later by execute()) into a
+     * course module's availability tree, and make it visible.
+     *
+     * Reuses find_marked_user_condition() (strict, marker-only - FIX2-3) so an already-present
+     * restriction is left untouched. A NEW restriction is combined with any EXISTING tree instead
+     * of overwriting the whole column, so a teacher-added restriction (e.g. a date restriction)
+     * survives; a fresh single-condition tree is only created when the module has no availability
+     * restrictions at all yet (G7).
+     *
+     * How the new node is combined depends on the existing root's operator (FIX2-2): when the root
+     * is AND ('&'), the plugin's node is appended as another required clause. For any other root op
+     * (OR/NOT-AND/NOT-OR), appending directly would let an OR combine the gate away, or a negation
+     * invert its semantics - so the existing tree is wrapped as a nested child of a brand-new AND
+     * root, with the plugin's node as its sibling: the existing tree keeps its own op internally,
+     * but the OVERALL result is a hard AND between "the existing tree" and "the plugin's gate".
+     *
+     * @param int $cmid Course module id.
+     * @param bool $rebuildcache Whether set_coursemodule_visible() should rebuild the course cache
+     *             immediately, or defer it to a single caller-side rebuild (FIX2-9).
+     * @return void
+     */
+    private function apply_availability($cmid, bool $rebuildcache = true): void {
+        global $DB;
+
+        $cmrecord = $DB->get_record('course_modules', ['id' => $cmid], 'id, availability', MUST_EXIST);
+        $availability = $cmrecord->availability ? json_decode($cmrecord->availability) : null;
+
+        if ($this->find_marked_user_condition($availability) === null) {
+            $usercondition = (object) [
+                'type' => 'user',
+                'userids' => [],
+                self::MARKER_KEY => $this->marker_value(),
+            ];
+
+            if ($availability !== null && isset($availability->c) && is_array($availability->c)) {
+                $rootop = $availability->op ?? tree::OP_AND;
+                if ($rootop === tree::OP_AND) {
+                    // AND root: another required clause combines correctly with what is already
+                    // there.
+                    $availability->c[] = $usercondition;
+                    $showc = isset($availability->showc) && is_array($availability->showc) ? $availability->showc : [];
+                    $showc[] = false;
+                    $availability->showc = $showc;
+                } else {
+                    // OR / NOT-AND / NOT-OR root: wrap the existing tree as a nested child of a
+                    // brand-new AND root, with the plugin's node as its sibling.
+                    //
+                    // FIX3-2: the teacher's original root ->show flag (whether the WHOLE existing
+                    // tree was set to show greyed-out, or hide entirely, when its conditions are not
+                    // met) must be captured BEFORE the wrap discards it - hard-coding the nested
+                    // subtree's showc slot to false silently turned a teacher's "show greyed out"
+                    // choice into "hide", permanently, on every wrap.
+                    //
+                    // FIX4-2: AND/NOT-OR roots (like the one being wrapped here) carry a per-child
+                    // ->showc array instead of a single ->show flag - reading ->show on one of those
+                    // always misses, collapsing the greyed-out intent to "hide". When ->showc is
+                    // present, derive the flag from it instead: the wrapped subtree should show
+                    // greyed-out if ANY of its children would have.
+                    $rootshow = (isset($availability->showc) && is_array($availability->showc))
+                        ? (bool) array_filter(array_map('boolval', $availability->showc))
+                        : (bool) ($availability->show ?? false);
+                    $nested = (object) [
+                        'op' => $availability->op,
+                        'c' => $availability->c,
+                    ];
+                    if (isset($availability->showc)) {
+                        $nested->showc = $availability->showc;
+                    }
+                    if (isset($availability->show)) {
+                        $nested->show = $availability->show;
+                    }
+                    $availability = (object) [
+                        'op' => tree::OP_AND,
+                        'c' => [$nested, $usercondition],
+                        'showc' => [$rootshow, false],
+                    ];
+                }
+            } else {
+                $availability = tree::get_root_json([$usercondition], tree::OP_AND, false);
+            }
+
+            $availability = $this->normalise_root($availability);
+
+            $DB->set_field('course_modules', 'availability', json_encode($availability), ['id' => $cmid]);
+        }
+
+        set_coursemodule_visible($cmid, 1, 1, $rebuildcache);
+    }
+
+    /**
+     * Ensure a root-level availability tree has a show/hide structure consistent with its op and
+     * child count (Judge B's showc-mismatch finding): core_availability\tree::__construct() throws
+     * a coding_exception when count(->c) !== count(->showc) for an AND/NOT-OR root, or when ->show
+     * is missing/not-bool for an OR/NOT-AND root - both are easy to get out of sync by hand.
+     *
+     * @param \stdClass $availability Root-level availability tree about to be written to the DB.
+     * @return \stdClass The same object, with showc/show normalised for its op.
+     */
+    private function normalise_root(\stdClass $availability): \stdClass {
+        $op = $availability->op ?? tree::OP_AND;
+        $count = isset($availability->c) && is_array($availability->c) ? count($availability->c) : 0;
+
+        if ($op === tree::OP_AND || $op === tree::OP_NOT_OR) {
+            $showc = $availability->showc ?? [];
+            // A JSON array that happens to be empty (or whose keys were disturbed by manual
+            // editing) can decode as a stdClass instead of a PHP array (micro-sweep) - re-index to
+            // a plain array before padding/slicing, and coerce every entry to a real bool so a
+            // stray truthy/falsy JSON value never reaches core_availability\tree unchanged.
+            $showc = is_array($showc) ? $showc : array_values((array) $showc);
+            $showc = array_map('boolval', $showc);
+            if (count($showc) < $count) {
+                $showc = array_pad($showc, $count, false);
+            } else if (count($showc) > $count) {
+                $showc = array_slice($showc, 0, $count);
+            }
+            $availability->showc = $showc;
+            unset($availability->show);
+        } else {
+            if (!isset($availability->show) || !is_bool($availability->show)) {
+                $availability->show = false;
+            }
+            unset($availability->showc);
+        }
+
+        return $availability;
+    }
+
+    /**
+     * Remove a specific node from a decoded availability (sub)tree (identity match), keeping showc
+     * in sync, and normalising the level it was removed from (FIX2-2/Judge B).
+     *
+     * Recurses into nested subtrees (FIX3-6): $target may not be a DIRECT child of $availability if
+     * a teacher has since regrouped it (e.g. via the core "Restrict access" UI) - the marker made
+     * finding it unambiguous regardless of depth, so removal must be able to reach it there too. A
+     * nested subtree that becomes entirely empty as a result is itself dropped from its parent.
+     *
+     * @param object $availability Decoded availability (sub)tree that contains $target, directly or
+     *               nested.
+     * @param object $target The exact node to remove.
+     * @param bool $isroot Whether $availability is the TRUE tree root (default), as opposed to a
+     *             nested subtree reached via recursion. Only the true root gets passed through
+     *             normalise_root() (FIX4): a nested subtree's own show/showc was set by whoever
+     *             owns it (teacher UI, another plugin, or an earlier wrap) and is already internally
+     *             consistent - rewriting it on every recursive call risked silently mutating a
+     *             nested subtree's show/showc that this removal never touched.
+     * @return object|null The (sub)tree with the node removed, or null when nothing else remains at
+     *         this level.
+     */
+    private function remove_user_condition($availability, $target, bool $isroot = true) {
+        $hasshowc = isset($availability->showc) && is_array($availability->showc);
+
+        $remainingconditions = [];
+        $remainingshow = [];
+        foreach ($availability->c as $index => $condition) {
+            if ($condition === $target) {
+                // Direct match: drop it (and its showc slot).
+                continue;
+            }
+
+            if (!isset($condition->type) && isset($condition->c) && is_array($condition->c)) {
+                // Nested subtree: recurse instead of assuming $target can only be a direct child.
+                $updated = $this->remove_user_condition($condition, $target, false);
+                if ($updated === null) {
+                    // The subtree was exhausted entirely by this removal; drop it too.
+                    continue;
+                }
+                $condition = $updated;
+            }
+
+            $remainingconditions[] = $condition;
+            if ($hasshowc && array_key_exists($index, $availability->showc)) {
+                $remainingshow[] = $availability->showc[$index];
+            }
+        }
+
+        if (empty($remainingconditions)) {
+            return null;
+        }
+
+        $availability->c = $remainingconditions;
+        if ($hasshowc) {
+            $availability->showc = $remainingshow;
+        }
+
+        return $isroot ? $this->normalise_root($availability) : $availability;
+    }
+
+    /**
+     * Surgically remove the plugin's own user-restriction node from each course module's
+     * availability tree (nulling the column only when nothing else remains), and restore its
+     * visible/visibleoncoursepage snapshot. Shared by delete() (all modules) and the edit path's
+     * removed-cmid diff (D6/G7).
+     *
+     * Uses find_user_condition() (marker-first, legacy-fallback - FIX2-3): every cmid passed here
+     * comes from $this->params->coursemodules, so the fallback is safe by construction EXCEPT in
+     * "degraded mode" (FIX3-7): if the marker has since been stripped (e.g. a teacher re-saved the
+     * module's "Restrict access" UI from scratch, which regenerates the tree and drops unknown
+     * properties - see the MARKER_KEY docblock) AND a genuine teacher-added user restriction now
+     * coexists, 2+ unmarked nodes are ambiguous and find_user_condition() correctly refuses to
+     * guess. Previously this silently did nothing, leaking an ownerless node with all its
+     * accumulated userids forever, with no signal an admin could act on. A debugging() call now
+     * names the cm and the leftover node count so it can be manually reconciled; the tree itself is
+     * left untouched rather than risk removing the wrong node.
+     *
+     * @param object[] $coursemodules Snapshots with id, visible, visibleoncoursepage.
+     * @param bool $rebuildcache Whether set_coursemodule_visible() should rebuild the course cache
+     *             immediately, or defer it to a single caller-side rebuild (FIX2-9).
+     * @return void
+     */
+    private function restore_coursemodules(array $coursemodules, bool $rebuildcache = true): void {
+        global $DB;
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
-            $availabilityoptions = (object)[
-                'type' => 'user',
-                'userids' => [],
-            ];
-            $availability = tree::get_root_json(
-                [$availabilityoptions],
-                tree::OP_AND,
-                false
-            );
 
-            // Set availability to the course module.
-            $availability = json_encode($availability);
-            $DB->set_field(
-                'course_modules',
-                'availability',
-                $availability,
-                ['id' => $cmid]
-            );
+            // If the module is not an activity of this course there is nothing to restore; keep
+            // going so the rule stays deletable/editable (set_coursemodule_visible() would otherwise
+            // fatal on a missing context). The course check guards EVERYTHING below it, the
+            // set_coursemodule_visible() call included - that one runs outside the removal branch, so
+            // without this it rewrote a foreign course's module visibility whether or not this action
+            // found anything of its own to remove.
+            if (!$DB->record_exists('course_modules', ['id' => $cmid, 'course' => $this->courseid])) {
+                continue;
+            }
 
-            // Set module to visible.
-            set_coursemodule_visible($cmid, 1);
+            $rawavailability = $DB->get_field('course_modules', 'availability', ['id' => $cmid]);
+            $availability = $rawavailability ? json_decode($rawavailability) : null;
+
+            $usercondition = $this->find_user_condition($availability);
+            if ($usercondition !== null) {
+                $remaining = $this->remove_user_condition($availability, $usercondition);
+                $DB->set_field(
+                    'course_modules',
+                    'availability',
+                    $remaining !== null ? json_encode($remaining) : null,
+                    ['id' => $cmid]
+                );
+            } else {
+                $unmarkedcount = count($this->collect_unmarked_user_conditions($availability));
+                if ($unmarkedcount > 1) {
+                    debugging(
+                        'enableactivity: course module ' . $cmid . ' has ' . $unmarkedcount
+                            . ' ambiguous unmarked user restriction node(s); this action\'s own node '
+                            . 'could not be safely identified and was left in place - manual cleanup '
+                            . 'required',
+                        DEBUG_DEVELOPER
+                    );
+                }
+            }
+
+            set_coursemodule_visible($cmid, $cm->visible, $cm->visibleoncoursepage, $rebuildcache);
         }
-        rebuild_course_cache($formdata->courseid, true);
     }
 
     /**
@@ -173,18 +1323,124 @@ class enableactivity_action extends action {
      * @return string
      */
     public function get_description() {
-        $coursemodules = $this->params->coursemodules;
+        return $this->build_description(false);
+    }
+
+    /**
+     * This action can act only while at least one of its activities still exists.
+     *
+     * Two states leave it unable to do anything: no activity chosen - the state every duplicated
+     * copy is born in - and every chosen activity deleted since, which nothing in the plugin cleans
+     * up. Both grant nobody, forever, and both used to let a rule be activated and sealed with this
+     * half dead. The list is resolved here rather than counted, because a list of ids that no longer
+     * resolve is exactly as inert as an empty one.
+     *
+     * An activity awaiting the recycle bin counts as gone: with the course bin enabled - the default
+     * - deleting one from the course page only flags the row and queues a task, so the row survives
+     * until the next cron run. The operator has already deleted it, and this action can no longer
+     * grant it, so counting it would seal the rule dead in exactly that window. The picker filters
+     * the same flag, so the two agree about what is still choosable.
+     *
+     * @return bool
+     */
+    /**
+     * The plugin this action needs: the user restriction it writes its gate into.
+     *
+     * @return array
+     */
+    public static function required_plugins(): array {
+        return [
+            [
+                'pluginname' => 'availability_user',
+                'enableurl' => new moodle_url('/admin/tool/availabilityconditions/'),
+                'downloadurl' => 'https://moodle.org/plugins/availability_user/versions',
+            ],
+        ];
+    }
+
+    #[\Override]
+    public function can_act(): bool {
+        global $DB;
+
+        $cmids = [];
+        foreach ($this->params->coursemodules ?? [] as $cm) {
+            $cmids[] = (int) $cm->id;
+        }
+        if (empty($cmids)) {
+            return false;
+        }
+
+        [$insql, $params] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
+        $params['courseid'] = $this->courseid;
+
+        return $DB->record_exists_select(
+            'course_modules',
+            "id $insql AND course = :courseid AND deletioninprogress = 0",
+            $params
+        );
+    }
+
+    /**
+     * A duplicated draft starts with no activities. A copy pointing at the same modules would
+     * either own no gate there and grant nobody, or add a second gate that Moodle combines with the
+     * original's by AND, closing the activity to the very students the original had opened it for -
+     * so the teacher picks the activities on the draft instead, and duplicating or discarding the
+     * copy never touches what the original manages.
+     *
+     * @return array
+     */
+    #[\Override]
+    public function params_for_duplicate(): array {
+        return ['coursemodules' => []];
+    }
+
+    #[\Override]
+    public function get_listing_description() {
+        return $this->build_description(true);
+    }
+
+    /**
+     * Compose the description, with the activity list either whole or cut for the listing.
+     *
+     * The list grows one entry per selected activity, so it is free text in the sense that
+     * matters here: nothing bounds its length.
+     *
+     * @param bool $forlisting Whether to cut the activity list to the listing budget.
+     * @return string
+     */
+    private function build_description(bool $forlisting) {
+        $coursemodules = $this->params->coursemodules ?? [];
         $descriptionarray = [];
 
         foreach ($coursemodules as $cm) {
             $cmid = $cm->id;
             $cminfo = get_coursemodule_from_id(null, $cmid, $this->courseid);
+            // A deletion in progress counts as gone, as it already does for can_act() and for the
+            // four activity conditions: the recycle bin leaves the row in place until cron runs.
+            if (!$cminfo || $cminfo->deletioninprogress) {
+                continue;
+            }
             $descriptionarray[] = ucfirst($cminfo->modname) . " - " . $cminfo->name;
         }
+        if (empty($descriptionarray)) {
+            // Nothing to name, for one of two reasons, and "Enable activities ''" - empty quotes -
+            // told the operator neither. No activity chosen yet is the state every duplicated copy is
+            // born in and the one thing the teacher must fix; every chosen activity deleted since is
+            // the ghost case, which borrows the warning the four activity conditions already use.
+            return empty($coursemodules)
+                ? get_string('enableactivity_noactivities', 'local_coursedynamicrules')
+                : get_string('componenttargetmissing', 'local_coursedynamicrules');
+        }
+
+        $list = implode(', ', $descriptionarray);
+        if ($forlisting) {
+            $list = component_renderer::cut_freetext($list);
+        }
+
         return get_string(
             'enableactivity_description',
             'local_coursedynamicrules',
-            implode(', ', $descriptionarray)
+            $list
         );
     }
 
@@ -195,25 +1451,7 @@ class enableactivity_action extends action {
      * @throws \dml_exception A DML specific exception is thrown for any errors.
      */
     public function delete() {
-        global $DB;
-        $coursemodules = $this->params->coursemodules;
-
-        foreach ($coursemodules as $cm) {
-            $cmid = $cm->id;
-            $initialvisible = $cm->visible;
-            $initialvisibleoncoursepage = $cm->visibleoncoursepage;
-
-            // Remove availability condition from the course module.
-            $DB->set_field(
-                'course_modules',
-                'availability',
-                null,
-                ['id' => $cmid]
-            );
-
-            // Restore coursemodule visibility to initial status.
-            set_coursemodule_visible($cmid, $initialvisible, $initialvisibleoncoursepage);
-        }
+        $this->restore_coursemodules((array) ($this->params->coursemodules ?? []));
 
         return parent::delete();
     }

@@ -56,7 +56,13 @@ class grade_in_activity_form extends condition_form {
         // Create container for dynamic form.
         $mform->addElement('html', html_writer::div('', '', ['data-region' => 'dynamicform']));
 
-        $mform->addElement('hidden', 'gradeitems', $this->courseid);
+        // The only visible element this form owns: validation errors are shown here. The activity
+        // picker and the thresholds live in the dynamic sub-form, and 'gradeitems'/'cmid' below are
+        // hidden - Moodle never renders an error attached to a hidden element, so a refusal keyed
+        // to them reloaded the page in silence.
+        $mform->addElement('static', 'gradeitemsfeedback', '', '');
+
+        $mform->addElement('hidden', 'gradeitems', '{}');
         $mform->setType('gradeitems', PARAM_RAW);
 
         $mform->addElement('hidden', 'cmid');
@@ -65,5 +71,54 @@ class grade_in_activity_form extends condition_form {
         parent::definition();
 
         $PAGE->requires->js_call_amd('local_coursedynamicrules/grade_in_activity_form', 'init', []);
+    }
+
+    /**
+     * Server side backstop: never allow saving a condition without any enabled grade threshold,
+     * which would silently create a rule that can never be met.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        // An activity of this course must be chosen - the same rule the sibling activity forms
+        // enforce. A stored activity that was deleted leaves the picker with no selection, and a
+        // ghost must never be saved onto whatever activity the browser shows first.
+        $cmid = (int) ($data['cmid'] ?? 0);
+        if ($cmid <= 0 || !isset(get_fast_modinfo($this->courseid)->cms[$cmid])) {
+            $errors['gradeitemsfeedback'] = get_string('errornocoursemodule', 'local_coursedynamicrules');
+            return $errors;
+        }
+
+        $gradeitems = json_decode($data['gradeitems'] ?? '', true);
+        if (!is_array($gradeitems)) {
+            $errors['gradeitemsfeedback'] = get_string('errorinvalidgradeitems', 'local_coursedynamicrules');
+            return $errors;
+        }
+
+        $enabled = array_filter($gradeitems, function ($item) {
+            return is_array($item) && empty($item['disabled']) && ($item['value'] ?? '') !== '';
+        });
+
+        if (empty($enabled)) {
+            $errors['gradeitemsfeedback'] = get_string('errornogradeconditions', 'local_coursedynamicrules');
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Map the stored 'cmid' and 'gradeitemsconditions' params onto the hidden 'cmid'/'gradeitems'
+     * fields. These hidden fields are the DOM source of truth read by the AMD module's initial
+     * dynamicForm.load() call (D5) — no JSON payload crosses the PHP->JS bridge via js_call_amd.
+     *
+     * @param object $params Decoded stored params for the condition being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return \local_coursedynamicrules\local\form_preload::grade_in_activity($params);
     }
 }

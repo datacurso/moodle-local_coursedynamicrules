@@ -17,6 +17,8 @@
 namespace local_coursedynamicrules\condition;
 
 use local_coursedynamicrules\condition\no_complete_activity\no_complete_activity_condition;
+use local_coursedynamicrules\core\condition;
+use local_coursedynamicrules\form\conditions\no_complete_activity_form;
 
 /**
  * Tests for No Complete Activity condition.
@@ -37,7 +39,7 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     /**
      * Test setup.
      */
-    public function setUp(): void {
+    protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest(true);
 
@@ -66,6 +68,83 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * Insert a rule row belonging to the given course and return its id.
+     *
+     * @param int $courseid Course id.
+     * @return int Rule id.
+     */
+    private function create_rule(int $courseid): int {
+        global $DB;
+        return $DB->insert_record('local_coursedynamicrules_rule', (object) [
+            'courseid' => $courseid,
+            'name' => 'A rule',
+            'active' => 1,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
+     * MDL-UNIT-008: the condition persists and preloads its cmid and expected date.
+     *
+     * A round-trip create -> edit must persist exactly one row, same id, with the mutated cmid and
+     * expectedcompletiondate, and preload_defaults() must map both stored keys onto the form fields.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_round_trip_persists_single_row(): void {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $ruleid = $this->create_rule($course->id);
+        $cm1 = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC]
+        );
+        $cm2 = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC]
+        );
+
+        $record = (object) [
+            'id' => null, 'ruleid' => $ruleid, 'conditiontype' => 'no_complete_activity', 'params' => json_encode([]),
+        ];
+        $condition = new no_complete_activity_condition($record, $course->id);
+        $condition->save_condition((object) [
+            'ruleid' => $ruleid,
+            'coursemodule' => $cm1->cmid,
+            'expectedcompletiondate' => $this->pastdate,
+        ]);
+
+        $id = $condition->get_id();
+        $stored = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $storedparams = json_decode($stored->params);
+        $this->assertSame($cm1->cmid, $storedparams->cmid);
+        $this->assertSame($this->pastdate, $storedparams->expectedcompletiondate);
+
+        $defaults = \local_coursedynamicrules\local\form_preload::no_complete_activity($storedparams);
+        $this->assertSame($cm1->cmid, $defaults['coursemodule']);
+        $this->assertSame($this->pastdate, $defaults['expectedcompletiondate']);
+
+        $editcondition = new no_complete_activity_condition($stored, $course->id);
+        $editcondition->save_condition((object) [
+            'ruleid' => $ruleid,
+            'coursemodule' => $cm2->cmid,
+            'expectedcompletiondate' => $this->futuredate,
+        ]);
+
+        $this->assertEquals($id, $editcondition->get_id());
+        $this->assertEquals(1, $DB->count_records(condition::TABLE, ['ruleid' => $ruleid]));
+
+        $final = $DB->get_record(condition::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $finalparams = json_decode($final->params);
+        $this->assertSame($cm2->cmid, $finalparams->cmid);
+        $this->assertSame($this->futuredate, $finalparams->expectedcompletiondate);
+    }
+
+    /**
+     * MDL-UNIT-008: before the expected date the condition fires for no one.
+     *
      * When the expected completion date is in the future the condition must not
      * fire regardless of the user's completion state.
      *
@@ -88,6 +167,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: no completion tracking yields null state and the condition fails closed.
+     *
      * Regression test: activity has completion tracking disabled.
      * get_data() returns completionstate = NULL via a RIGHT JOIN on
      * course_modules_viewed when there is no course_modules_completion row.
@@ -127,6 +208,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: after the date, an uncompleted activity makes the condition fire.
+     *
      * Activity is not completed and deadline has passed: condition fires.
      *
      * @covers ::evaluate
@@ -149,6 +232,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: after the date, a completed activity does not fire.
+     *
      * Activity is completed (COMPLETION_COMPLETE): condition must not fire.
      *
      * @covers ::evaluate
@@ -180,6 +265,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: a completed-with-pass activity does not fire.
+     *
      * Activity is completed with pass grade (COMPLETION_COMPLETE_PASS): condition must not fire.
      *
      * @covers ::evaluate
@@ -211,6 +298,8 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
     }
 
     /**
+     * MDL-UNIT-008: an activity being deleted turns the condition off silently.
+     *
      * Activity module is being deleted: condition must not fire.
      *
      * @covers ::evaluate
@@ -236,5 +325,113 @@ final class no_complete_activity_condition_test extends \advanced_testcase {
         $result = $condition->evaluate((object) ['courseid' => $course->id, 'userid' => $user->id]);
 
         $this->assertFalse($result, 'Condition must not fire when the course module is being deleted.');
+    }
+
+    /**
+     * MDL-UNIT-008: a missing course module is rejected at save, never stored as cmid 0.
+     *
+     * A missing course module must be rejected at save time, never persisted as cmid 0.
+     *
+     * @covers ::save_condition
+     */
+    public function test_save_condition_rejects_missing_coursemodule(): void {
+        global $DB;
+
+        $record = (object) ['ruleid' => 1, 'conditiontype' => 'no_complete_activity', 'params' => json_encode([])];
+        $condition = new no_complete_activity_condition($record, 1);
+
+        $formdata = (object) ['ruleid' => 1, 'coursemodule' => 0, 'expectedcompletiondate' => $this->futuredate];
+
+        try {
+            $condition->save_condition($formdata);
+            $this->fail('Expected invalid_parameter_exception for missing course module');
+        } catch (\invalid_parameter_exception $e) {
+            $this->assertSame(0, $DB->count_records('local_coursedynamicrules_condition'));
+        }
+    }
+
+    /**
+     * MDL-UNIT-008: a deleted activity yields a warning description without PHP warnings.
+     *
+     * A stale cmid must not raise warnings in the description, and must not empty it either: an
+     * empty description drops the card from every listing (MDL-INT-014), so the ghost describes
+     * itself with the shared missing-activity warning.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_warns_without_debugging_for_stale_cmid(): void {
+        $course = $this->getDataGenerator()->create_course();
+
+        $record = (object) [
+            'ruleid' => 1,
+            'conditiontype' => 'no_complete_activity',
+            'params' => json_encode(['cmid' => 999999, 'expectedcompletiondate' => $this->futuredate]),
+        ];
+        $condition = new no_complete_activity_condition($record, $course->id);
+
+        $description = $condition->get_description();
+
+        $this->assertSame(get_string('componenttargetmissing', 'local_coursedynamicrules'), $description);
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * MDL-INT-014: an activity whose deletion is still in progress is a ghost too.
+     *
+     * The recycle bin makes asynchronous deletion the default: a teacher's delete leaves the module
+     * flagged deletioninprogress until cron runs, and that is the state the cards render in first.
+     * evaluate() already refuses to fire on it; the description must warn just the same.
+     *
+     * @covers ::get_description
+     */
+    public function test_get_description_warns_while_the_activity_deletion_is_in_progress(): void {
+        global $DB;
+
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);
+        $module = $this->getDataGenerator()->create_module(
+            'assign',
+            ['course' => $course->id, 'completion' => COMPLETION_TRACKING_AUTOMATIC]
+        );
+        $record = (object) [
+            'ruleid' => 1,
+            'conditiontype' => 'no_complete_activity',
+            'params' => json_encode(['cmid' => $module->cmid, 'expectedcompletiondate' => time() + DAYSECS]),
+        ];
+        $condition = new no_complete_activity_condition($record, $course->id);
+        $this->assertStringContainsString($module->name, $condition->get_description(), 'Sanity: the module is live.');
+
+        $DB->set_field('course_modules', 'deletioninprogress', 1, ['id' => $module->cmid]);
+        rebuild_course_cache($course->id, true);
+
+        $this->assertSame(
+            get_string('componenttargetmissing', 'local_coursedynamicrules'),
+            $condition->get_description()
+        );
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * MDL-INT-021: only the no-complete-activity condition declares a one-shot rule.
+     *
+     * A one-shot condition leaves its rule to the scheduled pass alone; declaring any other
+     * condition one-shot would silently stop its rules from firing on events.
+     *
+     * @covers ::is_one_shot
+     */
+    public function test_only_no_complete_activity_is_one_shot(): void {
+        $types = [
+            'complete_activity' => false,
+            'course_inactivity' => false,
+            'grade_in_activity' => false,
+            'no_complete_activity' => true,
+            'no_course_access' => false,
+            'passgrade' => false,
+        ];
+        foreach ($types as $type => $expected) {
+            $condition = \local_coursedynamicrules\helper\rule_component_loader::create_condition_instance(
+                (object) ['ruleid' => 1, 'conditiontype' => $type, 'params' => json_encode([])]
+            );
+            $this->assertSame($expected, $condition->is_one_shot(), $type);
+        }
     }
 }

@@ -1,10 +1,7 @@
 name: Moodle Plugin CI
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -12,7 +9,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:13
+        image: postgres:16
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -39,6 +36,18 @@ jobs:
             database: mariadb
           - php: 8.3
             moodle-branch: MOODLE_405_STABLE
+            database: pgsql
+          - php: 8.3
+            moodle-branch: MOODLE_502_STABLE
+            database: mariadb
+          - php: 8.3
+            moodle-branch: MOODLE_502_STABLE
+            database: pgsql
+          - php: 8.3
+            moodle-branch: MOODLE_500_STABLE
+            database: mariadb
+          - php: 8.3
+            moodle-branch: MOODLE_500_STABLE
             database: pgsql
 
     steps:

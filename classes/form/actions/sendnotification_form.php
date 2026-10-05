@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\form\actions;
 
 use context_course;
+use local_coursedynamicrules\action\sendnotification\sendnotification_action;
 use moodle_url;
 
 /**
@@ -101,7 +102,17 @@ class sendnotification_form extends action_form {
         $mform->addRule('messagebody', null, 'required', null, 'client');
         $mform->addHelpButton('messagebody', 'messagebody', 'local_coursedynamicrules');
 
-        $placeholderstext = $OUTPUT->render_from_template('local_coursedynamicrules/notification_placeholders', []);
+        $markers = [];
+        foreach (sendnotification_action::placeholder_markers() as $marker) {
+            $markers[] = [
+                'name' => $marker,
+                'label' => get_string($marker, 'local_coursedynamicrules'),
+            ];
+        }
+        $placeholderstext = $OUTPUT->render_from_template(
+            'local_coursedynamicrules/notification_placeholders',
+            ['markers' => $markers]
+        );
 
         $mform->addElement('static', 'messagebody_static', '', $placeholderstext);
 
@@ -119,13 +130,23 @@ class sendnotification_form extends action_form {
             $rolerecords = $DB->get_records_list('role', 'id', $roleids, '', 'id,shortname');
         }
 
+        // On CREATE only: default the student role to checked as a sensible starting point. On
+        // EDIT, this must be skipped entirely: setDefault() stores a FLAT bracketed key
+        // ('primaryrecipients[<id>]') in the mform's _defaultValues, which HTML_QuickForm resolves
+        // BEFORE the nested zero-fill array preload_defaults() supplies via set_data() below — so a
+        // deliberately unchecked student role would otherwise come back checked on edit (G3).
+        // array_key_exists(), not !empty(): json_decode('[]') decodes to an empty PHP array, which
+        // !empty() treats as "no record" even though the key IS present (an edit row whose stored
+        // params happen to be empty), which would spuriously re-check the student default (FIX2-12).
+        $isediting = array_key_exists('record', $customdata);
+
         $primarycheckboxes = [];
         foreach ($roles as $roleid => $rolename) {
             $fieldname = 'primaryrecipients[' . $roleid . ']';
             $primarycheckboxes[] = $mform->createElement('advcheckbox', $roleid, '', $rolename);
             $mform->setType($fieldname, PARAM_INT);
 
-            if (isset($rolerecords[$roleid]) && $rolerecords[$roleid]->shortname === 'student') {
+            if (!$isediting && isset($rolerecords[$roleid]) && $rolerecords[$roleid]->shortname === 'student') {
                 $mform->setDefault($fieldname, 1);
             }
         }
@@ -170,19 +191,34 @@ class sendnotification_form extends action_form {
         $errors = parent::validation($data, $files);
 
         $primaryrecipients = $data['primaryrecipients'] ?? [];
-        // Check if at least one primary recipient role checkbox was selected.
-        $atleastoneselected = false;
-        foreach ($primaryrecipients as $value) {
-            if ($value == 1) {
-                $atleastoneselected = true;
-                break;
-            }
-        }
+        $copyrecipients = $data['copyrecipients'] ?? [];
+
+        // At least one recipient role must be selected, primary or copy: a rule may be configured
+        // to notify only copy recipients without ever messaging the primary (matched) user.
+        $atleastoneselected = in_array(1, $primaryrecipients) || in_array(1, $copyrecipients);
 
         if (!$atleastoneselected) {
-            $errors['primaryrecipients'] = get_string('mustselectoneprimaryrole', 'local_coursedynamicrules');
+            $errors['primaryrecipients'] = get_string('mustselectonerecipient', 'local_coursedynamicrules');
         }
 
         return $errors;
+    }
+
+    /**
+     * Map stored params into the checkbox-group defaults consumed by set_data().
+     *
+     * Every role present in the form is explicitly zero-filled first: mform's own
+     * setDefault('primaryrecipients[<student>]', 1) in definition() would otherwise leave the
+     * student role checked on an edit where it was deliberately unchecked, because set_data() only
+     * overrides the keys it is given (G2/blocker 4).
+     *
+     * @param object $params Decoded stored params for the action being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        $courseid = $this->_customdata['courseid'];
+        $roles = get_default_enrol_roles(context_course::instance($courseid));
+
+        return \local_coursedynamicrules\local\form_preload::sendnotification($params, array_keys($roles));
     }
 }

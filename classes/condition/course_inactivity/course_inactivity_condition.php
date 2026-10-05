@@ -19,6 +19,7 @@ namespace local_coursedynamicrules\condition\course_inactivity;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\course_inactivity_form;
+use local_coursedynamicrules\helper\rule_lock;
 use stdClass;
 
 /**
@@ -35,7 +36,14 @@ class course_inactivity_condition extends condition {
     /** @var string base date for evaluating the intervals is start date of course */
     const DATE_FROM_COURSE_START = 'coursestart';
 
-    /** @var string base date for evaluating the intervals is current date */
+    /**
+     * Base date for evaluating the intervals is the moment the rule was activated.
+     *
+     * The stored value stays 'now' so conditions saved before 1.8.4 keep resolving; the anchor
+     * semantics live in get_activation_basedate().
+     *
+     * @var string
+     */
     const DATE_FROM_NOW = 'now';
 
     /** @var int indicate time in hours to interval window */
@@ -59,6 +67,14 @@ class course_inactivity_condition extends condition {
      * @var int $currenttime The current timestamp, used for more consistence in time calculations
      */
     protected $currenttime;
+
+    /**
+     * @var int|null The rule's activation moment, resolved once per instance for the "from now" base.
+     *
+     * Cached because evaluate() runs once per enrolled user on the same instance, and the anchor is
+     * a property of the rule, not of the user. Null until first read.
+     */
+    private ?int $activationtime = null;
 
     /**
      * course_inactivity_condition constructor.
@@ -125,9 +141,24 @@ class course_inactivity_condition extends condition {
         $courseid = $context->courseid;
         $userid = $context->userid;
 
+        // Guard against invalid stored data (e.g. legacy rules saved before validation existed):
+        // an interval of 0/non-numeric would raise a DivisionByZeroError and abort the whole task.
+        if (!$this->has_valid_intervals()) {
+            debugging('Invalid interval configuration in course_inactivity condition; condition skipped', DEBUG_DEVELOPER);
+            return false;
+        }
+
         $lastaccess = $this->get_user_last_access($courseid, $userid);
 
         $basedate = $this->get_basedate($courseid, $userid);
+
+        // Without a valid base date the intervals cannot be anchored, so the condition cannot be met.
+        // This happens when the user has no enrolment (enrolment base date) or the course has no start
+        // date (course-start base date); the form now rejects the latter, but legacy rules may still
+        // carry it, so fail closed instead of anchoring intervals at the unix epoch.
+        if (empty($basedate->timestart)) {
+            return false;
+        }
 
         if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
             return $this->check_inactivity_intervals($lastaccess, $basedate->timestart);
@@ -136,6 +167,16 @@ class course_inactivity_condition extends condition {
         }
 
         return false;
+    }
+
+    /**
+     * The inactivity stamp is the start of the previous scheduled pass (see is_after_last_run()).
+     *
+     * @return bool
+     */
+    #[\Override]
+    public function is_clocked_by_schedule(): bool {
+        return true;
     }
 
     /**
@@ -154,22 +195,105 @@ class course_inactivity_condition extends condition {
     }
 
     /**
-     * Get user's enrollment details
+     * Whether the stored interval configuration is valid for the current interval type.
+     *
+     * @return bool
+     */
+    private function has_valid_intervals() {
+        if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
+            return self::is_valid_custom_intervals($this->params->timeintervals);
+        }
+        if ($this->params->intervaltype == self::INTERVAL_RECURRING) {
+            return self::is_valid_recurring_interval($this->params->timeintervals);
+        }
+        return false;
+    }
+
+    /**
+     * Whether the chosen base date can be anchored for the given course at configuration time.
+     *
+     * "From course start" is only usable when the course has a start date; anchoring intervals at the
+     * unix epoch is meaningless, so such a condition would never fire. The other base dates (enrolment,
+     * now) do not depend on the course start date. This lets the form reject a configuration that would
+     * silently never fire instead of leaving the user with a rule that appears to do nothing.
+     *
+     * @param string $basedatetype One of the DATE_FROM_* constants.
+     * @param int $courseid Course id.
+     * @return bool True if the base date can be anchored for the course.
+     */
+    public static function basedate_is_configurable($basedatetype, $courseid) {
+        if ($basedatetype === self::DATE_FROM_COURSE_START) {
+            return !empty(get_course($courseid)->startdate);
+        }
+        return true;
+    }
+
+    /**
+     * Validate a recurring interval: a single positive integer.
+     *
+     * @param mixed $value The interval value.
+     * @return bool
+     */
+    public static function is_valid_recurring_interval($value) {
+        return ctype_digit((string) $value) && (int) $value >= 1;
+    }
+
+    /**
+     * Validate custom intervals: comma-separated positive integers in strict ascending order.
+     *
+     * @param mixed $value The comma-separated interval string.
+     * @return bool
+     */
+    public static function is_valid_custom_intervals($value) {
+        $value = (string) $value;
+        if ($value === '') {
+            return false;
+        }
+
+        $prev = 0;
+        foreach (explode(',', $value) as $token) {
+            $token = trim($token);
+            if (!ctype_digit($token) || (int) $token < 1) {
+                return false;
+            }
+            // Strict ascending order (also rejects duplicates).
+            if ((int) $token <= $prev) {
+                return false;
+            }
+            $prev = (int) $token;
+        }
+
+        return true;
+    }
+
+    /**
+     * Get the base timestamp for a user's enrolment in a course.
+     *
+     * A user may have several enrolments (one per enrol method); the earliest effective start is
+     * used, so inactivity is measured from when the user first gained access. Each enrolment's
+     * effective start is its timestart, or its timecreated when timestart is unset (0).
+     *
      * @param int $userid User ID
      * @param int $courseid Course ID
-     * @return stdClass
+     * @return int|null Earliest effective enrolment start, or null if the user has no enrolment.
      */
-    private function get_user_enrollment($userid, $courseid) {
+    private function get_enrolment_basedate($userid, $courseid) {
         global $DB;
 
-        return $DB->get_record_sql(
-            "SELECT ue.timestart, ue.timecreated
+        $enrolments = $DB->get_records_sql(
+            "SELECT ue.id, ue.timestart, ue.timecreated
              FROM {user_enrolments} ue
              JOIN {enrol} e ON e.id = ue.enrolid
              WHERE ue.userid = :userid AND e.courseid = :courseid",
-            ['userid' => $userid, 'courseid' => $courseid],
-            MUST_EXIST
+            ['userid' => $userid, 'courseid' => $courseid]
         );
+
+        $starts = [];
+        foreach ($enrolments as $enrolment) {
+            $starts[] = $enrolment->timestart > 0 ? (int) $enrolment->timestart : (int) $enrolment->timecreated;
+        }
+
+        return $starts ? min($starts) : null;
     }
 
     /**
@@ -190,7 +314,10 @@ class course_inactivity_condition extends condition {
             $endinterval = $this->add_time_interval($basetime, $timeinterval, $intervalunit);
             $timewindow = $this->add_time_interval($endinterval, self::CRON_INTERVAL_HOURS, 'hours');
 
-            if ($this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)) {
+            if (
+                $this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)
+                && $this->is_after_last_run($endinterval)
+            ) {
                 if ($this->is_user_inactive($lastaccess, $startinterval)) {
                     return true;
                 }
@@ -217,6 +344,16 @@ class course_inactivity_condition extends condition {
         $firstintervaltime = $this->add_time_interval($basetime, $interval, $intervalunit);
         $intervalspassed = $this->count_completed_intervals($basetime, $this->currenttime, $firstintervaltime);
 
+        // Interval 0 is the anchor itself, not a milestone: nothing has elapsed yet, so nobody can
+        // have been inactive "for the interval". Without this guard the first window sat at
+        // [anchor, anchor + CRON_INTERVAL_HOURS] - a stable anchor (activation, enrolment, course
+        // start) then swept every never-accessed student on the first task run after the anchor,
+        // before the interval the rule promises had elapsed. A negative count (clock before the
+        // anchor) has no milestone either.
+        if ($intervalspassed < 1) {
+            return false;
+        }
+
         $currentinterval = $intervalspassed * $interval;
         $prevtimeinterval = $currentinterval - $interval;
 
@@ -226,6 +363,7 @@ class course_inactivity_condition extends condition {
         $timewindow = $this->add_time_interval($endinterval, self::CRON_INTERVAL_HOURS, 'hours');
 
         return $this->is_within_interval_window($this->currenttime, $endinterval, $timewindow)
+            && $this->is_after_last_run($endinterval)
             && $this->is_user_inactive($lastaccess, $startinterval);
     }
 
@@ -248,7 +386,9 @@ class course_inactivity_condition extends condition {
      *
      * This function determines the base date for interval calculations by checking the type of base date
      * specified in the parameters. It can be based on the user's enrollment date, the course start date,
-     * or the current time.
+     * or the moment the rule was activated. Whatever the type, the base is an ANCHOR that stands
+     * still between evaluations; the moving clock is $this->currenttime, compared against the
+     * milestones measured from that anchor.
      *
      * @param int $courseid The ID of the course.
      * @param int $userid The ID of the user.
@@ -263,21 +403,44 @@ class course_inactivity_condition extends condition {
 
         switch ($basedatetype) {
             case self::DATE_FROM_ENROLLMENT:
-                $enrollment = $this->get_user_enrollment($userid, $courseid);
-                $basedate->timestart = $enrollment->timestart ?? $enrollment->timecreated;
+                $basedate->timestart = $this->get_enrolment_basedate($userid, $courseid);
                 break;
             case self::DATE_FROM_COURSE_START:
                 $course = get_course($courseid);
                 $basedate->timestart = $course->startdate;
                 break;
             case self::DATE_FROM_NOW:
-                $basedate->timestart = $this->currenttime;
+                $basedate->timestart = $this->get_activation_basedate();
                 break;
             default:
                 throw new \moodle_exception('invalidbasedate', 'local_coursedynamicrules', '', $basedatetype);
         }
 
         return $basedate;
+    }
+
+    /**
+     * The moment the rule was activated: the anchor the "from now" base measures its intervals from.
+     *
+     * "Now" as the rule's author meant it when switching the rule on - NOT the clock of each
+     * evaluation. The intervals are milestones measured from an anchor, and an anchor that moved
+     * with every cron run put every custom milestone permanently in the future (the condition never
+     * fired) and every recurring milestone permanently at the present (it fired on every run).
+     *
+     * Read through rule_lock, the one owner of the activation stamp, and cached on the instance so
+     * a task evaluating hundreds of users asks once. A rule that was never activated has no anchor
+     * and yields 0, which evaluate() treats like a missing enrolment or course start date: the
+     * condition fails closed instead of anchoring the intervals at the unix epoch.
+     *
+     * @return int Activation timestamp, 0 when the rule has never been activated.
+     * @throws \dml_missing_record_exception When the condition's rule no longer exists.
+     */
+    private function get_activation_basedate(): int {
+        if ($this->activationtime === null) {
+            $this->activationtime = rule_lock::activation_time((int) $this->ruleid) ?? 0;
+        }
+
+        return $this->activationtime;
     }
 
     /**
@@ -309,6 +472,28 @@ class course_inactivity_condition extends condition {
     }
 
     /**
+     * Whether a milestone fell due after this condition's previous run, and by now.
+     *
+     * The six-hour window outlasts the gap between two runs of the task (a manual run, cron
+     * catching up), so the window alone let a second run notify the same student again for the
+     * same milestone (MDL-UNIT-010). The condition's lastexecutiontime is the start of its previous
+     * run (rule::execute()): a milestone due by then was already evaluated by that run, one due
+     * later - even during it - was not. Never run (null: a new or duplicated rule) leaves the
+     * window as the only check.
+     *
+     * The stamp belongs to the condition, not to the student, so what that run decided is not
+     * revisited: a milestone a sibling condition or a failed action kept from a student is not
+     * offered to them again, and moving the base date back does not re-notify milestones the
+     * previous run already passed.
+     *
+     * @param int $end The moment the milestone fell due.
+     * @return bool
+     */
+    private function is_after_last_run(int $end): bool {
+        return $end > (int) ($this->lastexecutiontime ?? 0) && $end <= $this->currenttime;
+    }
+
+    /**
      * Determines if a user is inactive in a course based on their last access time and a specified inactivity interval.
      *
      * This method checks whether the user's last access timestamp is earlier than the provided start interval timestamp.
@@ -330,12 +515,18 @@ class course_inactivity_condition extends condition {
     /**
      * Saves the condition after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved condition record.
      */
     public function save_condition($formdata) {
-        global $DB;
-
         $timeintervals = $formdata->intervaltype == self::INTERVAL_CUSTOM ?
             $formdata->customintervals : $formdata->recurringinterval;
+
+        $valid = $formdata->intervaltype == self::INTERVAL_CUSTOM
+            ? self::is_valid_custom_intervals($timeintervals)
+            : self::is_valid_recurring_interval($timeintervals);
+        if (!$valid) {
+            throw new \invalid_parameter_exception('Invalid interval configuration: expected positive integers');
+        }
 
         $params = [
             'intervaltype' => $formdata->intervaltype,
@@ -344,14 +535,7 @@ class course_inactivity_condition extends condition {
             'basedatetype' => $formdata->basedatetype,
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
-
-        $this->set_data($condition);
-
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+        return $this->upsert($params, $formdata);
     }
 
     /**
@@ -371,8 +555,8 @@ class course_inactivity_condition extends condition {
     public function get_description() {
         $stringoptions = [
             'intervals' => str_replace(',', ', ', $this->params->timeintervals),
-            'unit' => strtolower(get_string($this->params->intervalunit, 'local_coursedynamicrules')),
-            'basedate' => strtolower($this->get_basedate_string($this->params->basedatetype)),
+            'unit' => \core_text::strtolower(get_string($this->params->intervalunit, 'local_coursedynamicrules')),
+            'basedate' => \core_text::strtolower($this->get_basedate_string($this->params->basedatetype)),
         ];
 
         if ($this->params->intervaltype == self::INTERVAL_CUSTOM) {
@@ -400,7 +584,7 @@ class course_inactivity_condition extends condition {
      * @param int $basedatetype The type of the base date. Possible values are:
      *                          - self::DATE_FROM_ENROLLMENT: Enrollment date.
      *                          - self::DATE_FROM_COURSE_START: Course start date.
-     *                          - self::DATE_FROM_NOW: Current date.
+     *                          - self::DATE_FROM_NOW: The rule's activation moment.
      * @return string The localized string representation of the base date type.
      */
     private function get_basedate_string($basedatetype) {

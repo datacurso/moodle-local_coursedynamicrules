@@ -50,12 +50,43 @@ class behat_local_coursedynamicrules extends behat_base {
 
         foreach ($table->getHash() as $row) {
             $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            // The generator obeys the production axiom "active means it WAS activated": every
+            // production writer that sets active=1 also stamps timeactivated (editrule, the
+            // upgrade, restore), so an active-but-unstamped rule is a state no real site can
+            // hold post-2026083002 - and a suite exercising impossible states proves nothing.
+            // Round-2 judge CRITICAL. An explicit timeactivated column still overrides.
+            $active = isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1;
+            // Same axiom family: a rule only executes after its first activation, so an executed
+            // rule with no activation stamp is another state no real site can hold. When the
+            // scenario sets lastexecutiontime on an unstamped rule, the execution moment doubles
+            // as the activation moment.
+            $lastexecution = isset($row['lastexecutiontime']) && trim($row['lastexecutiontime']) !== ''
+                ? (int)$row['lastexecutiontime']
+                : null;
+            $timeactivated = isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                ? ((int)$row['timeactivated'] ?: ($active ? time() : null))
+                : ($active ? time() : null);
+            if ($lastexecution !== null && $timeactivated === null) {
+                $timeactivated = $lastexecution;
+            }
+            // The engine's self-deactivation stamp: set ONLY when the scenario is about a one-shot
+            // cron rule the engine switched off. It is deliberately independent of lastexecutiontime
+            // - that is the whole badge fix: a rule can have fired (lastexecutiontime) and still be a
+            // manual pause (timeautodeactivated null), which must read as "Paused", not "Executed".
+            $timeautodeactivated = isset($row['timeautodeactivated']) && trim($row['timeautodeactivated']) !== ''
+                ? (int)$row['timeautodeactivated']
+                : null;
             $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
                 'courseid' => $course->id,
-                'name' => 'Behat no course access rule',
+                // Optional columns, defaulted for backwards compatibility with every existing
+                // feature: a name so scenarios can tell rules apart, and active so the activation
+                // flow can start from a genuinely inactive rule.
+                'name' => trim($row['name'] ?? '') !== '' ? trim($row['name']) : 'Behat no course access rule',
                 'description' => 'Behat generated rule',
-                'active' => 1,
-                'lastexecutiontime' => null,
+                'active' => $active,
+                'timeactivated' => $timeactivated,
+                'timeautodeactivated' => $timeautodeactivated,
+                'lastexecutiontime' => $lastexecution,
                 'timecreated' => time(),
                 'timemodified' => time(),
             ]);
@@ -86,6 +117,189 @@ class behat_local_coursedynamicrules extends behat_base {
                 'lastexecutiontime' => null,
             ]);
         }
+    }
+
+    /**
+     * Create bare rules - a rule row with NO conditions and NO actions.
+     *
+     * The population the 2026083002 upgrade seals incomplete: pre-lock sites could save a rule
+     * active with zero components. Scenarios about what the listing offers such rules need to
+     * build one, and no UI path can any more.
+     *
+     * @Given /^the following local coursedynamicrules bare rules exist:$/
+     * @param TableNode $table Table data with columns: course, name, active, timeactivated,
+     *      description. The name is inserted VERBATIM, with no cleaning, because that is what
+     *      course restore does (restore_local_coursedynamicrules_plugin.class.php:95) and it is
+     *      the only writer a hostile name can come through - the form types the field PARAM_TEXT.
+     */
+    public function the_following_local_coursedynamicrules_bare_rules_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $DB->insert_record('local_coursedynamicrules_rule', (object) [
+                'courseid' => $course->id,
+                'name' => trim($row['name']),
+                'description' => isset($row['description']) ? trim($row['description'])
+                    : 'Behat generated bare rule',
+                'active' => isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 0,
+                // Same axiom as every generator here: active without an explicit stamp is sealed
+                // now, because no production writer leaves an active rule unstamped.
+                'timeactivated' => isset($row['timeactivated']) && trim($row['timeactivated']) !== ''
+                    ? ((int)$row['timeactivated'] ?: (!empty($row['active']) ? time() : null))
+                    : (!empty($row['active']) && (int)$row['active'] === 1 ? time() : null),
+                'lastexecutiontime' => null,
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+        }
+    }
+
+    /**
+     * Visit the activation confirmation page for a rule, addressed by name.
+     *
+     * The page a replayed link or an old browser tab lands on: editrule.php?confirmactivate=1.
+     * Reaching it directly is the point - the scenario exercises what the page says when the
+     * confirmation is no longer applicable, and no UI path can produce that URL twice.
+     *
+     * @When /^I visit the activation confirmation page for the rule "(?P<name>[^"]*)"$/
+     * @param string $name The rule name.
+     */
+    public function i_visit_the_activation_confirmation_page_for_the_rule(string $name): void {
+        global $DB;
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['name' => $name], '*', MUST_EXIST);
+        $this->execute('behat_general::i_visit', [new moodle_url('/local/coursedynamicrules/editrule.php', [
+            'courseid' => $rule->courseid,
+            'id' => $rule->id,
+            'confirmactivate' => 1,
+        ])]);
+    }
+
+    /**
+     * Create rules with a create AI activity action carrying the given prompt.
+     *
+     * @Given /^the following local coursedynamicrules AI activity actions exist:$/
+     * @param TableNode $table Table data with columns: course, prompt.
+     */
+    public function the_following_local_coursedynamicrules_ai_activity_actions_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            // Optional active column; the default obeys the axiom below (active arrives sealed).
+            $active = isset($row['active']) && trim($row['active']) !== '' ? (int)$row['active'] : 1;
+            $ruleid = (int)$DB->insert_record('local_coursedynamicrules_rule', (object) [
+                'courseid' => $course->id,
+                'name' => 'Behat AI activity rule',
+                'description' => 'Behat generated rule',
+                'active' => $active,
+                // Active means it WAS activated: production never holds an active-unstamped rule,
+                // so neither does any rule this context fabricates.
+                'timeactivated' => $active ? time() : null,
+                'lastexecutiontime' => null,
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+
+            $DB->insert_record('local_coursedynamicrules_action', (object) [
+                'ruleid' => $ruleid,
+                'actiontype' => 'createaiactivity',
+                'params' => json_encode([
+                    'message' => html_entity_decode($row['prompt'], ENT_QUOTES | ENT_HTML5),
+                    'generateimages' => false,
+                    'sectionnum' => 0,
+                    'beforemod' => null,
+                ]),
+                'lastexecutiontime' => null,
+            ]);
+        }
+    }
+
+    /**
+     * Visit the delete confirmation page for the most recent action in a course.
+     *
+     * @When /^I visit the coursedynamicrules delete page for the latest action in course "(?P<shortname>[^"]*)"$/
+     * @param string $shortname Course shortname.
+     */
+    public function i_visit_the_coursedynamicrules_delete_page_for_the_latest_action_in_course(string $shortname): void {
+        global $DB;
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $action = $DB->get_record_sql(
+            "SELECT a.id, a.ruleid
+               FROM {local_coursedynamicrules_action} a
+               JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
+              WHERE r.courseid = :courseid
+           ORDER BY a.id DESC",
+            ['courseid' => $course->id],
+            IGNORE_MULTIPLE
+        );
+
+        $url = new moodle_url('/local/coursedynamicrules/deleteaction.php', [
+            'id' => $action->id,
+            'courseid' => $course->id,
+            'ruleid' => $action->ruleid,
+        ]);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
+    }
+
+    /**
+     * Visit the delete confirmation page for the most recent rule in a course.
+     *
+     * Addressed by recency rather than by name on purpose: the scenario that needs this page most
+     * is the one whose rule is NAMED with a script payload, and a name like that cannot be typed
+     * into a step argument or matched in a link.
+     *
+     * @When /^I visit the coursedynamicrules delete page for the latest rule in course "(?P<shortname>[^"]*)"$/
+     * @param string $shortname Course shortname.
+     */
+    public function i_visit_the_coursedynamicrules_delete_page_for_the_latest_rule_in_course(string $shortname): void {
+        global $DB;
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $rule = $DB->get_record_sql(
+            "SELECT id FROM {local_coursedynamicrules_rule} WHERE courseid = :courseid ORDER BY id DESC",
+            ['courseid' => $course->id],
+            IGNORE_MULTIPLE
+        );
+
+        $url = new moodle_url('/local/coursedynamicrules/deleterule.php', [
+            'id' => $rule->id,
+            'courseid' => $course->id,
+        ]);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
+    }
+
+    /**
+     * Visit the in-place edit URL for the most recent condition in a course.
+     *
+     * Proves the editor cannot be reached by a direct link or a bookmark, not merely that the
+     * listing stopped offering a control for it.
+     *
+     * @When /^I visit the coursedynamicrules edit page for the latest condition in course "(?P<shortname>[^"]*)"$/
+     * @param string $shortname Course shortname.
+     */
+    public function i_visit_the_coursedynamicrules_edit_page_for_latest_condition(string $shortname): void {
+        global $DB;
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $condition = $DB->get_record_sql(
+            "SELECT c.id, c.ruleid
+               FROM {local_coursedynamicrules_condition} c
+               JOIN {local_coursedynamicrules_rule} r ON r.id = c.ruleid
+              WHERE r.courseid = :courseid
+           ORDER BY c.id DESC",
+            ['courseid' => $course->id],
+            IGNORE_MULTIPLE
+        );
+
+        $url = new moodle_url('/local/coursedynamicrules/conditions.php', [
+            'edit' => $condition->id,
+            'courseid' => $course->id,
+            'ruleid' => $condition->ruleid,
+        ]);
+        $this->getSession()->visit($this->locate_path($url->out_as_local_url(false)));
     }
 
     /**
@@ -230,6 +444,8 @@ class behat_local_coursedynamicrules extends behat_base {
         }
     }
 
+
+
     /**
      * Resolve comma-separated role shortnames to role ids.
      *
@@ -246,5 +462,133 @@ class behat_local_coursedynamicrules extends behat_base {
         }
 
         return $roleids;
+    }
+
+    /**
+     * Attach "activity completed" conditions to existing rules, each pointing at an activity by idnumber.
+     *
+     * Goes through the condition's own save_condition() - the production writer - so the row carries
+     * everything the listing and the evaluator expect (event name, params shape), exactly as a
+     * teacher saving the form would leave it. The activity is addressed by the idnumber the core
+     * "activities" generator accepts, so a scenario can later delete that very module.
+     *
+     * @Given /^the following local coursedynamicrules complete activity conditions exist:$/
+     * @param TableNode $table Columns: course (shortname), rule (rule name), activity (cm idnumber).
+     */
+    public function the_following_local_coursedynamicrules_complete_activity_conditions_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $rule = $DB->get_record(
+                'local_coursedynamicrules_rule',
+                ['courseid' => $course->id, 'name' => trim($row['rule'])],
+                '*',
+                MUST_EXIST
+            );
+            $cm = $DB->get_record(
+                'course_modules',
+                ['course' => $course->id, 'idnumber' => trim($row['activity'])],
+                '*',
+                MUST_EXIST
+            );
+
+            $condition = new \local_coursedynamicrules\condition\complete_activity\complete_activity_condition(
+                (object) ['ruleid' => $rule->id, 'conditiontype' => 'complete_activity', 'params' => json_encode([])],
+                $course->id
+            );
+            $condition->save_condition((object) ['ruleid' => $rule->id, 'coursemodule' => $cm->id]);
+        }
+    }
+
+    /**
+     * Create an enable-activity action on an existing rule, addressed by the activity's idnumber.
+     *
+     * Goes through the action's own save_action() - the production writer - so the row carries the
+     * params shape the listing and the runtime expect, exactly as a teacher saving the form would
+     * leave it. Whether that save ALSO gates the activity depends on the rule being active, which
+     * is the whole point of a scenario about activation: build the rule inactive and the activity
+     * must stay open until somebody activates the rule.
+     *
+     * There is no UI path this stack can take here - the action form picks its activities through a
+     * JavaScript autocomplete, and this stack runs Behat without a browser.
+     *
+     * @Given /^the following local coursedynamicrules enable activity actions exist:$/
+     * @param TableNode $table Columns: course (shortname), rule (rule name), activity (cm idnumber).
+     */
+    public function the_following_local_coursedynamicrules_enable_activity_actions_exist(TableNode $table): void {
+        global $DB;
+
+        foreach ($table->getHash() as $row) {
+            $course = $DB->get_record('course', ['shortname' => $row['course']], '*', MUST_EXIST);
+            $rule = $DB->get_record(
+                'local_coursedynamicrules_rule',
+                ['courseid' => $course->id, 'name' => trim($row['rule'])],
+                '*',
+                MUST_EXIST
+            );
+            $cm = $DB->get_record(
+                'course_modules',
+                ['course' => $course->id, 'idnumber' => trim($row['activity'])],
+                '*',
+                MUST_EXIST
+            );
+
+            $action = new \local_coursedynamicrules\action\enableactivity\enableactivity_action(
+                (object) [
+                    'id' => null,
+                    'ruleid' => $rule->id,
+                    'actiontype' => 'enableactivity',
+                    'params' => json_encode([]),
+                ],
+                $course->id
+            );
+            $action->save_action((object) [
+                'ruleid' => $rule->id,
+                'courseid' => $course->id,
+                'coursemodules' => [$cm->id],
+            ]);
+        }
+    }
+
+    /**
+     * Delete an activity from a course, synchronously, addressed by its idnumber.
+     *
+     * The core "I delete X activity" step drives the action menu and needs JavaScript; this stack
+     * runs Behat without a browser. Deleting through the course module API is what that menu ends
+     * up calling anyway, and the synchronous path leaves the module truly gone - the state a
+     * component pointing at it must survive.
+     *
+     * @Given /^the activity with idnumber "(?P<idnumber>[^"]*)" in course "(?P<shortname>[^"]*)" is deleted$/
+     * @param string $idnumber The course module idnumber.
+     * @param string $shortname The course shortname.
+     */
+    public function the_activity_with_idnumber_in_course_is_deleted(string $idnumber, string $shortname): void {
+        global $CFG, $DB;
+        require_once($CFG->dirroot . '/course/lib.php');
+
+        $course = $DB->get_record('course', ['shortname' => $shortname], '*', MUST_EXIST);
+        $cm = $DB->get_record('course_modules', ['course' => $course->id, 'idnumber' => $idnumber], '*', MUST_EXIST);
+
+        require_once(__DIR__ . '/../fixtures/module_deleter.php');
+        \local_coursedynamicrules\tests\module_deleter::delete((int) $cm->id);
+        rebuild_course_cache($course->id, true);
+    }
+
+    /**
+     * Activate and seal a rule outside the page the browser is on.
+     *
+     * Stands in for a second tab: the edit form already rendered stays unfrozen while the rule
+     * locks underneath it, which is exactly the stale-tab save the discard warning is about.
+     *
+     * @Given /^the local coursedynamicrules rule "(?P<name>[^"]*)" is activated behind my back$/
+     * @param string $name The rule name.
+     */
+    public function the_local_coursedynamicrules_rule_is_activated_behind_my_back(string $name): void {
+        global $DB;
+
+        $ruleid = (int) $DB->get_field('local_coursedynamicrules_rule', 'id', ['name' => $name], MUST_EXIST);
+        $DB->set_field('local_coursedynamicrules_rule', 'active', 1, ['id' => $ruleid]);
+        \local_coursedynamicrules\helper\rule_lock::stamp_if_active($ruleid);
     }
 }

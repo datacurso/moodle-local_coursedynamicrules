@@ -29,6 +29,12 @@ use local_coursedynamicrules\core\rule;
  */
 class rule_task extends \core\task\adhoc_task {
     /**
+     * Seconds a grade evaluation waits before running, so every grade item written by one
+     * gradebook save is in place and folded into a single queued evaluation (MDL-UNIT-012).
+     */
+    public const COALESCE_DELAY = 30;
+
+    /**
      * Return a instance of rule_task with custom data added
      *
      * @param object $customdata Custom data to pass to the task
@@ -54,16 +60,20 @@ class rule_task extends \core\task\adhoc_task {
             $userid = $customdata->userid;
             $conditiontypes = $customdata->conditiontypes;
 
-            $user = $DB->get_record('user', ['id' => $userid]);
+            // A deleted user is out: this task can be drained after the site deleted the user it
+            // was queued for, and a rule must not act for them - the enable-activity action would
+            // write back the very id the deletion just removed from its restrictions.
+            $user = $DB->get_record('user', ['id' => $userid, 'deleted' => 0]);
             if (!$user) {
-                mtrace("local_coursedynamicrules: User {$userid} not found, skipping.");
                 return;
             }
 
             // Make array to pass to rule class in second param.
             $users = [$user];
 
-            // Get active rules for the course.
+            // Get active rules for the course. A rule holding a one-shot condition (see
+            // condition::is_one_shot()) is loaded too but never executed here: rule::execute()
+            // leaves it to its scheduled pass.
             $rules = $DB->get_records('local_coursedynamicrules_rule', ['courseid' => $courseid, 'active' => 1]);
 
             $additionaldata = [];
@@ -74,12 +84,17 @@ class rule_task extends \core\task\adhoc_task {
             if (isset($customdata->gradeid)) {
                 $additionaldata['gradeid'] = $customdata->gradeid;
             }
+            // Grade evaluations are keyed by the activity (see observer\user_graded); tasks queued
+            // before that change still carry a gradeid and resolve through it.
+            if (isset($customdata->cmid)) {
+                $additionaldata['cmid'] = $customdata->cmid;
+            }
 
             foreach ($rules as $rule) {
                 $ruleinstance = new rule($rule, $users, $conditiontypes, $additionaldata);
                 $ruleinstance->execute();
             }
-        } catch (\Throwable $e) {
+        } catch (\Exception $e) {
             mtrace($e);
         }
     }

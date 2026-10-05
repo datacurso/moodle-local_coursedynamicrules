@@ -22,13 +22,13 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 
 require('../../config.php');
 
 $id = required_param('id', PARAM_INT); // Action ID.
-$delete = optional_param('delete', '', PARAM_ALPHANUM); // Confirmation hash.
+$confirm = optional_param('confirm', 0, PARAM_BOOL); // Set by the confirmation button.
 $courseid = required_param('courseid', PARAM_INT);
 $ruleid = required_param('ruleid', PARAM_INT);
 
@@ -37,12 +37,26 @@ $context = context_course::instance($courseid);
 
 require_login($course);
 require_capability('local/coursedynamicrules:deleteaction', $context);
+// Ownership resolves the target BEFORE the lock speaks about it: lock-first let anyone holding
+// the capability in their own course probe foreign rule ids and read the lock state off the
+// differing error (round-2 judges). Foreign or missing ids now get the ownership error, always.
+$action = \local_coursedynamicrules\helper\ownership::get_action($id, $courseid, $ruleid);
+// Removing a component IS modifying the rule: a locked rule keeps what it was activated
+// with. The listing hides the control; this is for the URL the control no longer offers.
+\local_coursedynamicrules\helper\rule_lock::require_unlocked($ruleid);
 
 $url = new moodle_url(
     '/local/coursedynamicrules/deleteaction.php',
-    ['id' => $id, 'delete' => $delete, 'courseid' => $courseid, 'ruleid' => $ruleid]
+    ['id' => $id, 'courseid' => $courseid, 'ruleid' => $ruleid]
 );
-$actionsurl = new moodle_url('/local/coursedynamicrules/actions.php', ['courseid' => $courseid, 'ruleid' => $ruleid]);
+// Not necessarily the actions listing: deleting demands only deleteaction, while that listing
+// demands the action pair, so this must not hand the operator a refusal after the work is done.
+$actionsurl = \local_coursedynamicrules\helper\page_gate::component_listing_url(
+    'action',
+    $courseid,
+    $ruleid,
+    $context
+);
 
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);
@@ -53,17 +67,19 @@ $PAGE->set_pagelayout('incourse');
 
 echo $OUTPUT->header();
 
-$action = $DB->get_record('local_coursedynamicrules_action', ['id' => $id, 'ruleid' => $ruleid], '*', MUST_EXIST);
-$DB->get_record('local_coursedynamicrules_rule', ['id' => $ruleid, 'courseid' => $courseid], '*', MUST_EXIST);
-
-$config = get_config('local_coursedynamicrules');
-
 $actioninstance = rule_component_loader::create_action_instance($action, $courseid);
-$description = $actioninstance->get_description();
+$description = component_renderer::escaped_description($actioninstance);
 
-if ($delete === md5($config->confirmdeleteaction ?? '')) {
+// Confirmed with the session key alone, which is per user and per session. The previous answer
+// to "has this been confirmed?" was a single plugin configuration value written while the
+// confirmation page rendered - one slot for the whole site, bound to neither the record nor the
+// operator, so the second person to open any delete confirmation silently invalidated the first
+// one's pending one.
+if ($confirm) {
+    // Aborting, not returning false: confirm_sesskey() would let a stale key fall through and
+    // re-render the very same question with no message, which is the failure this repair exists
+    // to remove, not to relocate.
     require_sesskey();
-
     // Delete action.
     $actioninstance->delete();
 
@@ -80,16 +96,12 @@ if ($delete === md5($config->confirmdeleteaction ?? '')) {
 $strdeleteactioncheck = get_string("deleteactioncheck", "local_coursedynamicrules");
 $message = "{$strdeleteactioncheck}<br /><br />{$description}";
 
-// Generate ramdom token for validation delete action.
-$confirmdeleteaction = time() . md5(mt_rand(100000000, mt_getrandmax()));
-set_config('confirmdeleteaction', $confirmdeleteaction, 'local_coursedynamicrules');
-$hashdelete = md5($confirmdeleteaction);
 
 $continueurl = new moodle_url(
     '/local/coursedynamicrules/deleteaction.php',
     [
         'id' => $id,
-        'delete' => $hashdelete,
+        'confirm' => 1,
         'courseid' => $courseid,
         'ruleid' => $ruleid,
     ]

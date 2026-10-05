@@ -50,13 +50,19 @@ class complete_activity_form extends condition_form {
         $options = [];
         foreach ($cms as $cm) {
             if ($this->is_completion_enabled($cm) && !$cm->deletioninprogress) {
-                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->name;
+                $options[$cm->id] = ucfirst($cm->modname) . " - " . $cm->get_formatted_name();
             }
         }
 
+        // A blank option FIRST, with an empty label: when the stored activity is gone nothing matches,
+        // the browser selects the first option, and without this the widget would show - and Save
+        // would store - whichever activity happened to come first. Core skips empty-label options
+        // when rebuilding the selection, so this one lands as "no selection" and validation refuses.
+        $options = ['' => ''] + $options;
+
         $attributes = [
             'multiple' => false,
-            'noselectionstring' => get_string('allcourseactivitymodules', 'local_coursedynamicrules'),
+            'noselectionstring' => get_string('selectanactivity', 'local_coursedynamicrules'),
         ];
         $mform->addElement(
             'autocomplete',
@@ -74,6 +80,24 @@ class complete_activity_form extends condition_form {
     }
 
     /**
+     * Server side validation: an activity of this course must be selected.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        $cmid = (int) ($data['coursemodule'] ?? 0);
+        if ($cmid <= 0 || !isset(get_fast_modinfo($this->courseid)->cms[$cmid])) {
+            $errors['coursemodule'] = get_string('errornocoursemodule', 'local_coursedynamicrules');
+        }
+
+        return $errors;
+    }
+
+    /**
      * Validate if the completion is enabled for the course module
      *
      * @param object $cminfo Course module information
@@ -81,5 +105,15 @@ class complete_activity_form extends condition_form {
      */
     private function is_completion_enabled($cminfo) {
         return $cminfo->completion == COMPLETION_TRACKING_MANUAL || $cminfo->completion == COMPLETION_TRACKING_AUTOMATIC;
+    }
+
+    /**
+     * Map the stored 'cmid' param onto the 'coursemodule' autocomplete element.
+     *
+     * @param object $params Decoded stored params for the condition being edited.
+     * @return array
+     */
+    protected function preload_defaults($params): array {
+        return \local_coursedynamicrules\local\form_preload::complete_activity($params);
     }
 }

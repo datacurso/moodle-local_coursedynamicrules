@@ -19,7 +19,6 @@ namespace local_coursedynamicrules\condition\no_course_access;
 use local_coursedynamicrules\core\condition;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\conditions\no_course_access_form;
-use stdClass;
 
 /**
  * Class no_course_access_condition
@@ -88,14 +87,26 @@ class no_course_access_condition extends condition {
         $periodvalue = $this->params->periodvalue;
         $periodunit = $this->params->periodunit;
 
+        // Guard against invalid stored data (e.g. legacy rules saved before validation existed):
+        // an empty/non-positive period would make strtotime() return false and match every user.
+        if (!self::is_valid_period($periodvalue)) {
+            debugging('Invalid period value in no_course_access condition; condition skipped', DEBUG_DEVELOPER);
+            return false;
+        }
+
         $lastaccess = $DB->get_field('user_lastaccess', 'timeaccess', [
             'courseid' => $courseid,
             'userid' => $userid,
         ]);
 
-        // If user has never accessed the course.
+        // If the user has never accessed the course, measure the period from their enrolment date
+        // rather than matching instantly (a freshly enrolled user is not yet "without access for N").
         if (!$lastaccess) {
-            return true;
+            $lastaccess = $this->get_enrolment_start($courseid, $userid);
+            if (!$lastaccess) {
+                // No enrolment: the period cannot be measured, so the condition is not met.
+                return false;
+            }
         }
 
         $now = time();
@@ -108,29 +119,150 @@ class no_course_access_condition extends condition {
     }
 
     /**
-     * Saves the condition after it has been edited (or created)
-     * @param object $formdata
+     * Get the earliest effective enrolment start for a user in a course.
+     *
+     * A user may have several enrolments; the earliest effective start is used. Each enrolment's
+     * effective start is its timestart, or its timecreated when timestart is unset (0).
+     *
+     * @param int $courseid Course ID.
+     * @param int $userid User ID.
+     * @return int|null Earliest effective enrolment start, or null if the user has no enrolment.
      */
-    public function save_condition($formdata) {
+    private function get_enrolment_start($courseid, $userid) {
         global $DB;
 
+        $enrolments = $DB->get_records_sql(
+            "SELECT ue.id, ue.timestart, ue.timecreated
+             FROM {user_enrolments} ue
+             JOIN {enrol} e ON e.id = ue.enrolid
+             WHERE ue.userid = :userid AND e.courseid = :courseid",
+            ['userid' => $userid, 'courseid' => $courseid]
+        );
+
+        $starts = [];
+        foreach ($enrolments as $enrolment) {
+            $starts[] = $enrolment->timestart > 0 ? (int) $enrolment->timestart : (int) $enrolment->timecreated;
+        }
+
+        return $starts ? min($starts) : null;
+    }
+
+    /**
+     * Saves the condition after it has been edited (or created)
+     * @param object $formdata
+     * @return int The id of the saved condition record.
+     */
+    public function save_condition($formdata) {
         $periodvalue = $formdata->periodvalue;
         $periodunit = $formdata->periodunit;
 
+        if (!self::is_valid_period($periodvalue)) {
+            throw new \invalid_parameter_exception('Invalid period value: expected a positive integer');
+        }
+
         $params = [
-            'periodvalue' => $periodvalue,
-            'periodunit' => $periodunit,
+            'periodvalue' => (int) $periodvalue,
+            'periodunit' => clean_param($periodunit, PARAM_ALPHA),
+            // Insert-only default; on update, upsert() routes this key through
+            // adjust_runtime_param() instead (runtime_param_keys() below - v2 contract, engram obs
+            // #1310/FIX3-10): the stored throttle is preserved as-is when the period is unchanged,
+            // otherwise reconciled to min(stored, now + new period) so shortening the period can
+            // still advance the deadline, while lengthening it never pushes the deadline further out.
             'nexttimeperiod' => time(),
         ];
 
-        $condition = new stdClass();
-        $condition->ruleid = $formdata->ruleid;
-        $condition->conditiontype = $this->type;
-        $condition->params = json_encode($params);
+        return $this->upsert($params, $formdata);
+    }
 
-        $this->set_data($condition);
+    /**
+     * The throttle timestamp is maintained by the condition itself (set on insert, advanced by the
+     * scheduled task), never submitted by the operator form: its stored value is reconciled via
+     * adjust_runtime_param() on update instead of being blindly submitted by the operator.
+     *
+     * @return array
+     */
+    protected function runtime_param_keys(): array {
+        return ['nexttimeperiod'];
+    }
 
-        $DB->insert_record('local_coursedynamicrules_condition', $condition);
+    /**
+     * A duplicated draft starts its throttle the way a freshly saved rule does (see
+     * save_condition()), not wherever the original's window currently stands. The original may
+     * already be deep into a long period; carrying that stamp over would silently withhold the
+     * copy for as long as the original still had left, with nothing on screen saying why - the
+     * copy was never run, so there is nothing of its own to preserve.
+     *
+     * @return array
+     */
+    #[\Override]
+    public function params_for_duplicate(): array {
+        $params = parent::params_for_duplicate();
+        $params['nexttimeperiod'] = time();
+        return $params;
+    }
+
+    /**
+     * Refine the blunt force-win preservation of 'nexttimeperiod' (decision v2, engram obs #1310)
+     * so editing the operator-facing period still lets the throttle advance when the period is
+     * SHORTENED: editing must never make the rule immediately due, so the new deadline is never
+     * LATER than recomputing "now + the new period" - only ever earlier than, or equal to, whatever
+     * was already stored (FIX3-10).
+     *
+     * - Period unchanged -> the stored value survives byte-for-byte (no recompute at all).
+     * - Period changed, a stored value is present -> min(stored, now + new period).
+     * - Stored value is null (a stored JSON null; property_exists() still routes it here rather
+     *   than silently re-arming to "due immediately" - see condition::upsert()) -> now + new
+     *   period, since there is no meaningful prior deadline to preserve.
+     *
+     * @param string $key Runtime param key ('nexttimeperiod' is the only one this condition
+     *              declares via runtime_param_keys()).
+     * @param mixed $storedvalue The value currently stored in DB for $key.
+     * @param array $newparams The full new params about to be persisted (already contains the NEW
+     *              periodvalue/periodunit submitted by the operator this save).
+     * @return mixed
+     */
+    protected function adjust_runtime_param(string $key, $storedvalue, array $newparams) {
+        if ($key !== 'nexttimeperiod') {
+            return $storedvalue;
+        }
+
+        // Normalising casts (FIX4): a legacy row can have periodvalue stored as a numeric STRING
+        // (pre-dates the (int) cast in save_condition()) and/or periodunit stored with different
+        // casing/whitespace. A strict === comparison against $newparams (always int/clean-alpha,
+        // freshly submitted) would then defeat the "unchanged" branch every time, forcing a
+        // needless recompute on every edit even when the operator did not touch the period.
+        $storedperiodvalue = (int) ($this->params->periodvalue ?? 0);
+        $storedperiodunit = strtolower(trim((string) ($this->params->periodunit ?? '')));
+        $periodunchanged = $storedperiodvalue === (int) $newparams['periodvalue']
+            && $storedperiodunit === strtolower(trim((string) $newparams['periodunit']));
+        if ($periodunchanged) {
+            return $storedvalue;
+        }
+
+        $recomputed = strtotime("+{$newparams['periodvalue']} {$newparams['periodunit']}", time());
+
+        if ($recomputed === false) {
+            // Strtotime() failed to parse the new period (e.g. an unrecognised periodunit that
+            // bypassed form validation) - never let a bad recompute regress the stored deadline to
+            // "due immediately" (a false timestamp), keep whatever was already stored instead.
+            return $storedvalue;
+        }
+
+        if ($storedvalue === null) {
+            return $recomputed;
+        }
+
+        return min($storedvalue, $recomputed);
+    }
+
+    /**
+     * Validate that a period value is a positive integer.
+     *
+     * @param mixed $value The period value to validate.
+     * @return bool True if the value is a whole number greater than zero.
+     */
+    private static function is_valid_period($value) {
+        return ctype_digit((string) $value) && (int) $value >= 1;
     }
 
     /**

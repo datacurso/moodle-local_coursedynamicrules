@@ -54,11 +54,36 @@ class no_course_access_form extends condition_form {
         ]);
 
         $mform->addGroup($periodgroup, 'period_group', get_string('period', 'local_coursedynamicrules'), '', false);
-        $mform->setType('periodvalue', PARAM_INT);
-        $mform->setType('periodunit', PARAM_ALPHA);
+        $mform->setType('periodvalue', PARAM_RAW);
 
         $mform->addHelpButton('period_group', 'period', 'local_coursedynamicrules');
 
         parent::definition();
+    }
+
+    /**
+     * Server side validation: the period must be a positive integer.
+     *
+     * @param array $data Submitted data.
+     * @param array $files Submitted files.
+     * @return array Errors.
+     */
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        $periodvalue = $data['periodvalue'] ?? '';
+        if (!ctype_digit((string) $periodvalue) || (int) $periodvalue < 1) {
+            $errors['period_group'] = get_string('errorperiodvalue', 'local_coursedynamicrules');
+        }
+
+        // The select element only offers hours/days/weeks, but server-side validation must not
+        // trust that a submission actually went through it (tampered POST) - an unrecognised unit
+        // would otherwise reach strtotime() in the condition and silently misbehave.
+        $periodunit = $data['periodunit'] ?? '';
+        if (!in_array($periodunit, ['hours', 'days', 'weeks'], true)) {
+            $errors['period_group'] = get_string('errorperiodunit', 'local_coursedynamicrules');
+        }
+
+        return $errors;
     }
 }

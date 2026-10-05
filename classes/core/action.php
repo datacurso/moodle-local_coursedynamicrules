@@ -17,6 +17,9 @@
 namespace local_coursedynamicrules\core;
 
 use local_coursedynamicrules\form\actions\action_form;
+use local_coursedynamicrules\helper\form_plugin_validator;
+use local_coursedynamicrules\helper\ownership;
+use local_coursedynamicrules\helper\rule_component_loader;
 use stdClass;
 
 /**
@@ -27,6 +30,9 @@ use stdClass;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 abstract class action {
+    /** @var string DB table storing action rows. */
+    const TABLE = 'local_coursedynamicrules_action';
+
     /** @var int|null ID of the action on the DB */
     private $id;
 
@@ -73,6 +79,33 @@ abstract class action {
      */
     public function get_description() {
         return get_string($this->type . '_description', 'local_coursedynamicrules');
+    }
+
+    /**
+     * The description as the RULES LIST should show it: free text cut, everything else whole.
+     *
+     * Two screens read a component's description and they need different things. The conditions
+     * and actions pages, reached through a rule's magnifier, show what the component will really
+     * do - the whole notification body, the whole AI prompt - and get get_description(). The rules
+     * list summarises one row per rule and needs bounded height, so it gets this.
+     *
+     * The default is get_description(), unchanged, because most components have nothing unbounded
+     * to cut: a condition's description is 83-126 characters of fixed text plus an activity name.
+     * Only the components carrying free text a teacher types without limit override this, and each
+     * cuts ITS OWN part.
+     *
+     * That is the whole point, and the reason the previous attempt failed. Cutting the COMPOSED
+     * sentence at a fixed length cannot work: a notification's description opens with "Enviar
+     * notificacion '<asunto>' a los usuarios Destinatarios: <roles>. Con copia a: <roles>.
+     * Mensaje: " - measured at 120 characters with one role and 196 with five, in Spanish with
+     * default role names - so the budget was spent before the message began and the list showed no
+     * body at all. Neither the subject (CHAR 255) nor the role list has an upper bound, so no
+     * single number over the composed string can both bound the row and guarantee visible text.
+     *
+     * @return string
+     */
+    public function get_listing_description() {
+        return $this->get_description();
     }
 
     /**
@@ -130,9 +163,11 @@ abstract class action {
         $this->id = $record->id ?? null;
         $this->type = $record->actiontype;
         $this->courseid = $courseid;
+        // The create-branch seed record built by actions.php always carries a ruleid, but this
+        // stays defensive against any other caller that does not.
         $this->ruleid = $record->ruleid ?? null;
         $this->lastexecutiontime = $record->lastexecutiontime ?? null;
-        $this->params = json_decode($record->params ?? '{}');
+        $this->params = json_decode($record->params);
     }
 
     /**
@@ -145,6 +180,135 @@ abstract class action {
     }
 
     /**
+     * Whether this action could do anything at all if the rule fired right now.
+     *
+     * The activation gate (rule_lock::is_complete()) asks every action this before letting a rule be
+     * activated, because activation is permanent: a rule sealed with an action that can never act
+     * keeps that half dead forever - the lock refuses to fix it, and deleting a sealed rule needs the
+     * manager-only key. Most actions can always act, so the default is true, and only an action whose
+     * configuration can leave it with nothing to work on overrides this.
+     *
+     * It answers about the action's own state alone. It is not a permission check, and it is not
+     * about whether the action WILL fire, which is the conditions' business.
+     *
+     * @return bool
+     */
+    public function can_act(): bool {
+        return true;
+    }
+
+    /**
+     * This action's params for a DUPLICATED copy, decoded and ready to json_encode() into the copy's
+     * row. Verbatim by default - duplication promises to reproduce the rule's ideas exactly -
+     * overridden by a concrete action that stores something a copy must not carry over unchanged.
+     *
+     * A params column that does not decode to an object (a stray scalar, list or invalid JSON - the
+     * state upsert() guards against for the same reason) has no fields to copy: the copy starts empty
+     * rather than inheriting a shape no consumer can read.
+     *
+     * @return array
+     */
+    public function params_for_duplicate(): array {
+        return is_object($this->params) ? (array) $this->params : [];
+    }
+
+    /**
+     * Rule id this component belongs to, or null before it is loaded.
+     *
+     * @return int|null
+     */
+    public function get_ruleid() {
+        return $this->ruleid;
+    }
+
+    /**
+     * Runtime-only param keys whose stored value must survive an edit even though the operator
+     * form does not submit them (e.g. a throttle timestamp maintained by the action itself).
+     *
+     * @return array
+     */
+    protected function runtime_param_keys(): array {
+        return [];
+    }
+
+    /**
+     * Adjust a runtime-only param before it overwrites the freshly submitted value in $params
+     * (mirrors \local_coursedynamicrules\core\condition::adjust_runtime_param() - FIX3-10). The
+     * base behaviour is a blunt force-win: the stored value survives byte-for-byte, unconditionally.
+     * Concrete actions may override this to refine preservation with domain logic instead.
+     *
+     * @param string $key Runtime param key currently being reconciled.
+     * @param mixed $storedvalue The value currently stored for $key.
+     * @param array $newparams The full new params about to be persisted (already contains whatever
+     *              the operator submitted this save).
+     * @return mixed The value to persist for $key.
+     */
+    protected function adjust_runtime_param(string $key, $storedvalue, array $newparams) {
+        return $storedvalue;
+    }
+
+    /**
+     * Insert or update this action's DB row.
+     *
+     * On update, only {id, params} are written: ruleid, actiontype and lastexecutiontime are
+     * never part of the UPDATE, so a tampered hidden ruleid becomes inert and runtime scheduling
+     * state is preserved by construction.
+     *
+     * @param array $params Params to persist, built by the concrete save_action().
+     * @param stdClass $formdata Submitted form data.
+     * @return int The action id.
+     */
+    protected function upsert(array $params, stdClass $formdata): int {
+        global $DB;
+
+        // Read before set_data() below, which nulls $this->id when given an id-less record.
+        $existingid = $this->get_id();
+        $record = new stdClass();
+
+        // The lock is enforced AT THE WRITE, not only at the endpoint: actions.php checked the
+        // URL's ruleid, but the insert below targets the form's hidden ruleid - the same
+        // decided-here-written-there seam as the editrule capability bug. Resolve the rule this
+        // write actually lands on (the stored action's rule on update, the ownership-validated
+        // form ruleid on insert) and refuse if it is sealed. Rule deletion is NOT gated here:
+        // deleting a whole rule deletes its components and stays allowed by contract.
+        $targetruleid = !empty($existingid)
+            ? (int) $this->ruleid
+            : (int) ownership::get_rule($formdata->ruleid, $this->courseid)->id;
+        \local_coursedynamicrules\helper\rule_lock::require_unlocked($targetruleid);
+
+        if (!empty($existingid)) {
+            foreach ($this->runtime_param_keys() as $key) {
+                // Property_exists(), not isset(): a stored JSON null (isset() === false for it) must
+                // still be reconciled via adjust_runtime_param() instead of silently falling through
+                // to whatever default the concrete save_*() method computed for a brand-new row.
+                // is_object() guard (FIX4): property_exists() throws a TypeError on a non-object
+                // under PHP 8, and $this->params can be non-object if the stored 'params' column
+                // ever decodes to something other than a JSON object (e.g. a stray JSON scalar/array).
+                if (is_object($this->params) && property_exists($this->params, $key)) {
+                    $params[$key] = $this->adjust_runtime_param($key, $this->params->$key, $params);
+                }
+            }
+            $record->id = $existingid;
+            $record->params = json_encode($params);
+            $DB->update_record(static::TABLE, $record);
+
+            // Re-hydrate fields dropped from the update object, for the set_data() call below.
+            $record->ruleid = $this->ruleid;
+            $record->actiontype = $this->type;
+            $record->lastexecutiontime = $this->lastexecutiontime;
+        } else {
+            // The very id the lock was decided on - one resolution, one write target.
+            $record->ruleid = $targetruleid;
+            $record->actiontype = $this->type;
+            $record->params = json_encode($params);
+            $record->id = $DB->insert_record(static::TABLE, $record);
+        }
+
+        $this->set_data($record, $this->courseid);
+        return $record->id;
+    }
+
+    /**
      * Deletes a action record from the 'local_coursedynamicrules_action' table. and related information with it.
      *
      * @return bool True on success, false on failure.
@@ -153,7 +317,116 @@ abstract class action {
     public function delete() {
         global $DB;
 
-        return $DB->delete_records('local_coursedynamicrules_action', ['id' => $this->get_id()]);
+        $record = $DB->get_record('local_coursedynamicrules_action', ['id' => $this->get_id()]);
+
+        $result = $DB->delete_records('local_coursedynamicrules_action', ['id' => $this->get_id()]);
+
+        $event = \local_coursedynamicrules\event\action_deleted::create([
+            'context' => \context_course::instance($this->courseid),
+            'objectid' => $this->get_id(),
+        ]);
+        if ($record) {
+            $event->add_record_snapshot('local_coursedynamicrules_action', $record);
+        }
+        $event->trigger();
+
+        return $result;
+    }
+
+    /**
+     * Plugins this action's edit form needs before it can offer anything.
+     *
+     * Both forms that have dependencies return from definition() as soon as one is absent, leaving a
+     * page of notifications and no fields. Declaring the list here, next to the action rather than
+     * inside its form, lets a listing ask before it offers the pencil.
+     *
+     * @return array Plugin definitions as form_plugin_validator takes them; empty when the action
+     *               depends on nothing.
+     */
+    public static function required_plugins(): array {
+        return [];
+    }
+
+    /**
+     * Whether every plugin this action's form needs is installed and enabled.
+     *
+     * The listings already refuse to offer what the endpoint would refuse - the trash can without the
+     * capability, the pencil on a locked rule. A pencil that opens an empty form is the same broken
+     * promise, so it is gated the same way. Deletion is deliberately NOT gated on this: an action
+     * whose dependency is gone must still be removable, or it is stuck in the rule forever.
+     *
+     * @return bool
+     */
+    public function has_its_required_plugins(): bool {
+        return empty(form_plugin_validator::missing_plugins(static::required_plugins()));
+    }
+
+    /**
+     * Whether the rule this action belongs to is currently in force.
+     *
+     * Asked by an action whose effect reaches outside the plugin, so that effect is applied when the
+     * rule comes into force rather than when the operator configures it. Read from the stored
+     * 'active' column and NOT from the activation lock: the lock is 'was ever activated'
+     * (rule_lock::is_locked_row() reads timeactivated), and db/upgrade.php back-filled that stamp
+     * only for rules active at upgrade time - so a site can hold a rule that is active, and
+     * therefore run by the task, while still unlocked and editable. Such a rule must get the effect.
+     *
+     * @return bool False for an action not yet attached to a rule.
+     */
+    protected function rule_is_active(): bool {
+        global $DB;
+
+        $ruleid = (int) $this->get_ruleid();
+        if (empty($ruleid)) {
+            return false;
+        }
+
+        return !empty($DB->get_field('local_coursedynamicrules_rule', 'active', ['id' => $ruleid]));
+    }
+
+    /**
+     * Called on each of a rule's actions right after the rule is activated.
+     *
+     * An action whose effect touches data owned by another component - the enable-activity action
+     * writes a gate into the activity's own access restrictions - must apply that effect when the
+     * rule comes INTO FORCE, not when the operator configures it: a rule nobody activated has to
+     * change nothing. The default is a no-op, because most actions only ever touch a student while
+     * the rule runs and have nothing to prepare beforehand.
+     *
+     * @return void
+     */
+    public function on_rule_activated(): void {
+    }
+
+    /**
+     * Tell every action of a rule that the rule has just been activated.
+     *
+     * Called from the single endpoint that activates a rule (editrule.php's sesskey-protected
+     * doactivate step; the save path deliberately holds 'active' back and sends the operator there).
+     * An action whose class this build cannot load is skipped instead of allowed to throw: the row
+     * is already active by the time this runs, and a fatal here would leave the operator with an
+     * active rule and no page to go back to.
+     *
+     * @param int $ruleid Rule that was just activated.
+     * @param int $courseid Course the rule belongs to.
+     * @return void
+     */
+    public static function notify_rule_activated(int $ruleid, int $courseid): void {
+        global $DB;
+
+        foreach ($DB->get_records(self::TABLE, ['ruleid' => $ruleid]) as $record) {
+            try {
+                $instance = rule_component_loader::create_action_instance($record, $courseid);
+            } catch (\moodle_exception $e) {
+                debugging(
+                    'notify_rule_activated: action ' . $record->id . ' of rule ' . $ruleid
+                        . ' could not be loaded; its activation effect was skipped',
+                    DEBUG_DEVELOPER
+                );
+                continue;
+            }
+            $instance->on_rule_activated();
+        }
     }
 
     /**
@@ -197,6 +470,7 @@ abstract class action {
     /**
      * Saves the action after it has been edited (or created)
      * @param object $formdata
+     * @return int The id of the saved action record.
      */
     abstract public function save_action($formdata);
 }
