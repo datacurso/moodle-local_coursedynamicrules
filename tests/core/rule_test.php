@@ -253,4 +253,133 @@ final class rule_test extends \advanced_testcase {
 
         $this->assertSame(0, $this->count_messages($sink, $student->id));
     }
+
+    /**
+     * Build a mixed one-shot rule: completed activity A plus "activity B not completed" with a past date.
+     *
+     * @param \stdClass $course Course.
+     * @param \stdClass $student Student who completed A and not B.
+     * @param int $studentroleid Student role id.
+     * @return array [stdClass rule record, int completionid of A]
+     */
+    private function create_one_shot_rule_due(\stdClass $course, \stdClass $student, int $studentroleid): array {
+        [$cma, $completionid] = $this->create_completed_activity($course, $student->id);
+        $pageb = $this->getDataGenerator()->create_module('page', [
+            'course' => $course->id,
+            'completion' => COMPLETION_TRACKING_MANUAL,
+        ]);
+        $rule = $this->insert_rule($course->id, [
+            ['complete_activity', ['cmid' => $cma->id]],
+            ['no_complete_activity', ['cmid' => $pageb->cmid, 'expectedcompletiondate' => time() - HOURSECS]],
+        ], $studentroleid);
+        return [$rule, $completionid];
+    }
+
+    /**
+     * MDL-INT-021: an event never executes a rule holding a one-shot condition, even once it is due.
+     *
+     * The scheduled pass is the only executor of such a rule (and switches it off in the same
+     * operation), so an event evaluation must not notify, or the pass would notify a second time.
+     *
+     * @covers ::execute
+     */
+    public function test_event_path_never_fires_a_one_shot_rule_after_its_date(): void {
+        $this->resetAfterTest(true);
+        [$course, $student, $studentroleid] = $this->setup_course_student();
+        [$rule, $completionid] = $this->create_one_shot_rule_due($course, $student, $studentroleid);
+
+        $sink = $this->redirectMessages();
+        $ruleinstance = new rule($rule, [$student], self::EVENT_TYPES, ['completionid' => $completionid]);
+        $ruleinstance->execute();
+
+        $this->assertSame(0, $this->count_messages($sink, $student->id));
+    }
+
+    /**
+     * MDL-INT-021: the scheduled evaluation (no trigger types) still fires the same one-shot rule.
+     *
+     * @covers ::execute
+     */
+    public function test_scheduled_path_still_fires_a_one_shot_rule(): void {
+        $this->resetAfterTest(true);
+        [$course, $student, $studentroleid] = $this->setup_course_student();
+        [$rule] = $this->create_one_shot_rule_due($course, $student, $studentroleid);
+
+        $sink = $this->redirectMessages();
+        $ruleinstance = new rule($rule, [$student]);
+        $ruleinstance->execute();
+
+        $this->assertSame(1, $this->count_messages($sink, $student->id));
+    }
+
+    /**
+     * MDL-UNIT-012: a grade evaluation carries the activity id; relevance is read from it directly.
+     *
+     * The rule on that activity fires; a rule on another activity does not.
+     *
+     * @covers ::execute
+     */
+    public function test_event_path_resolves_relevance_from_cmid(): void {
+        $this->resetAfterTest(true);
+        [$course, $student, $studentroleid] = $this->setup_course_student();
+        [$cm1] = $this->create_completed_activity($course, $student->id);
+        [$cm2] = $this->create_completed_activity($course, $student->id);
+
+        $onactivity = $this->insert_rule($course->id, [['complete_activity', ['cmid' => $cm1->id]]], $studentroleid);
+        $onother = $this->insert_rule($course->id, [['complete_activity', ['cmid' => $cm2->id]]], $studentroleid);
+
+        $sink = $this->redirectMessages();
+        (new rule($onother, [$student], self::EVENT_TYPES, ['cmid' => (int) $cm1->id]))->execute();
+        $this->assertSame(0, $this->count_messages($sink, $student->id), 'A rule on another activity must not fire.');
+
+        (new rule($onactivity, [$student], self::EVENT_TYPES, ['cmid' => (int) $cm1->id]))->execute();
+        $this->assertSame(1, $this->count_messages($sink, $student->id), 'The rule on the graded activity must fire.');
+    }
+
+    /**
+     * MDL-UNIT-012: an evaluation queued before the upgrade (carrying a grade id) still works.
+     *
+     * @covers ::execute
+     */
+    public function test_event_path_still_accepts_a_legacy_gradeid(): void {
+        global $CFG;
+        require_once($CFG->libdir . '/gradelib.php');
+
+        $this->resetAfterTest(true);
+        [$course, $student, $studentroleid] = $this->setup_course_student();
+        $assign = $this->getDataGenerator()->create_module('assign', [
+            'course' => $course->id,
+            'completion' => COMPLETION_TRACKING_AUTOMATIC,
+            'completionusegrade' => 1,
+            'grade' => 100,
+        ]);
+        $gradeitem = \grade_item::fetch([
+            'courseid' => $course->id,
+            'itemtype' => 'mod',
+            'itemmodule' => 'assign',
+            'iteminstance' => $assign->id,
+            'itemnumber' => 0,
+        ]);
+        $gradeitem->update_final_grade($student->id, 70);
+        $gradeid = (int) \grade_grade::fetch(['itemid' => $gradeitem->id, 'userid' => $student->id])->id;
+
+        $rule = $this->insert_rule($course->id, [
+            ['grade_in_activity', [
+                'cmid' => (int) $assign->cmid,
+                'gradeitemsconditions' => [
+                    'gradegte_0' => [
+                        'gradeitem' => (int) $gradeitem->id,
+                        'itemnumber' => 0,
+                        'condition' => 'gradegte',
+                        'value' => 50,
+                    ],
+                ],
+            ]],
+        ], $studentroleid);
+
+        $sink = $this->redirectMessages();
+        (new rule($rule, [$student], self::EVENT_TYPES, ['gradeid' => $gradeid]))->execute();
+
+        $this->assertSame(1, $this->count_messages($sink, $student->id), 'A legacy grade id must still resolve the activity.');
+    }
 }

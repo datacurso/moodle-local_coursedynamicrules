@@ -33,7 +33,8 @@ $tasks = [
     // a rule waits after falling due. The finest window either condition offers an operator is the
     // hour, so a quarter of an hour of slack is invisible against the smallest thing anyone can
     // configure, and it is ninety-six times fewer passes over every enrolled user of every course
-    // with an active rule.
+    // with an active rule. A rule holding "activity not completed" is executed by this pass alone,
+    // never by an event (condition::is_one_shot()), so the cadence cannot duplicate its notice either.
     [
         'classname' => 'local_coursedynamicrules\task\no_complete_activity_task',
         'blocking' => 0,

@@ -38,8 +38,14 @@ final class testable_createaiactivity_action extends createaiactivity_action {
     /** @var int|null|false Coursegen version override; false keeps the real plugin manager lookup. */
     public static $coursegenversiondb = false;
 
-    /** @var array Terminal stream event returned by read_activity_stream(). */
+    /** @var array Terminal stream event returned by read_activity_stream() once $streamevents is drained. */
     public static $streamevent = [];
+
+    /** @var array Queue of terminal stream events, one consumed per read_activity_stream() call. */
+    public static $streamevents = [];
+
+    /** @var int Number of read_activity_stream() calls. */
+    public static $streamreads = 0;
 
     /** @var string|null Stream URL captured on the last read_activity_stream() call. */
     public static $laststreamurl = null;
@@ -55,6 +61,8 @@ final class testable_createaiactivity_action extends createaiactivity_action {
         self::$lasturls = null;
         self::$coursegenversiondb = false;
         self::$streamevent = [];
+        self::$streamevents = [];
+        self::$streamreads = 0;
         self::$laststreamurl = null;
     }
 
@@ -95,13 +103,17 @@ final class testable_createaiactivity_action extends createaiactivity_action {
     }
 
     /**
-     * Return the canned terminal stream event, recording the requested URL.
+     * Return the next queued terminal stream event (or the single canned one), recording the requested URL.
      *
      * @param string $streamurl Stream URL the action would consume.
      * @return array
      */
     protected function read_activity_stream(string $streamurl): array {
         self::$laststreamurl = $streamurl;
+        self::$streamreads++;
+        if (!empty(self::$streamevents)) {
+            return array_shift(self::$streamevents);
+        }
         return self::$streamevent;
     }
 }

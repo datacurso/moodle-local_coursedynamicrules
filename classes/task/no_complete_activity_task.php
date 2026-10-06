@@ -110,12 +110,13 @@ class no_complete_activity_task extends \core\task\scheduled_task {
         $conditions = $rule->get_conditions();
 
         foreach ($conditions as $condition) {
-            $now = time();
+            // Only this task's own condition carries a date: a sibling condition of a mixed rule
+            // (e.g. complete_activity) has no expectedcompletiondate to read.
+            if ($condition->get_type() != $this->conditiontype) {
+                continue;
+            }
 
-            $params = $condition->get_params();
-            $expectedcompletiondate = $params->expectedcompletiondate;
-
-            if ($condition->get_type() == $this->conditiontype && $now < $expectedcompletiondate) {
+            if (time() < $condition->get_params()->expectedcompletiondate) {
                 return false;
             }
         }
