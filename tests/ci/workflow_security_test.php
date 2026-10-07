@@ -151,6 +151,80 @@ final class workflow_security_test extends \advanced_testcase {
     }
 
     /**
+     * The plugin CI runs on its own for every pull request to main and the stable branches.
+     *
+     * CDR-SEC-007: plugin-ci.yml only declared workflow_dispatch, so it never ran unless someone
+     * started it by hand, and changes reached the stable branches without it.
+     */
+    public function test_plugin_ci_runs_automatically_on_pull_requests(): void {
+        $on = self::top_level_block(self::plugin_ci_workflow(), 'on');
+
+        $this->assertNotNull($on, 'plugin-ci.yml has no top-level on: block.');
+        $this->assertMatchesRegularExpression('/^\s+pull_request:/m', $on, 'plugin-ci.yml does not run on pull requests.');
+        $this->assertMatchesRegularExpression('/^\s+workflow_dispatch:/m', $on, 'plugin-ci.yml lost its manual trigger.');
+
+        $branches = self::pull_request_branches($on);
+        $this->assertContains('MOODLE_*_STABLE', $branches, 'The pull_request trigger does not cover the stable branches.');
+        $this->assertContains('main', $branches, 'The pull_request trigger does not cover main.');
+    }
+
+    /**
+     * The plugin CI token can read the repository and nothing more.
+     */
+    public function test_plugin_ci_token_is_read_only(): void {
+        $permissions = self::top_level_block(self::plugin_ci_workflow(), 'permissions');
+
+        $this->assertNotNull(
+            $permissions,
+            'plugin-ci.yml sets no top-level permissions, so its token gets the repository default.'
+        );
+        $this->assertMatchesRegularExpression('/^\s+contents:\s*read\s*$/m', $permissions);
+        $this->assertDoesNotMatchRegularExpression('/\bwrite\b/', $permissions, 'The plugin CI token must not grant write access.');
+    }
+
+    /**
+     * Returns the source of plugin-ci.yml, or skips when the package does not ship it.
+     *
+     * @return string
+     */
+    private static function plugin_ci_workflow(): string {
+        $path = __DIR__ . '/../../.github/workflows/plugin-ci.yml';
+        if (!is_file($path)) {
+            self::markTestSkipped('This copy of the plugin ships no plugin-ci.yml workflow.');
+        }
+        return file_get_contents($path);
+    }
+
+    /**
+     * Returns a top-level YAML key's inline value and indented body, or null when it is missing.
+     *
+     * @param string $yaml Workflow source.
+     * @param string $key Top-level key.
+     * @return string|null
+     */
+    private static function top_level_block(string $yaml, string $key): ?string {
+        $pattern = '/^' . preg_quote($key, '/') . ':(.*\R(?:(?:[ \t]+.*|[ \t]*)(?:\R|$))*)/m';
+        return preg_match($pattern, $yaml, $match) ? $match[1] : null;
+    }
+
+    /**
+     * Returns the branch filter of the pull_request trigger, in block or flow style.
+     *
+     * @param string $on Body of the top-level on: block.
+     * @return string[]
+     */
+    private static function pull_request_branches(string $on): array {
+        if (!preg_match('/^([ \t]+)pull_request:.*\R((?:\1[ \t]+.*\R?|[ \t]*\R)*)/m', $on, $trigger)) {
+            return [];
+        }
+        if (!preg_match('/^[ \t]+branches:[ \t]*(\[.*\])?[ \t]*\R?((?:[ \t]+-[ \t]+.*\R?)*)/m', $trigger[2], $filter)) {
+            return [];
+        }
+        $items = !empty($filter[1]) ? explode(',', trim($filter[1], '[] ')) : preg_split('/\R/', trim($filter[2]));
+        return array_map(fn(string $item): string => trim(ltrim(trim($item), '- '), "'\" "), $items);
+    }
+
+    /**
      * Returns the workflow files to audit, or skips when the package does not ship them.
      *
      * @return string[]

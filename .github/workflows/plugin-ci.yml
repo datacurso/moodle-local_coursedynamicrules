@@ -1,7 +1,15 @@
 name: Moodle Plugin CI
 
 on:
+  pull_request:
+    branches:
+      - main
+      - 'MOODLE_*_STABLE'
+      - 'WORKPLACE_*_STABLE'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
