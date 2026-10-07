@@ -24,6 +24,7 @@ use local_coursedynamicrules\core\action;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\form\actions\createaiactivity_form;
 use local_coursedynamicrules\helper\component_renderer;
+use local_coursedynamicrules\local\aiactivity_key;
 use local_coursedynamicrules\local\payload_anonymizer;
 use local_coursegen\ai_context;
 use local_coursegen\local\service\create_mod_service;
@@ -85,11 +86,29 @@ class createaiactivity_action extends action {
             return;
         }
 
+        // One activity per action and student (CDR-SEC-006). Every trigger can fire again - a
+        // regrade, a completion ticked back on, the next period of a periodic rule - and two cron
+        // processes can run the same rule at once. The lock serialises generation for this student;
+        // the key, checked under it, stops any later trigger before the paid call.
+        $actionid = (int) $this->get_id();
+        $key = aiactivity_key::for_action_user($actionid, (int) $userid);
+        $lock = \core\lock\lock_config::get_lock_factory('local_coursedynamicrules')
+            ->get_lock("aigen_{$actionid}_{$userid}", 0);
+        if (!$lock) {
+            mtrace("local_coursedynamicrules createaiactivity skipped: another process is generating "
+                . "this activity (action {$actionid}).");
+            return;
+        }
+
         // The step being attempted, reported with a failure so the task log tells which call failed.
         $stage = 'init';
         try {
             require_once($CFG->dirroot . '/course/lib.php');
             require_once($CFG->dirroot . '/course/modlib.php');
+
+            if ($this->generated_module_exists((int) $courseid, (int) $userid, $key)) {
+                return;
+            }
 
             $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
             $user = $DB->get_record('user', ['id' => $userid], '*', MUST_EXIST);
@@ -109,19 +128,27 @@ class createaiactivity_action extends action {
                 $instructions = trim(html_to_text($aicontext->prompt_text, 0, false)) . "\n\n" . $instructions;
             }
 
+            // No site_url here (CDR-PRIV-001-R2): nothing in this plugin needs the service to know
+            // it. That does NOT keep the site address in: aiprovider_datacurso's shared transport adds
+            // site_url, site_id and timezone to every POST body itself, and its values win
+            // (datacurso_api_base::send_request()). Only that plugin can remove them;
+            // tests/privacy/outgoing_request_test.php captures the final body and pins that it does.
             $payload = [
                 'instructions' => $instructions,
                 'lang' => $this->resolve_request_language($user, $course),
                 'with_images' => $generateimages,
+                // The student's id, sent explicitly for billing: without it the transport falls
+                // back to $USER, which under cron is the administrator.
                 'userid' => (string) $userid,
-                'site_url' => $CFG->wwwroot,
                 // Rules run unattended from cron: nobody can approve the plan.
                 'auto_approve' => true,
                 // Billing identity: consumption belongs to SmartRules, not coursegen.
                 'service_id' => 'local_coursedynamicrules',
             ];
 
-            $anonymized = payload_anonymizer::anonymize($payload, $user);
+            // The course URL is masked too: it carries the site address and the course id, and
+            // {$a->courseurl} or a URL typed by hand puts it in the instructions.
+            $anonymized = payload_anonymizer::anonymize($payload, $user, self::course_url($course));
             $payload = $anonymized['payload'];
             $replacements = $anonymized['replacements'];
 
@@ -220,6 +247,12 @@ class createaiactivity_action extends action {
                 $OUTPUT = $previousoutput;
             }
 
+            // The key goes on before anything else can fail: from here on the activity exists. An ID
+            // number the generator already set is kept; the marker below still identifies the module.
+            if ((string) $DB->get_field('course_modules', 'idnumber', ['id' => $newcm->coursemodule]) === '') {
+                self::set_generated_module_key((int) $newcm->coursemodule, $key);
+            }
+
             // Restrict the new activity to the current user only, and stamp the restriction as this
             // plugin's own. The stamp is what makes the student's id REACHABLE: nothing in core
             // accounts for course_modules.availability - availability_user is a null provider - so
@@ -256,6 +289,98 @@ class createaiactivity_action extends action {
                 get_string('error_unexpected_creating_aiactivity', 'local_coursedynamicrules', $e->getMessage()),
                 DEBUG_DEVELOPER
             );
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Whether this action already generated the student's activity in the course.
+     *
+     * The key in the ID number is the record: it survives saving the module settings, which the
+     * availability marker does not. Activities generated by 1.8.6 and 1.8.7 carry only the marker,
+     * so a module whose marked node names this action and lists exactly this student counts too,
+     * and is given its key now (only when its ID number is empty), so it no longer depends on the
+     * marker. A deleted module does not count, nor does one whose ID number a teacher cleared in
+     * the module settings (saving them also drops the marker): the next trigger generates again,
+     * which is the documented way to re-arm it.
+     *
+     * @param int $courseid Course id.
+     * @param int $userid Student.
+     * @param string $key The student's key for this action.
+     * @return bool
+     */
+    private function generated_module_exists(int $courseid, int $userid, string $key): bool {
+        global $DB;
+
+        if ($DB->record_exists('course_modules', ['course' => $courseid, 'idnumber' => $key, 'deletioninprogress' => 0])) {
+            return true;
+        }
+
+        $actionid = (int) $this->get_id();
+        // The LIKE only narrows the scan; the decoded tree decides (a ":1" marker also matches ":12").
+        $marker = enableactivity_action::marker_prefix() . $actionid;
+        $candidates = $DB->get_records_select(
+            'course_modules',
+            'course = :courseid AND deletioninprogress = 0 AND ' . $DB->sql_like('availability', ':marker'),
+            ['courseid' => $courseid, 'marker' => '%' . $DB->sql_like_escape($marker) . '%'],
+            'id',
+            'id, idnumber, availability'
+        );
+        foreach ($candidates as $cm) {
+            $tree = json_decode((string) $cm->availability);
+            if (!is_object($tree)) {
+                continue;
+            }
+            foreach (enableactivity_action::owned_user_nodes($tree) as $node) {
+                $userids = array_map('intval', (array) ($node->userids ?? []));
+                if (enableactivity_action::action_id_of($node) === $actionid && $userids === [$userid]) {
+                    if ((string) $cm->idnumber === '') {
+                        self::set_generated_module_key((int) $cm->id, $key);
+                    }
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Write an idempotency key into a generated module's ID number, and into its grade item's.
+     *
+     * Core keeps the ID number of a module's main grade item (itemnumber 0) equal to the module's
+     * own whenever the module settings are saved (course/modlib.php). The grade item follows here
+     * too, so the gradebook does not show a different ID number until the next save; it is changed
+     * only when it is empty or still holds the module's previous ID number, never when a teacher
+     * set it.
+     *
+     * An empty key clears it, which the privacy eraser does when it erases the student
+     * (owned_gate_eraser::erase()); the grade item is cleared only while it still holds the key.
+     *
+     * @param int $cmid Course module id.
+     * @param string $key The key to write (aiactivity_key), or '' to clear it.
+     * @return void
+     */
+    public static function set_generated_module_key(int $cmid, string $key): void {
+        global $CFG;
+        require_once($CFG->dirroot . '/course/lib.php');
+        require_once($CFG->libdir . '/gradelib.php');
+
+        $cm = get_coursemodule_from_id('', $cmid, 0, false, MUST_EXIST);
+        $previous = (string) $cm->idnumber;
+        set_coursemodule_idnumber($cmid, $key);
+
+        $item = \grade_item::fetch([
+            'courseid' => $cm->course,
+            'itemtype' => 'mod',
+            'itemmodule' => $cm->modname,
+            'iteminstance' => $cm->instance,
+            'itemnumber' => 0,
+        ]);
+        if ($item && in_array((string) $item->idnumber, ['', $previous], true) && $item->idnumber !== $key) {
+            $item->idnumber = $key;
+            $item->update('local_coursedynamicrules');
         }
     }
 
@@ -557,16 +682,24 @@ class createaiactivity_action extends action {
      * @return string
      */
     protected function build_prompt(string $message, \stdClass $course, \stdClass $user): string {
-        $courseurl = new moodle_url('/course/view.php', ['id' => $course->id]);
-
         $placeholders = [
             '{$a->coursename}' => format_string($course->fullname),
-            '{$a->courseurl}' => $courseurl->out(false),
+            '{$a->courseurl}' => self::course_url($course),
             '{$a->fullname}' => fullname($user),
             '{$a->firstname}' => $user->firstname,
             '{$a->lastname}' => $user->lastname,
         ];
 
         return strtr($message, $placeholders);
+    }
+
+    /**
+     * The URL {$a->courseurl} stands for, which the anonymizer masks before the request leaves.
+     *
+     * @param \stdClass $course
+     * @return string
+     */
+    private static function course_url(\stdClass $course): string {
+        return (new moodle_url('/course/view.php', ['id' => $course->id]))->out(false);
     }
 }
