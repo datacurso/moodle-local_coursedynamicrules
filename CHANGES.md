@@ -1,4 +1,4 @@
-## 1.8.8-502
+## 1.8.8
 
 **Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
 
