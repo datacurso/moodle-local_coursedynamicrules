@@ -151,21 +151,24 @@ final class workflow_security_test extends \advanced_testcase {
     }
 
     /**
-     * The plugin CI runs on its own for every pull request to main and the stable branches.
+     * The GitHub workflow stays manual: the automatic check on every change is Jenkins.
      *
-     * CDR-SEC-007: plugin-ci.yml only declared workflow_dispatch, so it never ran unless someone
-     * started it by hand, and changes reached the stable branches without it.
+     * CDR-SEC-007: the branch ruleset on main and the MOODLE_*_STABLE and WORKPLACE_*_STABLE
+     * branches requires a pull request and the continuous-integration/jenkins/branch check before
+     * any merge, with no bypass. That is the equivalent control. This workflow cannot run green on
+     * GitHub until the plugin's dependencies install there, so it is kept for manual runs only and
+     * does not put a failing check on every pull request.
      */
-    public function test_plugin_ci_runs_automatically_on_pull_requests(): void {
+    public function test_plugin_ci_is_manual_only(): void {
         $on = self::top_level_block(self::plugin_ci_workflow(), 'on');
 
         $this->assertNotNull($on, 'plugin-ci.yml has no top-level on: block.');
-        $this->assertMatchesRegularExpression('/^\s+pull_request:/m', $on, 'plugin-ci.yml does not run on pull requests.');
         $this->assertMatchesRegularExpression('/^\s+workflow_dispatch:/m', $on, 'plugin-ci.yml lost its manual trigger.');
-
-        $branches = self::pull_request_branches($on);
-        $this->assertContains('MOODLE_*_STABLE', $branches, 'The pull_request trigger does not cover the stable branches.');
-        $this->assertContains('main', $branches, 'The pull_request trigger does not cover main.');
+        $this->assertDoesNotMatchRegularExpression(
+            '/^\s+(pull_request|push):/m',
+            $on,
+            'plugin-ci.yml must stay manual; Jenkins is the required check on every change.'
+        );
     }
 
     /**
@@ -205,23 +208,6 @@ final class workflow_security_test extends \advanced_testcase {
     private static function top_level_block(string $yaml, string $key): ?string {
         $pattern = '/^' . preg_quote($key, '/') . ':(.*\R(?:(?:[ \t]+.*|[ \t]*)(?:\R|$))*)/m';
         return preg_match($pattern, $yaml, $match) ? $match[1] : null;
-    }
-
-    /**
-     * Returns the branch filter of the pull_request trigger, in block or flow style.
-     *
-     * @param string $on Body of the top-level on: block.
-     * @return string[]
-     */
-    private static function pull_request_branches(string $on): array {
-        if (!preg_match('/^([ \t]+)pull_request:.*\R((?:\1[ \t]+.*\R?|[ \t]*\R)*)/m', $on, $trigger)) {
-            return [];
-        }
-        if (!preg_match('/^[ \t]+branches:[ \t]*(\[.*\])?[ \t]*\R?((?:[ \t]+-[ \t]+.*\R?)*)/m', $trigger[2], $filter)) {
-            return [];
-        }
-        $items = !empty($filter[1]) ? explode(',', trim($filter[1], '[] ')) : preg_split('/\R/', trim($filter[2]));
-        return array_map(fn(string $item): string => trim(ltrim(trim($item), '- '), "'\" "), $items);
     }
 
     /**
