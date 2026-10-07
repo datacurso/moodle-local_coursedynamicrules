@@ -18,6 +18,14 @@ namespace local_coursedynamicrules\tests;
 
 use aiprovider_datacurso\httpclient\ai_course_api;
 
+defined('MOODLE_INTERNAL') || die();
+
+// The parent class lives in aiprovider_datacurso. Without that plugin the class is left undeclared, so
+// the tests that need it skip themselves instead of the whole suite failing to load.
+if (!class_exists(ai_course_api::class)) {
+    return;
+}
+
 /**
  * The real Datacurso course client, cut off from the network at its lowest seam.
  *

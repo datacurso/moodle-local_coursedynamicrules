@@ -126,8 +126,8 @@ class payload_anonymizer {
      * (including apostrophes) and whitespace count as boundaries.
      *
      * An email address is different, because the characters around it ARE punctuation: the student's
-     * address must not be matched inside a longer one ("ana.eva@example.com") or before a longer
-     * domain ("eva@example.com.co"), while a full stop ending the sentence still ends it. The email
+     * address must not be matched at the end of a longer address or at the start of one with a longer
+     * domain (the same address plus ".co"), while a full stop ending the sentence still ends it. The email
      * and the username are matched in any letter case, as mail and Moodle logins treat them.
      *
      * One pass, longest value first, so the full name is replaced as a unit before its parts, and
@@ -136,7 +136,7 @@ class payload_anonymizer {
      *
      * Both sides must already be valid UTF-8 (see valid_utf8()).
      *
-     * @param array<string, string> $replacements Placeholder => value to hide.
+     * @param array $replacements Placeholder => value to hide.
      * @param string $subject Text to process.
      * @return string
      * @throws \moodle_exception When the replacement cannot be performed, since returning the text would name the student.
