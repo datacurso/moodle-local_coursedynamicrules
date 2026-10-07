@@ -33,9 +33,11 @@ Feature: Reach the create AI activity action form without hitting a wall
     And the following "course enrolments" exist:
       | user     | course | role           |
       | teacher1 | C1     | editingteacher |
+    # The rule is born inactive: an activated rule is sealed and the listing offers "View actions"
+    # instead of "Edit actions", and configuring an action is only possible before activation.
     And the following local coursedynamicrules no course access rules exist:
-      | course | periodvalue | periodunit | primaryroles | copyroles | subject | body      |
-      | C1     | 1           | days       | student      |           | Subject | Body text |
+      | course | active | periodvalue | periodunit | primaryroles | copyroles | subject | body      |
+      | C1     | 0      | 1           | days       | student      |           | Subject | Body text |
 
   @MDL-E2E-AI-001
   Scenario: The create AI activity action form opens and explains itself
