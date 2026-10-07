@@ -31,13 +31,34 @@ class payload_anonymizer {
     /** @var string[] Payload keys carrying free text that may name the student. */
     private const TEXT_KEYS = ['message', 'instructions'];
 
+    /** @var string Placeholder of the student's email address. */
+    private const EMAIL = '[STUDENT_EMAIL]';
+
+    /** @var string Placeholder of the student's username. */
+    private const USERNAME = '[STUDENT_USERNAME]';
+
+    /** @var string Placeholder of the student's ID number. */
+    private const IDNUMBER = '[STUDENT_IDNUMBER]';
+
+    /** @var string Placeholder of the URL of the course the activity is generated in. */
+    private const COURSE_URL = '[COURSE_URL]';
+
     /**
-     * Build replacement map for student-related user fields.
+     * Build the replacement map: what is hidden from the service, and restored in its answer.
+     *
+     * The student's name is what the activity addresses, and it is restored where the service wrote
+     * its placeholder. The email, username and ID number are restored the same way, although the
+     * service never saw them and so cannot use them for anything: restoring only puts back what the
+     * teacher wrote, wherever the service echoed the placeholder, in an activity that stays on this
+     * site and is given to that student alone. It also undoes a false positive - a short ID number
+     * that matched an ordinary word of the prompt comes back as the teacher wrote it. The course URL
+     * is restored so a link the service writes with its placeholder points to the course again.
      *
      * @param \stdClass $user
+     * @param string|null $courseurl URL of the course the activity is generated in, when known.
      * @return array<string, string>
      */
-    private static function build_replacements(\stdClass $user): array {
+    private static function build_replacements(\stdClass $user, ?string $courseurl): array {
         $replacements = [];
 
         $studentname = trim(fullname($user));
@@ -45,12 +66,22 @@ class payload_anonymizer {
             $replacements['[STUDENT_NAME]'] = $studentname;
         }
 
-        if (!empty($user->firstname) && is_string($user->firstname)) {
-            $replacements['[STUDENT_FIRSTNAME]'] = $user->firstname;
+        $fields = [
+            '[STUDENT_FIRSTNAME]' => 'firstname',
+            '[STUDENT_LASTNAME]' => 'lastname',
+            self::EMAIL => 'email',
+            self::USERNAME => 'username',
+            self::IDNUMBER => 'idnumber',
+        ];
+        foreach ($fields as $placeholder => $field) {
+            $value = $user->{$field} ?? '';
+            if (is_string($value) && trim($value) !== '') {
+                $replacements[$placeholder] = trim($value);
+            }
         }
 
-        if (!empty($user->lastname) && is_string($user->lastname)) {
-            $replacements['[STUDENT_LASTNAME]'] = $user->lastname;
+        if ($courseurl !== null && $courseurl !== '') {
+            $replacements[self::COURSE_URL] = $courseurl;
         }
 
         return $replacements;
@@ -61,10 +92,11 @@ class payload_anonymizer {
      *
      * @param array $payload Original payload.
      * @param \stdClass $user Student user data.
+     * @param string|null $courseurl URL of the course, masked too because it carries the site address and the course id.
      * @return array{payload: array, replacements: array<string, string>}
      */
-    public static function anonymize(array $payload, \stdClass $user): array {
-        $replacements = self::build_replacements($user);
+    public static function anonymize(array $payload, \stdClass $user, ?string $courseurl = null): array {
+        $replacements = self::build_replacements($user, $courseurl);
 
         // Repaired once, here. The map is also what the caller restores into the activity the
         // service generates, and that activity is written to the database, which refuses text that
@@ -72,21 +104,11 @@ class payload_anonymizer {
         $replacements = array_map([self::class, 'valid_utf8'], $replacements);
 
         if (!empty($replacements)) {
-            // Longest values first, so the full name is replaced as a unit before its parts.
-            $ordered = $replacements;
-            uasort($ordered, fn(string $a, string $b): int => \core_text::strlen($b) <=> \core_text::strlen($a));
-
             foreach (self::TEXT_KEYS as $key) {
                 if (!isset($payload[$key]) || !is_string($payload[$key])) {
                     continue;
                 }
-                $text = self::valid_utf8($payload[$key]);
-                foreach ($ordered as $placeholder => $value) {
-                    foreach (self::match_variants($value) as $variant) {
-                        $text = self::replace_whole_word($variant, $placeholder, $text);
-                    }
-                }
-                $payload[$key] = $text;
+                $payload[$key] = self::replace_whole_words($replacements, self::valid_utf8($payload[$key]));
             }
         }
 
@@ -97,27 +119,60 @@ class payload_anonymizer {
     }
 
     /**
-     * Replace every standalone occurrence of a name with its placeholder.
+     * Replace every standalone occurrence of each value with its placeholder, in one pass.
      *
      * A match must not be glued to another letter or digit on either side (Unicode-aware), so
      * "Eva" is replaced in "para Eva," but left alone inside "Evaluación" or "Eva2". Punctuation
      * (including apostrophes) and whitespace count as boundaries.
      *
+     * An email address is different, because the characters around it ARE punctuation: the student's
+     * address must not be matched inside a longer one ("ana.eva@example.com") or before a longer
+     * domain ("eva@example.com.co"), while a full stop ending the sentence still ends it. The email
+     * and the username are matched in any letter case, as mail and Moodle logins treat them.
+     *
+     * One pass, longest value first, so the full name is replaced as a unit before its parts, and
+     * so a placeholder already written is never searched again: a username such as "student" would
+     * otherwise match inside "[STUDENT_NAME]".
+     *
      * Both sides must already be valid UTF-8 (see valid_utf8()).
      *
-     * @param string $needle Original value to hide.
-     * @param string $placeholder Placeholder token to insert.
+     * @param array<string, string> $replacements Placeholder => value to hide.
      * @param string $subject Text to process.
      * @return string
      * @throws \moodle_exception When the replacement cannot be performed, since returning the text would name the student.
      */
-    private static function replace_whole_word(string $needle, string $placeholder, string $subject): string {
-        if ($needle === '') {
+    private static function replace_whole_words(array $replacements, string $subject): string {
+        $needles = [];
+        foreach ($replacements as $placeholder => $value) {
+            foreach (self::match_variants($value) as $variant) {
+                if ($variant !== '') {
+                    $needles[] = ['placeholder' => $placeholder, 'value' => $variant];
+                }
+            }
+        }
+        if ($needles === []) {
             return $subject;
         }
+        usort($needles, fn(array $a, array $b): int => \core_text::strlen($b['value']) <=> \core_text::strlen($a['value']));
 
-        $pattern = '/(?<![\pL\pN])' . preg_quote($needle, '/') . '(?![\pL\pN])/u';
-        $result = preg_replace($pattern, $placeholder, $subject);
+        $alternatives = [];
+        foreach ($needles as $needle) {
+            $alternatives[] = '(' . self::pattern_for($needle['placeholder'], $needle['value']) . ')';
+        }
+        $placeholders = array_column($needles, 'placeholder');
+
+        $result = preg_replace_callback(
+            '/' . implode('|', $alternatives) . '/u',
+            static function (array $match) use ($placeholders): string {
+                foreach ($placeholders as $index => $placeholder) {
+                    if (($match[$index + 1] ?? '') !== '') {
+                        return $placeholder;
+                    }
+                }
+                return $match[0];
+            },
+            $subject
+        );
 
         if ($result === null) {
             // Both sides were repaired before this point, so the engine should have no reason to
@@ -134,6 +189,27 @@ class payload_anonymizer {
         }
 
         return $result;
+    }
+
+    /**
+     * The pattern (without delimiters) matching one value as a whole word.
+     *
+     * @param string $placeholder The placeholder the value is replaced with.
+     * @param string $value The value to hide.
+     * @return string
+     */
+    private static function pattern_for(string $placeholder, string $value): string {
+        $quoted = preg_quote($value, '/');
+
+        if ($placeholder === self::EMAIL) {
+            // Not inside a longer local part, and not before more of an address: a dot counts as a
+            // boundary only when no letter or digit follows it.
+            return '(?i:(?<![\pL\pN._%+\-])' . $quoted . '(?![\pL\pN_%+\-@]|\.[\pL\pN]))';
+        }
+
+        $word = '(?<![\pL\pN])' . $quoted . '(?![\pL\pN])';
+
+        return $placeholder === self::USERNAME ? '(?i:' . $word . ')' : $word;
     }
 
     /**

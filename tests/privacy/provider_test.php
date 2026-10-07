@@ -54,4 +54,26 @@ final class provider_test extends \advanced_testcase {
             }
         }
     }
+
+    /**
+     * CDR-PRIV-001-R2: the key a generated activity carries in its ID number is declared.
+     *
+     * The key is an HMAC of the action and the student's id (aiactivity_key), so it is personal data
+     * derived from the id, stored in a core column of the course module.
+     *
+     * @return void
+     */
+    public function test_get_metadata_declares_the_generated_activity_key(): void {
+        $items = provider::get_metadata(new collection('local_coursedynamicrules'))->get_collection();
+
+        $fields = [];
+        foreach ($items as $item) {
+            if ($item->get_name() === 'course_modules') {
+                $fields = $item->get_privacy_fields();
+            }
+        }
+
+        $this->assertArrayHasKey('idnumber', $fields);
+        $this->assertNotEmpty(get_string($fields['idnumber'], 'local_coursedynamicrules'));
+    }
 }

@@ -439,14 +439,14 @@ final class createaiactivity_action_test extends \advanced_testcase {
      * at the configured URL) including the resolved request language.
      *
      * The /activity/init payload must carry the v2 contract (instructions, with_images,
-     * userid, site_url, auto_approve, service_id), anonymize the instructions, drop the
-     * legacy keys, and hit the configured service URL.
+     * userid, auto_approve, service_id), anonymize the instructions, drop the
+     * legacy keys, and hit the configured service URL. site_url is not the plugin's to send
+     * (CDR-PRIV-001-R2): the shared transport adds it, see tests/privacy/outgoing_request_test.php.
      *
      * @covers ::execute
      */
     public function test_execute_sends_expected_init_payload(): void {
         $this->require_ai_stack();
-        global $CFG;
 
         $this->resetAfterTest(true);
         $this->setAdminUser();
@@ -476,7 +476,7 @@ final class createaiactivity_action_test extends \advanced_testcase {
         $this->assertSame((string) $user->id, $payload['userid']);
         $this->assertTrue($payload['with_images']);
         $this->assertSame('en', $payload['lang']);
-        $this->assertSame($CFG->wwwroot, $payload['site_url']);
+        $this->assertArrayNotHasKey('site_url', $payload);
         $this->assertTrue($payload['auto_approve']);
         $this->assertSame('local_coursedynamicrules', $payload['service_id']);
         $this->assertArrayNotHasKey('message', $payload);

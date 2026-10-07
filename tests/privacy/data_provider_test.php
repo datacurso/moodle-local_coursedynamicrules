@@ -1234,4 +1234,30 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
             $this->assertSame([$rule], $exported->rules);
         }
     }
+
+    /**
+     * CDR-PRIV-001-R2: the export of an AI activity includes the key derived from the user's id.
+     *
+     * @covers \local_coursedynamicrules\local\owned_gate_eraser
+     * @return void
+     */
+    public function test_the_export_includes_the_generated_activity_key(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = generated_ai_activity::create_action((int) $course->id);
+        $cmid = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $actionid, (int) $student->id);
+
+        $exported = $this->exported_ai_activity((int) $student->id, $cmid);
+
+        $this->assertNotNull($exported);
+        $this->assertSame(
+            \local_coursedynamicrules\local\aiactivity_key::for_action_user($actionid, (int) $student->id),
+            $exported->activitykey ?? null
+        );
+        $this->assertSame(
+            get_string('privacy:export:activitykey', 'local_coursedynamicrules'),
+            $exported->activitykeyexplained ?? null
+        );
+    }
 }

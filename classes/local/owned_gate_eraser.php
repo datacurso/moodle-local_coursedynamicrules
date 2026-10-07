@@ -119,9 +119,12 @@ class owned_gate_eraser {
      *
      * An ambiguous AI node is not one of them: nothing proves which of the candidates is ours.
      *
+     * The AI key is reported whenever it is the user's, ambiguous or not: it is derived from their id.
+     *
      * @param int $cmid The course module.
      * @param int $userid The user.
-     * @return array|null ['courseid' => int, 'actionids' => (int|null)[]], or null when the module is gone.
+     * @return array|null ['courseid' => int, 'actionids' => (int|null)[], 'aikey' => string|null], or null
+     *     when the module is gone. aikey is the module's ID number when it is the user's AI activity key.
      */
     public static function holdings(int $cmid, int $userid): ?array {
         $cm = self::course_module($cmid);
@@ -137,7 +140,9 @@ class owned_gate_eraser {
             }
         }
 
-        return ['courseid' => (int) $cm->course, 'actionids' => $actionids];
+        $aikey = ($claim->attribution !== null && $claim->attribution[1] === $userid) ? (string) $cm->idnumber : null;
+
+        return ['courseid' => (int) $cm->course, 'actionids' => $actionids, 'aikey' => $aikey];
     }
 
     /**

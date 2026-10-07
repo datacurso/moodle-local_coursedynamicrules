@@ -128,19 +128,27 @@ class createaiactivity_action extends action {
                 $instructions = trim(html_to_text($aicontext->prompt_text, 0, false)) . "\n\n" . $instructions;
             }
 
+            // No site_url here (CDR-PRIV-001-R2): nothing in this plugin needs the service to know
+            // it. That does NOT keep the site address in: aiprovider_datacurso's shared transport adds
+            // site_url, site_id and timezone to every POST body itself, and its values win
+            // (datacurso_api_base::send_request()). Only that plugin can remove them;
+            // tests/privacy/outgoing_request_test.php captures the final body and pins that it does.
             $payload = [
                 'instructions' => $instructions,
                 'lang' => $this->resolve_request_language($user, $course),
                 'with_images' => $generateimages,
+                // The student's id, sent explicitly for billing: without it the transport falls
+                // back to $USER, which under cron is the administrator.
                 'userid' => (string) $userid,
-                'site_url' => $CFG->wwwroot,
                 // Rules run unattended from cron: nobody can approve the plan.
                 'auto_approve' => true,
                 // Billing identity: consumption belongs to SmartRules, not coursegen.
                 'service_id' => 'local_coursedynamicrules',
             ];
 
-            $anonymized = payload_anonymizer::anonymize($payload, $user);
+            // The course URL is masked too: it carries the site address and the course id, and
+            // {$a->courseurl} or a URL typed by hand puts it in the instructions.
+            $anonymized = payload_anonymizer::anonymize($payload, $user, self::course_url($course));
             $payload = $anonymized['payload'];
             $replacements = $anonymized['replacements'];
 
@@ -674,16 +682,24 @@ class createaiactivity_action extends action {
      * @return string
      */
     protected function build_prompt(string $message, \stdClass $course, \stdClass $user): string {
-        $courseurl = new moodle_url('/course/view.php', ['id' => $course->id]);
-
         $placeholders = [
             '{$a->coursename}' => format_string($course->fullname),
-            '{$a->courseurl}' => $courseurl->out(false),
+            '{$a->courseurl}' => self::course_url($course),
             '{$a->fullname}' => fullname($user),
             '{$a->firstname}' => $user->firstname,
             '{$a->lastname}' => $user->lastname,
         ];
 
         return strtr($message, $placeholders);
+    }
+
+    /**
+     * The URL {$a->courseurl} stands for, which the anonymizer masks before the request leaves.
+     *
+     * @param \stdClass $course
+     * @return string
+     */
+    private static function course_url(\stdClass $course): string {
+        return (new moodle_url('/course/view.php', ['id' => $course->id]))->out(false);
     }
 }

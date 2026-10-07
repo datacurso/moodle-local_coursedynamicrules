@@ -214,28 +214,39 @@ class provider implements
      * @return collection The updated collection.
      */
     public static function get_metadata(collection $collection): collection {
-        // These are the KEYS of the /activity/init payload built by
-        // createaiactivity_action::execute(), not a prose description of it: a field named here
-        // that the service never receives misdescribes the transfer just as badly as an omission,
-        // and external_transfer_declaration_test.php compares both directions against the request
-        // the action really sends. The three payload keys left out are operational controls of
-        // the request rather than data about a person - with_images (configured per action, so it
-        // varies between actions, but it names nobody), auto_approve (always true, since cron has
-        // nobody to approve a plan) and service_id (the calling plugin's billing identity). That
-        // is this plugin's own classification, pinned in the same test; it is not a legal one.
+        // These are the KEYS of the bodies that reach the AI service, not a prose description of
+        // them: a field named here that the service never receives misdescribes the transfer just as
+        // badly as an omission. external_transfer_declaration_test.php compares both directions
+        // against the bodies captured on the wire, for both requests that carry one - /activity/init
+        // and the /activity/feedback plan approval. Keys left out are operational controls rather
+        // than data about a person: with_images (configured per action, but it names nobody),
+        // auto_approve (always true, since cron has nobody to approve a plan), service_id (the
+        // calling plugin's billing identity), and on the approval thread_id (the id the service
+        // issued), approval_status (always 'accept') and instruction (always empty). That is this
+        // plugin's own classification, pinned in the same test; it is not a legal one.
+        //
+        // site_id, timezone and site_url are not set by this plugin at all: aiprovider_datacurso's
+        // shared transport adds them to every POST body (datacurso_api_base::send_request()). They
+        // are declared here anyway, because they leave the site in requests this plugin makes, and
+        // their strings say who adds them. That plugin declares them as its own location as well.
         //
         // Course name and course URL are deliberately NOT separate entries. They reach the service
-        // only inside `instructions`, and only when the teacher writes {$a->coursename} or
-        // {$a->courseurl} in the prompt (build_prompt() substitutes them), so declaring them as
-        // fields of their own would claim a channel that does not exist. Their travel is disclosed
-        // in the `instructions` string instead, which is where it is literally true.
-        // The ids the enable-activity action writes into a core column nobody else declares. It is
-        // named as a whole column rather than as a field list because that is what the column is: a
+        // only inside `instructions` - the URL masked as a placeholder - so declaring them as fields
+        // of their own would claim a channel that does not exist. Their travel is disclosed in the
+        // `instructions` string instead, which is where it is literally true.
+        //
+        // In course_modules: the ids the enable-activity and AI actions write into availability, a
+        // core column nobody else declares, named as a whole column because that is what it is: a
         // JSON availability tree, of which this plugin owns some nodes and other components own
-        // others.
+        // others. And the key an AI-generated activity carries in its ID number (aiactivity_key), an
+        // HMAC of the action and the student's id: it names nobody in clear, but it is derived from
+        // the student's id, so it is exported and erased with it.
         $collection->add_database_table(
             'course_modules',
-            ['availability' => 'privacy:metadata:course_modules:availability'],
+            [
+                'availability' => 'privacy:metadata:course_modules:availability',
+                'idnumber' => 'privacy:metadata:course_modules:idnumber',
+            ],
             'privacy:metadata:course_modules'
         );
 
@@ -244,7 +255,9 @@ class provider implements
             [
                 'instructions' => 'privacy:metadata:datacurso_ai:instructions',
                 'lang' => 'privacy:metadata:datacurso_ai:lang',
+                'site_id' => 'privacy:metadata:datacurso_ai:site_id',
                 'site_url' => 'privacy:metadata:datacurso_ai:site_url',
+                'timezone' => 'privacy:metadata:datacurso_ai:timezone',
                 'userid' => 'privacy:metadata:datacurso_ai:userid',
             ],
             'privacy:metadata:datacurso_ai'
@@ -336,6 +349,9 @@ class provider implements
      *    resting on authorship is falsifiable until ownership is structural.
      * 3. This export does not say whether the activity is open to the user.
      *
+     * For an AI activity generated for the user, the key in its ID number is exported too, as
+     * stored, because it is derived from the user's id (aiactivity_key).
+     *
      * The rules are counted and de-duplicated by ACTION id rather than by name. Two rules of one
      * course can share a name - a course copy makes that ordinary - and de-duplicating on the name
      * collapsed two distinct restrictions into one line, leaving the reader unable to tell one from
@@ -368,15 +384,22 @@ class provider implements
                 $key = $actionid ?? --$unresolved;
                 $rules[$key] = self::rule_name_behind($actionid, $holdings['courseid']);
             }
-            if ($holding === 0) {
+            if ($holding === 0 && $holdings['aikey'] === null) {
                 continue;
             }
 
-            writer::with_context($context)->export_data($subcontext, (object) [
+            $data = (object) [
                 'restrictions' => $holding,
                 'rules' => array_values($rules),
                 'whatthismeans' => get_string('privacy:export:idheld', 'local_coursedynamicrules', $holding),
-            ]);
+            ];
+            // The ID number of an AI activity generated for the user is derived from their id, so it
+            // is theirs to see - exported as stored, with what it is.
+            if ($holdings['aikey'] !== null) {
+                $data->activitykey = $holdings['aikey'];
+                $data->activitykeyexplained = get_string('privacy:export:activitykey', 'local_coursedynamicrules');
+            }
+            writer::with_context($context)->export_data($subcontext, $data);
         }
     }
 
