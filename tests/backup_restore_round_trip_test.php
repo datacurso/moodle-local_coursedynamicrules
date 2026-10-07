@@ -23,6 +23,7 @@ defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once($CFG->dirroot . '/backup/util/includes/backup_includes.php');
 require_once($CFG->dirroot . '/backup/util/includes/restore_includes.php');
+require_once(__DIR__ . '/fixtures/testable_createaiactivity_action.php');
 
 /**
  * The real backup/restore round trip, executed rather than described.
@@ -416,5 +417,70 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
             'A marker still naming the source action id belongs to nobody: the restored action could '
             . 'neither grant nor revoke, and the activity would stay hidden from every student.'
         );
+    }
+
+    /**
+     * CDR-SEC-006: the AI activity's key is rewritten for the restored action, which then does not regenerate it.
+     *
+     * The key is derived from the action id, and the restored action holds a new one: left as it
+     * was, the key would name the source action and the restored rule would generate the
+     * student's activity a second time.
+     */
+    public function test_restore_rewrites_the_key_for_the_restored_action(): void {
+        global $DB;
+        foreach (['aiprovider_datacurso', 'local_coursegen'] as $component) {
+            if (!\core_plugin_manager::instance()->get_plugin_info($component)) {
+                $this->markTestSkipped($component . ' is not installed; the AI activity action requires it.');
+            }
+        }
+
+        $actionparams = ['message' => 'Create a page', 'generateimages' => false, 'sectionnum' => 0, 'beforemod' => null];
+        [$course, , , $sourceactionid] = $this->course_with_rule('createaiactivity', static function () use ($actionparams): array {
+            return $actionparams;
+        });
+        $student = $this->getDataGenerator()->create_user();
+
+        // The activity the source action generated for the student: keyed and marked.
+        $sourcekey = local\aiactivity_key::for_action_user($sourceactionid, (int) $student->id);
+        $generated = $this->getDataGenerator()->create_module('page', ['course' => $course->id, 'idnumber' => $sourcekey]);
+        $node = (object) ['type' => 'user', 'userids' => [(int) $student->id], 'source' => self::MARKER_PREFIX . $sourceactionid];
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json([$node], tree::OP_AND, false)),
+            ['id' => $generated->cmid]
+        );
+        rebuild_course_cache($course->id, true);
+
+        $newcourseid = $this->restore_course($this->backup_course($course));
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['courseid' => $newcourseid], '*', MUST_EXIST);
+        $action = $DB->get_record('local_coursedynamicrules_action', ['ruleid' => $rule->id], '*', MUST_EXIST);
+        $restoredcm = $DB->get_record_select(
+            'course_modules',
+            'course = :course AND ' . $DB->sql_like('idnumber', ':prefix'),
+            ['course' => $newcourseid, 'prefix' => local\aiactivity_key::PREFIX . '%'],
+            '*',
+            MUST_EXIST
+        );
+        $this->assertSame(
+            local\aiactivity_key::for_action_user((int) $action->id, (int) $student->id),
+            $restoredcm->idnumber,
+            'The restored activity must carry the key of the RESTORED action.'
+        );
+
+        // And the restored rule does not generate the student's activity again.
+        $client = $this->getMockBuilder(\aiprovider_datacurso\httpclient\ai_course_api::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['request', 'get_base_url'])
+            ->getMock();
+        $client->expects($this->never())->method('request');
+        action\createaiactivity\testable_createaiactivity_action::$client = $client;
+        try {
+            $restoredaction = new action\createaiactivity\testable_createaiactivity_action($action, $newcourseid);
+            $restoredaction->execute((object) ['courseid' => $newcourseid, 'userid' => (int) $student->id]);
+        } finally {
+            action\createaiactivity\testable_createaiactivity_action::reset();
+        }
     }
 }

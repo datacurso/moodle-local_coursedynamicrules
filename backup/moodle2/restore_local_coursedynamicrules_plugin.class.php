@@ -356,7 +356,71 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $this->remap_notification_roles();
         $this->remap_ownership_markers();
         $this->readopt_stripped_markers();
+        $this->rekey_generated_ai_activities();
         $this->report_restored_components();
+    }
+
+    /**
+     * Rewrite the idempotency key of the restored AI activities onto the restored actions.
+     *
+     * An AI-generated activity carries in its ID number a key derived from its action and student
+     * (\local_coursedynamicrules\local\aiactivity_key). The restored action holds a new id, so the
+     * key restored verbatim names the source action, and the restored rule would generate the
+     * student's activity again. Each restored module with a key is matched against the restored
+     * createaiactivity actions and the students its restriction lists, and rewritten when one of
+     * them reproduces the key.
+     *
+     * The key is an HMAC keyed with the site identifier. Restored on another site it matches nothing
+     * and is left as it is; the restored action then recognises the activity by its ownership marker
+     * (remapped above), and only if that marker was lost too is the activity generated once more.
+     *
+     * @return void
+     */
+    protected function rekey_generated_ai_activities(): void {
+        global $DB;
+
+        $actionidmap = [];
+        foreach ($this->get_restored_action_id_map() as $oldactionid => $newactionid) {
+            $type = $DB->get_field('local_coursedynamicrules_action', 'actiontype', ['id' => $newactionid]);
+            if ($type === 'createaiactivity') {
+                $actionidmap[$oldactionid] = $newactionid;
+            }
+        }
+        // Only the modules THIS restore created, for the reason given in remap_ownership_markers().
+        $restoredcmids = $this->get_restored_course_module_ids();
+        if (empty($actionidmap) || empty($restoredcmids)) {
+            return;
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($restoredcmids, SQL_PARAMS_NAMED, 'cm');
+        $modules = $DB->get_records_select(
+            'course_modules',
+            "id $insql AND course = :courseid AND " . $DB->sql_like('idnumber', ':prefix') . ' AND availability IS NOT NULL',
+            $inparams + [
+                'courseid' => $this->task->get_courseid(),
+                'prefix' => $DB->sql_like_escape(\local_coursedynamicrules\local\aiactivity_key::PREFIX) . '%',
+            ],
+            '',
+            'id, idnumber, availability'
+        );
+
+        foreach ($modules as $module) {
+            $tree = json_decode((string) $module->availability);
+            if (!is_object($tree)) {
+                continue;
+            }
+            $newkey = \local_coursedynamicrules\local\aiactivity_key::rekeyed_for_restore(
+                (string) $module->idnumber,
+                \local_coursedynamicrules\local\aiactivity_key::user_ids_in_tree($tree),
+                $actionidmap
+            );
+            if ($newkey !== null && $newkey !== $module->idnumber) {
+                \local_coursedynamicrules\action\createaiactivity\createaiactivity_action::set_generated_module_key(
+                    (int) $module->id,
+                    $newkey
+                );
+            }
+        }
     }
 
     /**

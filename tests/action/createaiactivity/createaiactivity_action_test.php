@@ -996,6 +996,311 @@ final class createaiactivity_action_test extends \advanced_testcase {
     }
 
     /**
+     * Run the action once for a student, as a rule trigger would.
+     *
+     * @param \stdClass $course Course.
+     * @param \stdClass $user Student.
+     * @return void
+     */
+    private function run_for(\stdClass $course, \stdClass $user): void {
+        $action = $this->create_testable_action($this->page_action_params(), $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
+    }
+
+    /**
+     * The course modules of the generated pages, keyed by id.
+     *
+     * @param int $courseid Course id.
+     * @return \stdClass[]
+     */
+    private function generated_page_cms(int $courseid): array {
+        global $DB;
+        return $DB->get_records_sql(
+            "SELECT cm.id, cm.idnumber, cm.availability
+               FROM {course_modules} cm
+               JOIN {modules} m ON m.id = cm.module AND m.name = 'page'
+              WHERE cm.course = :courseid",
+            ['courseid' => $courseid]
+        );
+    }
+
+    /**
+     * A page restricted to one student by a node stamped with an action's marker, as 1.8.6 generated it.
+     *
+     * @param \stdClass $course Course.
+     * @param int $userid Student the node lists.
+     * @param int $actionid Action named by the marker.
+     * @param string $idnumber Course module ID number.
+     * @return int Course module id.
+     */
+    private function create_marked_page(\stdClass $course, int $userid, int $actionid, string $idnumber = ''): int {
+        global $DB;
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id, 'idnumber' => $idnumber]);
+        $node = enableactivity_action::mark_node((object) ['type' => 'user', 'userids' => [$userid]], $actionid);
+        $tree = \core_availability\tree::get_root_json([$node], \core_availability\tree::OP_AND, false);
+        $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $page->cmid]);
+        rebuild_course_cache($course->id, true);
+
+        return (int) $page->cmid;
+    }
+
+    /**
+     * CDR-SEC-006: a second trigger for the same student and action spends no second paid generation.
+     *
+     * @covers ::execute
+     */
+    public function test_a_second_run_for_the_same_student_does_not_call_the_service(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevent = ['type' => 'completed', 'result' => $this->page_ai_result()];
+
+        $this->run_for($course, $user);
+        $this->run_for($course, $user);
+
+        $this->assertCount(1, $this->calls_to($calls, 'POST', '/activity/init'), 'The second run must not call the service.');
+        $this->assertCount(1, $this->generated_page_cms($course->id), 'One activity per student and action.');
+    }
+
+    /**
+     * CDR-SEC-006: the generated module carries the key of its action and student in its ID number.
+     *
+     * The format is pinned here, not derived from the helper, because other code recomputes it.
+     *
+     * @covers ::execute
+     */
+    public function test_the_generated_module_carries_the_idempotency_key(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+        $this->arm_happy_path();
+
+        $this->run_for($course, $user);
+
+        $cms = $this->generated_page_cms($course->id);
+        $this->assertCount(1, $cms);
+        $expected = 'cdrai_' . substr(hash_hmac('sha256', "1:{$user->id}", get_site_identifier()), 0, 40);
+        $this->assertSame($expected, reset($cms)->idnumber);
+        $this->assertSame($expected, \local_coursedynamicrules\local\aiactivity_key::for_action_user(1, (int) $user->id));
+    }
+
+    /**
+     * CDR-SEC-006: the key is per student: a second student of the same action gets their own activity.
+     *
+     * @covers ::execute
+     */
+    public function test_two_students_each_get_their_own_activity(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+        $other = $this->getDataGenerator()->create_and_enrol($course, 'student');
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevent = ['type' => 'completed', 'result' => $this->page_ai_result()];
+
+        $this->run_for($course, $user);
+        $this->run_for($course, $other);
+        $this->run_for($course, $other);
+
+        $this->assertCount(2, $this->calls_to($calls, 'POST', '/activity/init'));
+        $idnumbers = array_column($this->generated_page_cms($course->id), 'idnumber');
+        sort($idnumbers);
+        $expected = [
+            \local_coursedynamicrules\local\aiactivity_key::for_action_user(1, (int) $user->id),
+            \local_coursedynamicrules\local\aiactivity_key::for_action_user(1, (int) $other->id),
+        ];
+        sort($expected);
+        $this->assertSame($expected, $idnumbers);
+    }
+
+    /**
+     * CDR-SEC-006: while another process generates for the same action and student, this one skips.
+     *
+     * MySQL and PostgreSQL named locks are re-entrant within one database session, and a test runs
+     * in one session, so the test pins the database-record factory, which is not: two cron
+     * processes hold two sessions, which is the case the lock is for.
+     *
+     * @covers ::execute
+     */
+    public function test_a_held_lock_skips_generation(): void {
+        global $CFG;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->expectOutputRegex('/createaiactivity skipped/');
+        [$course, $user] = $this->create_course_and_student();
+        $CFG->lock_factory = '\core\lock\db_record_lock_factory';
+
+        testable_createaiactivity_action::$client = $this->mock_api_client([], $captured, false);
+
+        $lock = \core\lock\lock_config::get_lock_factory('local_coursedynamicrules')->get_lock("aigen_1_{$user->id}", 0);
+        $this->assertNotFalse($lock, 'Sanity: the test must hold the lock.');
+        try {
+            $this->run_for($course, $user);
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertCount(0, $this->generated_page_cms($course->id));
+    }
+
+    /**
+     * CDR-SEC-006: saving the module settings drops the availability marker, but the key survives.
+     *
+     * @covers ::execute
+     */
+    public function test_the_key_survives_saving_the_module_settings(): void {
+        global $CFG;
+        require_once($CFG->dirroot . '/course/modlib.php');
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevent = ['type' => 'completed', 'result' => $this->page_ai_result()];
+        $this->run_for($course, $user);
+
+        // Save the module settings the way the form does: the form re-encodes the availability tree
+        // through availability_user, which drops the marker, and posts the ID number back unchanged.
+        $cms = $this->generated_page_cms($course->id);
+        $cm = get_coursemodule_from_id('page', reset($cms)->id, $course->id, false, MUST_EXIST);
+        [, , , $data] = get_moduleinfo_data($cm, $course);
+        $data->availabilityconditionsjson = json_encode(\core_availability\tree::get_root_json(
+            [(object) ['type' => 'user', 'userids' => [(int) $user->id]]],
+            \core_availability\tree::OP_AND,
+            false
+        ));
+        $data->page = ['text' => '<p>Edited</p>', 'format' => FORMAT_HTML, 'itemid' => 0];
+        $data->printintro = 0;
+        $data->printlastmodified = 1;
+        update_moduleinfo($cm, $data, $course, null);
+        $tree = json_decode((string) get_coursemodule_from_id('page', $cm->id)->availability);
+        $this->assertSame([], enableactivity_action::owned_user_nodes($tree), 'Sanity: the marker is gone.');
+
+        $this->run_for($course, $user);
+
+        $this->assertCount(1, $this->calls_to($calls, 'POST', '/activity/init'), 'The key alone must stop a second generation.');
+        $this->assertCount(1, $this->generated_page_cms($course->id));
+    }
+
+    /**
+     * CDR-SEC-006: an activity generated by 1.8.6 (marker, no key) is recognised and given its key.
+     *
+     * @covers ::execute
+     */
+    public function test_a_marked_module_without_key_is_still_detected_and_backfilled(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+        $cmid = $this->create_marked_page($course, (int) $user->id, 1);
+
+        testable_createaiactivity_action::$client = $this->mock_api_client([], $captured, false);
+        $this->run_for($course, $user);
+
+        $this->assertCount(1, $this->generated_page_cms($course->id), 'The existing activity must not be generated again.');
+        $this->assertSame(
+            \local_coursedynamicrules\local\aiactivity_key::for_action_user(1, (int) $user->id),
+            $DB->get_field('course_modules', 'idnumber', ['id' => $cmid]),
+            'The recognised activity must be given its key, so it survives losing the marker.'
+        );
+    }
+
+    /**
+     * CDR-SEC-006: a failed generation writes no key, so the next trigger tries again.
+     *
+     * @covers ::execute
+     */
+    public function test_a_failed_generation_is_retried_on_the_next_trigger(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        $this->expectOutputRegex('/createaiactivity failed/');
+        [$course, $user] = $this->create_course_and_student();
+
+        testable_createaiactivity_action::$client = $this->routing_api_client($calls);
+        testable_createaiactivity_action::$streamevents = [
+            ['type' => 'failed', 'message' => 'Upstream error'],
+            ['type' => 'completed', 'result' => $this->page_ai_result()],
+        ];
+
+        $this->run_for($course, $user);
+        $this->assertDebuggingCalledCount(1);
+        $this->assertCount(0, $this->generated_page_cms($course->id));
+
+        $this->run_for($course, $user);
+
+        $this->assertCount(2, $this->calls_to($calls, 'POST', '/activity/init'), 'A failed generation must be retried.');
+        $cms = $this->generated_page_cms($course->id);
+        $this->assertCount(1, $cms);
+        $this->assertSame(
+            \local_coursedynamicrules\local\aiactivity_key::for_action_user(1, (int) $user->id),
+            reset($cms)->idnumber
+        );
+    }
+
+    /**
+     * CDR-SEC-006: an ID number a teacher already gave the activity is kept; the marker still stops a rerun.
+     *
+     * Consequence, accepted: such an activity is recognised only while its marker lasts.
+     *
+     * @covers ::execute
+     */
+    public function test_an_existing_teacher_idnumber_is_not_overwritten(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+        [$course, $user] = $this->create_course_and_student();
+        $cmid = $this->create_marked_page($course, (int) $user->id, 1, 'TEACHER-ID');
+
+        testable_createaiactivity_action::$client = $this->mock_api_client([], $captured, false);
+        $this->run_for($course, $user);
+
+        $this->assertSame('TEACHER-ID', $DB->get_field('course_modules', 'idnumber', ['id' => $cmid]));
+        $this->assertCount(1, $this->generated_page_cms($course->id));
+    }
+
+    /**
+     * CDR-SEC-006: a graded activity's main grade item gets the key too, as core keeps it in step with the module.
+     *
+     * A grade item ID number a teacher set is left alone.
+     *
+     * @covers ::set_generated_module_key
+     */
+    public function test_the_key_follows_into_the_grade_item_idnumber(): void {
+        global $CFG;
+        require_once($CFG->libdir . '/gradelib.php');
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $fetch = static function (int $instance) use ($course): \grade_item {
+            return \grade_item::fetch([
+                'courseid' => $course->id, 'itemtype' => 'mod', 'itemmodule' => 'assign',
+                'iteminstance' => $instance, 'itemnumber' => 0,
+            ]);
+        };
+
+        $assign = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'grade' => 100]);
+        createaiactivity_action::set_generated_module_key((int) $assign->cmid, 'cdrai_first');
+        $this->assertSame('cdrai_first', get_coursemodule_from_id('assign', $assign->cmid)->idnumber);
+        $this->assertSame('cdrai_first', $fetch((int) $assign->id)->idnumber);
+
+        $other = $this->getDataGenerator()->create_module('assign', ['course' => $course->id, 'grade' => 100]);
+        $item = $fetch((int) $other->id);
+        $item->idnumber = 'GRADEBOOK-ID';
+        $item->update();
+        createaiactivity_action::set_generated_module_key((int) $other->cmid, 'cdrai_second');
+        $this->assertSame('GRADEBOOK-ID', $fetch((int) $other->id)->idnumber);
+    }
+
+    /**
      * Skip when the AI companion plugins are absent, as they are on a CI checkout of this plugin alone.
      *
      * This guard is a stopgap, not the design. These tests build their client double by reflecting
