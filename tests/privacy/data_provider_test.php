@@ -22,6 +22,11 @@ use core_privacy\local\request\approved_userlist;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
+use local_coursedynamicrules\tests\generated_ai_activity;
+
+defined('MOODLE_INTERNAL') || die();
+
+require_once(__DIR__ . '/../fixtures/generated_ai_activity.php');
 
 /**
  * The plugin writes user ids into {course_modules}.availability and nobody accounts for them.
@@ -1061,5 +1066,172 @@ final class data_provider_test extends \core_privacy\tests\provider_testcase {
         provider::delete_data_for_all_users_in_context(\context_course::instance($course->id));
         [$marked] = $this->user_nodes((int) $module->cmid);
         $this->assertSame([(int) $student->id], $this->ids_of($marked[0]), 'A course context must not empty a module gate.');
+    }
+
+    /**
+     * The export of one AI activity for a user, or null when the context exported nothing.
+     *
+     * @param int $userid The data subject.
+     * @param int $cmid The AI activity.
+     * @return \stdClass|null
+     */
+    private function exported_ai_activity(int $userid, int $cmid): ?\stdClass {
+        $context = \context_module::instance($cmid);
+        $this->export_context_data_for_user($userid, $context, 'local_coursedynamicrules');
+        $writer = writer::with_context($context);
+        if (!$writer->has_any_data()) {
+            return null;
+        }
+
+        return $writer->get_data([get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]);
+    }
+
+    /**
+     * CDR-PRIV-002: an AI activity whose marker was lost is still found, exported and erased.
+     *
+     * Saving the module settings form drops the marker. The key in the ID number proves the module
+     * is the one the action generated for this student, so its single node listing exactly the
+     * student is the action's node.
+     *
+     * @covers \local_coursedynamicrules\local\owned_gate_eraser
+     * @return void
+     */
+    public function test_privacy_finds_an_ai_activity_whose_marker_was_lost(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $other = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = generated_ai_activity::create_action((int) $course->id, 'AI reinforcement');
+        $cmid = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $actionid, (int) $student->id);
+        // A teacher's own restriction listing the student and somebody else stays theirs.
+        generated_ai_activity::add_teacher_restriction($cmid, [(int) $student->id, (int) $other->id]);
+        generated_ai_activity::strip_markers($cmid);
+        $contextid = (int) \context_module::instance($cmid)->id;
+
+        $this->assertContains(
+            $contextid,
+            array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids()),
+            'The AI activity lost its marker and the provider no longer reports it, so a deletion request '
+                . 'would report success and leave the id.'
+        );
+
+        $userlist = new userlist(\context_module::instance($cmid), 'local_coursedynamicrules');
+        provider::get_users_in_context($userlist);
+        $this->assertSame([(int) $student->id], array_map('intval', $userlist->get_userids()));
+
+        $exported = $this->exported_ai_activity((int) $student->id, $cmid);
+        $this->assertNotNull($exported, 'The AI activity exported nothing for the student it was generated for.');
+        $this->assertSame(1, $exported->restrictions);
+        $this->assertSame(['AI reinforcement'], $exported->rules);
+
+        provider::delete_data_for_user($this->approve_all_for((int) $student->id));
+
+        [$ours, $teachers] = generated_ai_activity::user_nodes($cmid);
+        $this->assertSame([], generated_ai_activity::ids_of($ours), 'The id stayed in the AI node after the erasure.');
+        $this->assertSame(
+            [(int) $student->id, (int) $other->id],
+            generated_ai_activity::ids_of($teachers),
+            'The erasure rewrote a teacher\'s own restriction.'
+        );
+        $this->assertSame('', (string) $DB->get_field('course_modules', 'idnumber', ['id' => $cmid]));
+    }
+
+    /**
+     * CDR-PRIV-002: erasing the student clears the key derived from their id, on the module and on
+     * the grade item core keeps in step with it.
+     *
+     * @covers \local_coursedynamicrules\local\owned_gate_eraser
+     * @return void
+     */
+    public function test_erasure_clears_the_idempotency_key(): void {
+        global $CFG, $DB;
+        require_once($CFG->libdir . '/gradelib.php');
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = generated_ai_activity::create_action((int) $course->id);
+        $cmid = generated_ai_activity::create(
+            $this->getDataGenerator(),
+            (int) $course->id,
+            $actionid,
+            (int) $student->id,
+            'assign'
+        );
+        $key = \local_coursedynamicrules\local\aiactivity_key::for_action_user($actionid, (int) $student->id);
+        $cm = get_coursemodule_from_id('assign', $cmid, 0, false, MUST_EXIST);
+        $gradeitem = ['courseid' => $course->id, 'itemtype' => 'mod', 'itemmodule' => 'assign', 'iteminstance' => $cm->instance,
+            'itemnumber' => 0];
+        $this->assertSame($key, (string) \grade_item::fetch($gradeitem)->idnumber, 'Precondition: the grade item carries the key.');
+
+        provider::delete_data_for_user($this->approve_all_for((int) $student->id));
+
+        $this->assertSame('', (string) $DB->get_field('course_modules', 'idnumber', ['id' => $cmid]), 'The module key survived.');
+        $this->assertSame('', (string) \grade_item::fetch($gradeitem)->idnumber, 'The grade item key survived.');
+    }
+
+    /**
+     * CDR-PRIV-002: when the key proves the attribution but two unmarked nodes list exactly the
+     * student, the erasure edits nothing and reports it through the documented exception.
+     *
+     * @covers \local_coursedynamicrules\local\owned_gate_eraser
+     * @return void
+     */
+    public function test_an_ambiguous_ai_activity_is_reported_not_guessed(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = generated_ai_activity::create_action((int) $course->id);
+        $cmid = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $actionid, (int) $student->id);
+        generated_ai_activity::add_teacher_restriction($cmid, [(int) $student->id]);
+        generated_ai_activity::strip_markers($cmid);
+        $before = $DB->get_record('course_modules', ['id' => $cmid], 'availability, idnumber');
+
+        $this->assertContains(
+            (int) \context_module::instance($cmid)->id,
+            array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids()),
+            'The key proves the module holds the student\'s data, so it must be reported.'
+        );
+
+        $thrown = null;
+        try {
+            provider::delete_data_for_user($this->approve_all_for((int) $student->id));
+        } catch (\coding_exception $e) {
+            $thrown = $e;
+        }
+
+        $this->assertNotNull($thrown, 'An ambiguous AI activity must be reported, not reported erased.');
+        $this->assertStringContainsString((string) $cmid, $thrown->getMessage() . ' ' . $thrown->debuginfo);
+        $after = $DB->get_record('course_modules', ['id' => $cmid], 'availability, idnumber');
+        $this->assertEquals($before, $after, 'An ambiguous AI activity was edited on a guess.');
+    }
+
+    /**
+     * CDR-PRIV-002: the export lists every AI activity generated for the user, marked or not.
+     *
+     * @covers \local_coursedynamicrules\local\owned_gate_eraser
+     * @return void
+     */
+    public function test_export_lists_every_ai_activity_generated_for_the_user(): void {
+        $this->resetAfterTest(true);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $firstaction = generated_ai_activity::create_action((int) $course->id, 'Marked AI rule');
+        $marked = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $firstaction, (int) $student->id);
+        $secondaction = generated_ai_activity::create_action((int) $course->id, 'Unmarked AI rule');
+        $unmarked = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $secondaction, (int) $student->id);
+        generated_ai_activity::strip_markers($unmarked);
+
+        $this->assertEqualsCanonicalizing(
+            [(int) \context_module::instance($marked)->id, (int) \context_module::instance($unmarked)->id],
+            array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids())
+        );
+        foreach (['Marked AI rule' => $marked, 'Unmarked AI rule' => $unmarked] as $rule => $cmid) {
+            $exported = $this->exported_ai_activity((int) $student->id, $cmid);
+            $this->assertNotNull($exported, "The activity of '{$rule}' was not exported.");
+            $this->assertSame(1, $exported->restrictions);
+            $this->assertSame([$rule], $exported->rules);
+        }
     }
 }

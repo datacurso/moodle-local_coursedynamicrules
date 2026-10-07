@@ -347,8 +347,11 @@ class createaiactivity_action extends action {
      * only when it is empty or still holds the module's previous ID number, never when a teacher
      * set it.
      *
+     * An empty key clears it, which the privacy eraser does when it erases the student
+     * (owned_gate_eraser::erase()); the grade item is cleared only while it still holds the key.
+     *
      * @param int $cmid Course module id.
-     * @param string $key The key to write (aiactivity_key).
+     * @param string $key The key to write (aiactivity_key), or '' to clear it.
      * @return void
      */
     public static function set_generated_module_key(int $cmid, string $key): void {

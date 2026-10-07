@@ -22,7 +22,7 @@ use core_privacy\local\request\approved_userlist;
 use core_privacy\local\request\contextlist;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
-use local_coursedynamicrules\action\enableactivity\enableactivity_action;
+use local_coursedynamicrules\local\owned_gate_eraser;
 
 /**
  * Privacy provider for local_coursedynamicrules.
@@ -30,7 +30,9 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * The plugin's own three tables hold course configuration only - a rule, its conditions and its
  * actions - and no row in them names a person. Its personal data lives somewhere less obvious: the
  * enable-activity action grants a student access to an activity by writing that student's id into
- * {course_modules}.availability, a CORE column that no core component accounts for.
+ * {course_modules}.availability, a CORE column that no core component accounts for, and the
+ * create-AI-activity action restricts the activity it generates to its student the same way, and
+ * keys that activity's ID number with an HMAC of the action and the student (aiactivity_key).
  * core_availability's provider is a null_provider and so is availability_user's, so until this
  * class implemented the request interfaces those ids were declared by nobody, exported by nobody
  * and erased by nobody.
@@ -39,8 +41,16 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  *
  * A node this plugin wrote is a user-type restriction stamped with an identity-bearing marker
  * (enableactivity_action::marker_prefix()). A node a teacher wrote through "Restrict access" is
- * byte-for-byte the same thing WITHOUT that marker. There is no third signal. So the rule this
- * class follows, in both directions, is: claim the marked nodes, claim nothing else.
+ * byte-for-byte the same thing WITHOUT that marker. So the rule this class follows, in both
+ * directions, is: claim the marked nodes, claim nothing else.
+ *
+ * With one exception, and it rests on proof rather than on shape. An AI-generated activity carries
+ * its key in the ID number, which saving the module settings keeps and which nobody can forge
+ * without the site identifier. When the key verifies against one of the course's AI actions and one
+ * student, the module was generated for that student, and the single unmarked user node listing
+ * exactly that student - the shape the action writes - is the action's node even after its marker
+ * was lost. owned_gate_eraser holds both rules, and the user_deleted observer uses it too, so an
+ * ordinary account deletion and a data-subject request clean the same nodes.
  *
  * That rule is not conservatism for its own sake - it is what keeps the plugin from lying. Core
  * gives a provider no way to report a partial deletion: delete_data_for_user() returns nothing,
@@ -49,6 +59,13 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * :216). Throwing does not change that; it only emails the DPO. The contextlist this class returns
  * IS the attestation. So it must contain only contexts this class can actually clean - and it must
  * then clean every one of them.
+ *
+ * One case breaks that, and it is reported rather than hidden. When an AI key verifies but TWO
+ * unmarked nodes list exactly the student, nothing says which one the action wrote. The module is in
+ * the contextlist, because the key itself is the student's data; the erasure edits nothing on it and
+ * throws once the other contexts are done, so the DPO is mailed the module ids for a manual cleanup.
+ * The data subject is still told the request completed - that is tool_dataprivacy's behaviour, and
+ * the exception is the only channel there is.
  *
  * The other direction is just as load-bearing. Claiming an unmarked node would mean erasing, inside
  * a request approved for THIS component, a restriction some teacher wrote for their own reasons -
@@ -76,22 +93,27 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * Three kinds of id written by this plugin cannot be attributed to it, and this class does not
  * pretend otherwise:
  *
- * 1. Nodes written by createaiactivity_action before it began marking them. That action records the
- *    module it creates nowhere - not in params, not in a table - so a historical one is
- *    indistinguishable from a teacher's restriction. New ones carry the marker and are covered.
- * 2. Any node of ours whose marker somebody destroyed by saving the module's settings form -
- *    ANY save of it, not only one that touches restrictions. Measured on the reference site on
+ * 1. Nodes written by createaiactivity_action before it began marking them, on an activity that
+ *    carries no key either. That action records the module it creates in no params and no table, so
+ *    such a node is indistinguishable from a teacher's restriction. Activities generated since carry
+ *    the marker and the key; one that is marked but unkeyed receives its key the next time its rule
+ *    fires for that student.
+ * 2. A node of an enable-activity action whose marker somebody destroyed by saving the module's
+ *    settings form - ANY save of it, not only one that touches restrictions. For an AI-generated
+ *    activity the key covers this case, unless the same save also changed or cleared the ID number,
+ *    which the form allows. Measured on the reference site on
  *    2026-09-17: changing an activity's name and saving destroyed the marker, because the form
  *    writes the JSON the browser's availability editor rebuilt from its own model rather than
  *    the stored tree (documented at enableactivity_action::MARKER_KEY). This is the reason the
  *    unmarked set grows with ordinary use rather than staying an edge case: 12 of the 19 user
  *    restrictions on that site carried no marker that day.
- * 3. A marker a RESTORE stripped. Core re-encodes a module's whole tree through each condition's
- *    save() whenever any sibling changed, and availability_user::save() emits only {type, userids}.
- *    The restore plugin re-adopts what it can afterwards, but only for enable-activity actions,
- *    because it re-adopts by walking each action's recorded modules and createaiactivity records
- *    none. So an AI-generated activity that also carries a teacher's own restriction comes back from
- *    a restore unattributable.
+ * 3. A marker a RESTORE stripped from an enable-activity node. Core re-encodes a module's whole
+ *    tree through each condition's save() whenever any sibling changed, and availability_user::save()
+ *    emits only {type, userids}. When the course is restored with its rules, an AI-generated
+ *    activity is re-marked afterwards from its key, as written rather than adopted, because the key
+ *    verifies the restored action and the student (two candidate nodes leave it unmarked, and found
+ *    through the key as above). On another site the key does not verify and the activity comes back
+ *    unattributable. An enable-activity node is only re-adopted, as follows.
  *
  *    A re-adopted marker is not attributable either, and this class refuses it. The re-adoption
  *    claims the tree's single unmarked user node, which on a module the action still lists but whose
@@ -106,7 +128,9 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  *    longer exported or erased. Nodes re-adopted by releases 1.8.4 and 1.8.5, which recorded no such
  *    flag, are indistinguishable from written ones and remain claimable.
  *
- * None of the three can be closed by a better provider. All three close the same way: by owning a
+ * None of the three can be closed by a better provider: the adopted enable-activity node, in
+ * particular, stays outside the export and the erasure, although an ordinary account deletion still
+ * clears it through the user_deleted observer. All three close the same way: by owning a
  * condition type of our own, so that ownership is structural instead of a property some other
  * component is free to drop. That is what the availability_coursedynamicrules plugin does. Until it
  * lands they are recorded here and in CHANGES.md, because a gap a reader can see is a different
@@ -165,11 +189,15 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * matters is that nobody reads a course-context expiry as permanent while the person is still
  * enrolled and still qualifies. Stated here rather than worked around.
  *
- * One asymmetry worth knowing, and it is not this class's to fix. An approved deletion request runs
- * this class and then deletes the account. Deleting an account WITHOUT such a request runs only the
- * user_deleted observer, and that observer works from each action's recorded modules - which the
- * create-AI-activity action does not keep. So a generated activity is cleaned by a data-subject
- * request and not by an ordinary account deletion.
+ * An erasure that names the student an AI key belongs to also clears that key, on the module and on
+ * its grade item while it still holds it, because the key is derived from the student's id. That
+ * re-arms the action: after a course or activity context expiry, a student who is still enrolled and
+ * still meets the condition has the activity generated again on the next run, which is a new call to
+ * the AI service. After an account deletion nothing is generated, for the reason given above.
+ *
+ * Deleting an account WITHOUT an approved request runs only the user_deleted observer. That
+ * observer walks each enable-activity action's recorded modules and then runs the same eraser this
+ * class uses, so a generated activity is cleaned on that path too.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -226,17 +254,12 @@ class provider implements
     }
 
     /**
-     * The module contexts whose gate - a node this plugin owns - lists the user.
+     * The module contexts whose gate - a node this plugin owns - lists the user, or whose ID number
+     * is the user's AI activity key.
      *
-     * The ids live inside a JSON tree, so they cannot be matched in SQL: a LIKE on "24" matches
-     * "124" and "240" just as happily. The query narrows to the rows that could carry one of our
-     * markers at all, and ownership and membership are both decided in PHP on the decoded tree,
-     * where an integer is an integer and a marker is a marker.
-     *
-     * Streamed with a recordset rather than loaded with get_records_select(): the LIKE has a leading
-     * wildcard on a TEXT column, so it cannot use an index and the candidate set is bounded only by
-     * how many modules the site has. There is no reason to hold all their availability trees in
-     * memory at once.
+     * The search is owned_gate_eraser::modules_holding(), which the user_deleted observer shares: it
+     * narrows on the marker and decides on the decoded tree, and finds AI activities through their
+     * key so a lost marker does not hide them.
      *
      * Always returns a contextlist for a user who has already been deleted and has no context of
      * their own, rather than failing on the way to one - core asserts exactly that
@@ -251,7 +274,7 @@ class provider implements
         global $DB;
 
         $contextlist = new contextlist();
-        $cmids = self::modules_gating($userid);
+        $cmids = owned_gate_eraser::modules_holding($userid);
         if ($cmids === []) {
             return $contextlist;
         }
@@ -267,7 +290,10 @@ class provider implements
     }
 
     /**
-     * The users this plugin's own gates on a module list.
+     * The users this plugin's own gates on a module list, and the student its AI key names.
+     *
+     * An HMAC key cannot be read back into a user id, so the ids the module's user nodes list are the
+     * candidates, and the key decides which one it belongs to.
      *
      * @param userlist $userlist The userlist, carrying the context to inspect.
      * @return void
@@ -278,18 +304,9 @@ class provider implements
             return;
         }
 
-        $cm = self::course_module((int) $context->instanceid);
-        $root = $cm ? self::decode($cm->availability) : null;
-        if ($root === null) {
-            return;
-        }
-
-        $userids = [];
-        foreach (enableactivity_action::owned_user_nodes($root) as $node) {
-            $userids = array_merge($userids, self::userids_of($node));
-        }
+        $userids = owned_gate_eraser::users_in_module((int) $context->instanceid);
         if ($userids !== []) {
-            $userlist->add_users(array_values(array_unique($userids)));
+            $userlist->add_users($userids);
         }
     }
 
@@ -335,9 +352,8 @@ class provider implements
             if ((int) $context->contextlevel !== CONTEXT_MODULE) {
                 continue;
             }
-            $cm = self::course_module((int) $context->instanceid);
-            $root = $cm ? self::decode($cm->availability) : null;
-            if ($root === null) {
+            $holdings = owned_gate_eraser::holdings((int) $context->instanceid, $userid);
+            if ($holdings === null) {
                 continue;
             }
 
@@ -347,14 +363,10 @@ class provider implements
             $rules = [];
             $holding = 0;
             $unresolved = 0;
-            foreach (enableactivity_action::owned_user_nodes($root) as $node) {
-                if (!in_array($userid, self::userids_of($node), true)) {
-                    continue;
-                }
+            foreach ($holdings['actionids'] as $actionid) {
                 $holding++;
-                $actionid = enableactivity_action::action_id_of($node);
                 $key = $actionid ?? --$unresolved;
-                $rules[$key] = self::rule_name_behind($node, (int) $cm->course);
+                $rules[$key] = self::rule_name_behind($actionid, $holdings['courseid']);
             }
             if ($holding === 0) {
                 continue;
@@ -384,17 +396,21 @@ class provider implements
         // scratch as many times. The plugin's user-deletion observer already works this way.
         //
         // The finally is load-bearing, not tidiness. Batching separates a write from the
-        // invalidation it owes, so anything that leaves this loop early - the encode guard below,
+        // invalidation it owes, so anything that leaves this loop early - the encode guard in the eraser,
         // or a database error on a later module - would carry the earlier modules' invalidations
         // away with it. The column would then say the id is gone while modinfo, which is what
         // students are actually evaluated against, still lets them in: the exact failure the
         // per-write invalidation existed to prevent, reintroduced by batching it.
         $courseids = [];
+        $ambiguous = [];
         try {
             foreach ($contextlist->get_contexts() as $context) {
-                $courseid = self::remove_from_module($context, [$userid]);
-                if ($courseid !== null) {
-                    $courseids[$courseid] = $courseid;
+                $result = self::erase_in($context, [$userid]);
+                if ($result['courseid'] !== null) {
+                    $courseids[$result['courseid']] = $result['courseid'];
+                }
+                if ($result['ambiguous']) {
+                    $ambiguous[] = (int) $context->instanceid;
                 }
             }
         } finally {
@@ -402,6 +418,7 @@ class provider implements
                 rebuild_course_cache($courseid, true);
             }
         }
+        self::report_ambiguous($ambiguous);
     }
 
     /**
@@ -411,10 +428,11 @@ class provider implements
      * @return void
      */
     public static function delete_data_for_users(approved_userlist $userlist): void {
-        $courseid = self::remove_from_module($userlist->get_context(), array_map('intval', $userlist->get_userids()));
-        if ($courseid !== null) {
-            rebuild_course_cache($courseid, true);
+        $result = self::erase_in($userlist->get_context(), array_map('intval', $userlist->get_userids()));
+        if ($result['courseid'] !== null) {
+            rebuild_course_cache($result['courseid'], true);
         }
+        self::report_ambiguous($result['ambiguous'] ? [(int) $userlist->get_context()->instanceid] : []);
     }
 
     /**
@@ -431,125 +449,54 @@ class provider implements
      * @return void
      */
     public static function delete_data_for_all_users_in_context(\context $context): void {
-        $courseid = self::remove_from_module($context, null);
-        if ($courseid !== null) {
-            rebuild_course_cache($courseid, true);
+        $result = self::erase_in($context, null);
+        if ($result['courseid'] !== null) {
+            rebuild_course_cache($result['courseid'], true);
         }
+        self::report_ambiguous($result['ambiguous'] ? [(int) $context->instanceid] : []);
     }
 
     /**
-     * Rewrite a module's own gates without the given users (or without anyone), keeping every node.
+     * Erase the given users (or everyone) from this plugin's gates in a module context.
      *
-     * Only nodes this plugin owns are touched. Every other node - and every other key of our own
-     * nodes, the marker first among them - is written back with its keys and values unchanged,
-     * because the tree is edited as decoded JSON and never re-serialised through the availability
-     * API, which would rebuild each node from its own condition class and drop the marker. Not
-     * byte-identical, though: json_encode() re-escapes a forward slash and a literal non-ASCII
-     * character, and normalises a float. Nothing in core compares the stored string, and a tree core
-     * itself wrote is already in that form, so the difference is invisible - but the claim is stated
-     * as what it is rather than as an absolute.
+     * Only CONTEXT_MODULE is acted on; see the class docblock. The erasure itself is
+     * owned_gate_eraser::erase(), which the user_deleted observer shares.
      *
-     * The surviving list is re-indexed: a gapped PHP array encodes as a JSON object, which
-     * availability_user rejects with a TypeError.
-     *
-     * Returns the course that must be invalidated rather than invalidating it, so a caller holding
-     * several contexts of one course can do it once. The tree students are evaluated against comes
-     * from modinfo, so a write nobody invalidates erases the id in the database and leaves the
-     * student's access exactly as it was until some unrelated edit happens to rebuild it - the
-     * caller owes that invalidation, it is not optional.
-     *
-     * @param \context $context The module context.
+     * @param \context $context The context to erase.
      * @param int[]|null $userids The ids to remove, or null to remove every id.
-     * @return int|null The course whose cache the caller must invalidate, or null when nothing changed.
+     * @return array ['courseid' => int|null, 'ambiguous' => bool], as owned_gate_eraser::erase().
      */
-    private static function remove_from_module(\context $context, ?array $userids): ?int {
-        global $DB;
-
+    private static function erase_in(\context $context, ?array $userids): array {
         if ((int) $context->contextlevel !== CONTEXT_MODULE) {
-            return null;
-        }
-        $cm = self::course_module((int) $context->instanceid);
-        $root = $cm ? self::decode($cm->availability) : null;
-        if ($root === null) {
-            return null;
+            return ['courseid' => null, 'ambiguous' => false];
         }
 
-        $changed = false;
-        foreach (enableactivity_action::owned_user_nodes($root) as $node) {
-            $before = self::userids_of($node);
-            $after = $userids === null
-                ? []
-                : array_values(array_filter($before, static function (int $id) use ($userids): bool {
-                    return !in_array($id, $userids, true);
-                }));
-            if ($after !== $before) {
-                // Written back as the plural key alone, and the singular one dropped. $before was
-                // the list CORE reads - both keys folded together - so $after is the complete set of
-                // survivors and belongs in one place. Leaving the singular key alone would take the
-                // student out of the list this class looked at and leave them in the list core
-                // evaluates, which is an erasure that erases nothing while reporting success. This
-                // is also the exact shape availability_user::save() writes, so the node is left in
-                // the form core itself would have produced.
-                $node->userids = $after;
-                unset($node->userid);
-                $changed = true;
-            }
-        }
-
-        if (!$changed) {
-            return null;
-        }
-
-        // Refusing to write beats writing false. json_encode() returns false rather than throwing,
-        // and an empty availability column means NO restrictions at all - the activity would open to
-        // the whole course, which is the single outcome this class exists to prevent. The input came
-        // from json_decode() of a stored tree, so this is not expected; it is guarded because the
-        // cost of being wrong is the harm the design is built around. Raising is the only channel
-        // core offers: the exception is caught per component and mailed to the data protection
-        // officers with this method's name (tool_dataprivacy\manager_observer), which is a person
-        // learning about it instead of a column being blanked in silence.
-        $encoded = json_encode($root);
-        if (!is_string($encoded)) {
-            throw new \coding_exception(
-                'local_coursedynamicrules: refusing to write an unencodable availability tree',
-                'course module ' . $cm->id . ': ' . json_last_error_msg()
-            );
-        }
-
-        $DB->set_field('course_modules', 'availability', $encoded, ['id' => $cm->id]);
-
-        return (int) $cm->course;
+        return owned_gate_eraser::erase((int) $context->instanceid, $userids);
     }
 
     /**
-     * The modules whose own gates list the user.
+     * Report the AI activities an erasure left alone because the node to edit was ambiguous.
      *
-     * @param int $userid The user.
-     * @return int[] Course module ids, possibly empty.
+     * The key proves the module was generated for the user, so the context is in the contextlist;
+     * but two unmarked nodes list exactly that user and nothing says which one the action wrote.
+     * Guessing could rewrite a teacher's restriction, so nothing on the module was edited. Raising is
+     * the only channel core offers: the exception is caught per component and mailed to the data
+     * protection officers (tool_dataprivacy\manager_observer). It is raised after every other context
+     * was erased and its course invalidated, so one ambiguous module does not block the rest.
+     *
+     * @param int[] $cmids The modules left alone.
+     * @return void
+     * @throws \coding_exception When there is at least one.
      */
-    private static function modules_gating(int $userid): array {
-        global $DB;
-
-        $like = $DB->sql_like('availability', ':marker');
-        $params = ['marker' => '%' . $DB->sql_like_escape(enableactivity_action::marker_prefix()) . '%'];
-
-        $cmids = [];
-        $rs = $DB->get_recordset_select('course_modules', $like, $params, '', 'id, availability');
-        foreach ($rs as $cm) {
-            $root = self::decode($cm->availability);
-            if ($root === null) {
-                continue;
-            }
-            foreach (enableactivity_action::owned_user_nodes($root) as $node) {
-                if (in_array($userid, self::userids_of($node), true)) {
-                    $cmids[] = (int) $cm->id;
-                    break;
-                }
-            }
+    private static function report_ambiguous(array $cmids): void {
+        if ($cmids === []) {
+            return;
         }
-        $rs->close();
-
-        return $cmids;
+        throw new \coding_exception(
+            'local_coursedynamicrules: ambiguous AI activity restriction left unedited, manual cleanup required',
+            'course module(s) ' . implode(', ', $cmids) . ': more than one unmarked user restriction lists exactly '
+                . 'the user the activity key names'
+        );
     }
 
     /**
@@ -563,17 +510,16 @@ class provider implements
      * this for you?" with the name of a rule that never did, inside the one document where an
      * invented answer is worse than no answer.
      *
-     * The marker is read through the action class rather than by reaching for the property, so the
-     * format stays owned by the one class that writes it.
+     * The action id comes from the node's marker, read through the action class so the format stays
+     * owned by the one class that writes it, or from the AI key that attributed an unmarked node.
      *
-     * @param \stdClass $node A node this plugin owns.
+     * @param int|null $actionid The action that owns the node, or null when it is unreadable.
      * @param int $courseid The course the gated module belongs to.
      * @return string The rule name, or a stated substitute when no rule of this course owns the gate.
      */
-    private static function rule_name_behind(\stdClass $node, int $courseid): string {
+    private static function rule_name_behind(?int $actionid, int $courseid): string {
         global $DB;
 
-        $actionid = enableactivity_action::action_id_of($node);
         if ($actionid !== null) {
             $name = $DB->get_field_sql(
                 "SELECT r.name
@@ -588,100 +534,5 @@ class provider implements
         }
 
         return get_string('privacy:export:ruledeleted', 'local_coursedynamicrules');
-    }
-
-    /**
-     * A course module row, or null when it is gone.
-     *
-     * @param int $cmid The course module id.
-     * @return \stdClass|null The row with id, course and availability.
-     */
-    private static function course_module(int $cmid): ?\stdClass {
-        global $DB;
-
-        $cm = $DB->get_record('course_modules', ['id' => $cmid], 'id, course, availability');
-
-        return $cm ?: null;
-    }
-
-    /**
-     * Decode an availability tree, or null when there is nothing usable to decode.
-     *
-     * @param string|null $availability The stored JSON.
-     * @return \stdClass|null The decoded root.
-     */
-    private static function decode(?string $availability): ?\stdClass {
-        if (empty($availability)) {
-            return null;
-        }
-        $root = json_decode($availability);
-
-        return $root instanceof \stdClass ? $root : null;
-    }
-
-    /**
-     * The user ids a node lists, as integers: the stored list can mix strings and integers.
-     *
-     * A node whose list is not a list is corrupt. It is read as empty and left exactly as it is,
-     * rather than throwing: an erasure request must not die half-way through on one bad row.
-     *
-     * @param \stdClass $node A node this plugin owns.
-     * @return int[]
-     */
-    private static function userids_of(\stdClass $node): array {
-        $userids = $node->userids ?? null;
-        // json_decode() hands back a stdClass, not an array, whenever the stored list has gaps or
-        // string keys - which is exactly what a gapped PHP array encodes to. The ids are still there
-        // and they are still personal data, so they are recovered rather than dropped. Dropping them
-        // would leave the module out of the contextlist, and the contextlist is the attestation:
-        // tool_dataprivacy would tell the student their data was erased while these ids stayed.
-        if (is_object($userids)) {
-            $userids = (array) $userids;
-        }
-        $raw = is_array($userids) ? array_values($userids) : [];
-
-        // And the SINGULAR key, which availability_user has always honoured and still does: its
-        // constructor pushes $structure->userid onto the list it evaluates
-        // (availability/condition/user/classes/condition.php). A node carrying it restricts the
-        // activity to that student exactly as a list would, and it can carry this plugin's marker,
-        // because a node is stamped by its TYPE and nothing about the stamping inspects the shape
-        // inside it. Reading only the plural key would therefore leave a student this plugin gated
-        // outside both the export and the erasure, while the deletion request reported success.
-        if (isset($node->userid)) {
-            $raw[] = $node->userid;
-        }
-
-        // A value names a student when core would let that student in because of it, and core
-        // decides with a LOOSE in_array() over the values exactly as stored. So every numeric way of
-        // writing an id counts - "501", "0501", " 501", "+501", "501.0" all get that student in, and
-        // ids are stored as strings far more often than as integers: 33 of the 34 on the reference
-        // site on 2026-09-17. Accepting only plain digits was drafted here and rejected, because it
-        // would have stopped claiming students core keeps letting in, and their data would have
-        // stopped being exported and erased while the request was reported as completed.
-        //
-        // Casting whatever arrives is the opposite error and is what this replaced: (int)"501abc" is
-        // 501, a student core never matches, and (int)true is 1 - which made the guest a data
-        // subject and, through the rewrite below, wrote the guest a real grant into the activity.
-        //
-        // Two departures from core are deliberate and are the only ones measured over seventeen
-        // stored forms: a stored `true` or object compares equal to somebody under core's loose
-        // comparison, so core does admit them, but neither is anybody's id. That is an access defect
-        // of core's; it does not make that person a data subject here.
-        $ids = [];
-        foreach ($raw as $value) {
-            if (!is_scalar($value) || is_bool($value) || !is_numeric($value)) {
-                continue;
-            }
-            if ((float) $value != (int) $value) {
-                // "501.7" is not the id 501: core does not match it either.
-                continue;
-            }
-            $id = (int) $value;
-            if ($id > 0) {
-                $ids[] = $id;
-            }
-        }
-
-        return array_values(array_unique($ids));
     }
 }

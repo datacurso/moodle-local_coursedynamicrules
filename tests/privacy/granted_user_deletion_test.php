@@ -20,6 +20,7 @@ use core_availability\tree;
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 use local_coursedynamicrules\condition\complete_activity\complete_activity_condition;
 use local_coursedynamicrules\task\rule_task;
+use local_coursedynamicrules\tests\generated_ai_activity;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -27,6 +28,7 @@ global $CFG;
 require_once($CFG->dirroot . '/user/lib.php');
 require_once($CFG->dirroot . '/course/lib.php');
 require_once(__DIR__ . '/../fixtures/module_deleter.php');
+require_once(__DIR__ . '/../fixtures/generated_ai_activity.php');
 
 /**
  * When a granted user is deleted from the site, their id must not linger inside the plugin's
@@ -562,6 +564,87 @@ final class granted_user_deletion_test extends \advanced_testcase {
             $this->userids_of($marked[0]),
             'A rule must not open an activity for a user the site has deleted.'
         );
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * CDR-PRIV-002: deleting a user from the site scrubs their id from the activity the AI action
+     * generated for them, whether its marker survived or was lost to a save of the module settings.
+     *
+     * The AI action records its activity in no action's params, so the observer's enable-activity
+     * walk never reached it. The node is kept and emptied, as revoke_user() does for its own gate.
+     *
+     * @covers \local_coursedynamicrules\observer\user_deleted::observe
+     * @covers \local_coursedynamicrules\local\owned_gate_eraser
+     */
+    public function test_deleting_a_user_scrubs_their_id_from_an_ai_generated_activity(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = generated_ai_activity::create_action((int) $course->id);
+        $marked = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $actionid, (int) $student->id);
+        $secondaction = generated_ai_activity::create_action((int) $course->id, 'Second AI rule');
+        $lost = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $secondaction, (int) $student->id);
+        generated_ai_activity::strip_markers($lost);
+
+        $this->delete_site_user($student->id);
+
+        foreach (['marked' => $marked, 'marker lost' => $lost] as $label => $cmid) {
+            $nodes = generated_ai_activity::user_nodes($cmid);
+            $this->assertCount(1, $nodes, "The {$label} AI node must be kept: a tree without it restricts nobody.");
+            $this->assertSame(
+                [],
+                generated_ai_activity::ids_of($nodes[0]),
+                "The deleted student's id is still in the {$label} AI-generated activity."
+            );
+            $this->assertSame(
+                '',
+                (string) $DB->get_field('course_modules', 'idnumber', ['id' => $cmid]),
+                "The key derived from the deleted student's id is still on the {$label} activity."
+            );
+        }
+        $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * CDR-PRIV-002: deleting a user leaves a teacher's own restriction on the AI activity as it was.
+     *
+     * Mixed restrictions (MindFree validation P2): the teacher listed the same student and another
+     * one. Only the plugin's node changes, with its marker and with the marker lost.
+     *
+     * @covers \local_coursedynamicrules\observer\user_deleted::observe
+     * @covers \local_coursedynamicrules\local\owned_gate_eraser
+     */
+    public function test_deleting_a_user_leaves_a_teachers_restriction_on_the_ai_activity_untouched(): void {
+        $this->resetAfterTest(true);
+
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $other = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $teacherlist = [(int) $student->id, (int) $other->id];
+
+        $actionid = generated_ai_activity::create_action((int) $course->id);
+        $marked = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $actionid, (int) $student->id);
+        generated_ai_activity::add_teacher_restriction($marked, $teacherlist);
+
+        $secondaction = generated_ai_activity::create_action((int) $course->id, 'Second AI rule');
+        $lost = generated_ai_activity::create($this->getDataGenerator(), (int) $course->id, $secondaction, (int) $student->id);
+        generated_ai_activity::add_teacher_restriction($lost, $teacherlist);
+        generated_ai_activity::strip_markers($lost);
+
+        $this->delete_site_user($student->id);
+
+        foreach (['marked' => $marked, 'marker lost' => $lost] as $label => $cmid) {
+            [$plugins, $teachers] = generated_ai_activity::user_nodes($cmid);
+            $this->assertSame([], generated_ai_activity::ids_of($plugins), "The {$label} plugin node still lists the student.");
+            $this->assertSame(
+                $teacherlist,
+                generated_ai_activity::ids_of($teachers),
+                "The teacher's own restriction on the {$label} activity was rewritten by an account deletion."
+            );
+        }
         $this->assertDebuggingNotCalled();
     }
 }

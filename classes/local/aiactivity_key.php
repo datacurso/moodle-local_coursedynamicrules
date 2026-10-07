@@ -60,10 +60,34 @@ class aiactivity_key {
      * @return string|null The key for the restored action, or null when nothing matches.
      */
     public static function rekeyed_for_restore(string $idnumber, array $userids, array $actionidmap): ?string {
-        foreach ($actionidmap as $oldactionid => $newactionid) {
+        $match = self::attribution($idnumber, array_keys($actionidmap), $userids);
+        if ($match === null) {
+            return null;
+        }
+
+        return self::for_action_user((int) $actionidmap[$match[0]], $match[1]);
+    }
+
+    /**
+     * The action and student a module's ID number is the key of, or null when it is no such key.
+     *
+     * The student cannot be read back out of an HMAC, so each candidate pair is tried until one
+     * reproduces the key. A match proves the attribution: nobody without the site identifier can
+     * forge a key for a pair.
+     *
+     * @param string $idnumber The module's ID number.
+     * @param int[] $actionids Candidate createaiactivity actions.
+     * @param int[] $userids Candidate students.
+     * @return int[]|null [actionid, userid], or null when no pair reproduces the key.
+     */
+    public static function attribution(string $idnumber, array $actionids, array $userids): ?array {
+        if (strpos($idnumber, self::PREFIX) !== 0) {
+            return null;
+        }
+        foreach ($actionids as $actionid) {
             foreach ($userids as $userid) {
-                if (hash_equals(self::for_action_user((int) $oldactionid, (int) $userid), $idnumber)) {
-                    return self::for_action_user((int) $newactionid, (int) $userid);
+                if (hash_equals(self::for_action_user((int) $actionid, (int) $userid), $idnumber)) {
+                    return [(int) $actionid, (int) $userid];
                 }
             }
         }

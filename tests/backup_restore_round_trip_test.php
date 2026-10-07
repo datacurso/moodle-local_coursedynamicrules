@@ -483,4 +483,72 @@ final class backup_restore_round_trip_test extends \advanced_testcase {
             action\createaiactivity\testable_createaiactivity_action::reset();
         }
     }
+
+    /**
+     * CDR-PRIV-002: a restore re-marks the AI activity's node from its key, so privacy reaches it.
+     *
+     * Sibling date and completion conditions make core re-encode the whole tree on restore, which
+     * strips the marker from the AI node. The key in the ID number proves which restored action and
+     * which student the module belongs to, so the node is marked again - as written, not adopted.
+     */
+    public function test_restore_reattributes_the_ai_activity_from_its_key(): void {
+        if (!\core_plugin_manager::instance()->get_plugin_info('availability_user')) {
+            $this->markTestSkipped('availability_user is not installed; the marker lives in one of its nodes.');
+        }
+        global $DB;
+
+        [$course, , , $sourceactionid] = $this->course_with_rule('createaiactivity', static function (): array {
+            return ['message' => 'Create a page', 'generateimages' => false, 'sectionnum' => 0, 'beforemod' => null];
+        });
+        $student = $this->getDataGenerator()->create_user();
+        $other = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+
+        $sourcekey = local\aiactivity_key::for_action_user($sourceactionid, (int) $student->id);
+        $generated = $this->getDataGenerator()->create_module('page', ['course' => $course->id, 'idnumber' => $sourcekey]);
+        $nodes = [
+            (object) ['type' => 'user', 'userids' => [(int) $student->id], 'source' => self::MARKER_PREFIX . $sourceactionid],
+            (object) ['type' => 'date', 'd' => '>=', 't' => 1700000000],
+            (object) ['type' => 'completion', 'cm' => (int) $other->cmid, 'e' => 1],
+        ];
+        $DB->set_field(
+            'course_modules',
+            'availability',
+            json_encode(tree::get_root_json($nodes, tree::OP_AND, false)),
+            ['id' => $generated->cmid]
+        );
+        rebuild_course_cache($course->id, true);
+
+        $newcourseid = $this->restore_course($this->backup_course($course));
+
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['courseid' => $newcourseid], '*', MUST_EXIST);
+        $action = $DB->get_record('local_coursedynamicrules_action', ['ruleid' => $rule->id], '*', MUST_EXIST);
+        $restoredcm = $DB->get_record(
+            'course_modules',
+            ['course' => $newcourseid, 'idnumber' => local\aiactivity_key::for_action_user((int) $action->id, (int) $student->id)],
+            '*',
+            MUST_EXIST
+        );
+
+        $usernodes = [];
+        foreach (json_decode((string) $restoredcm->availability)->c as $node) {
+            if (($node->type ?? '') === 'user') {
+                $usernodes[] = $node;
+            }
+        }
+        $this->assertCount(1, $usernodes);
+        $this->assertSame(
+            self::MARKER_PREFIX . $action->id,
+            $usernodes[0]->source ?? '(stripped)',
+            'The restored AI node carries no marker of the restored action: privacy can no longer prove it.'
+        );
+        $this->assertObjectNotHasProperty(
+            'sourceadopted',
+            $usernodes[0],
+            'The key proves the attribution; the node must not be flagged as a deduction.'
+        );
+        $this->assertContains(
+            (int) \context_module::instance($restoredcm->id)->id,
+            array_map('intval', privacy\provider::get_contexts_for_userid((int) $student->id)->get_contextids())
+        );
+    }
 }

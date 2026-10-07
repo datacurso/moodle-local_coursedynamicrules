@@ -17,14 +17,22 @@
 namespace local_coursedynamicrules\observer;
 
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
+use local_coursedynamicrules\local\owned_gate_eraser;
 
 /**
- * Scrubs a deleted user's id from the access restrictions the enable-activity action wrote.
+ * Scrubs a deleted user's id from the access restrictions this plugin wrote.
  *
- * The action grants a student access by writing their id into a managed module's user restriction.
- * Core's availability_user keeps no privacy data and does not react to a user deletion, so that id
- * would otherwise stay behind as an orphan reference for good (MDL-E2E-011). Each action knows
- * which restriction node is its own; this observer only hands the deleted user to every one of them.
+ * The enable-activity action grants a student access by writing their id into a managed module's
+ * user restriction, and the AI action restricts the activity it generates to its student the same
+ * way. Core's availability_user keeps no privacy data and does not react to a user deletion, so
+ * that id would otherwise stay behind as an orphan reference for good (MDL-E2E-011).
+ *
+ * Two passes. Each enable-activity action knows which node of its managed modules is its own -
+ * the marker, or the sole unmarked user node - and is handed the deleted user first. Then the
+ * privacy provider's own eraser (owned_gate_eraser) runs, which reaches what the first pass cannot:
+ * marked nodes of ANY action type, and the AI activities found through their key even when the
+ * marker was lost. The AI action records its activity in no params, so before the second pass an
+ * ordinary account deletion left that id behind (CDR-PRIV-002).
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -32,7 +40,7 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  */
 class user_deleted {
     /**
-     * Remove the deleted user from every enable-activity action's own restriction nodes.
+     * Remove the deleted user from every restriction node of this plugin.
      *
      * @param \core\event\user_deleted $event The user deleted event.
      * @return void
@@ -58,6 +66,22 @@ class user_deleted {
             }
         }
         $actions->close();
+
+        // After the loop above, so an enable-activity node it already handled is simply found empty.
+        // An ambiguous AI activity is left alone and reported as revoke_user() reports its own: a
+        // user deletion must not fail half-way, and the event manager would swallow an exception.
+        $erased = owned_gate_eraser::erase_user($userid);
+        foreach ($erased['courseids'] as $courseid) {
+            $courseids[$courseid] = $courseid;
+        }
+        foreach ($erased['ambiguous'] as $cmid) {
+            debugging(
+                'local_coursedynamicrules: course module ' . $cmid . ' has more than one unmarked user restriction '
+                    . 'listing only the deleted user ' . $userid . ', which its AI activity key names; none was '
+                    . 'edited - manual cleanup required',
+                DEBUG_DEVELOPER
+            );
+        }
 
         // One cache rebuild per course that changed, however many actions it holds.
         foreach ($courseids as $courseid) {
