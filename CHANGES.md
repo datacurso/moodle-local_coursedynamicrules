@@ -1,3 +1,26 @@
+## 1.8.8-502
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
+
+Response to the MindFree security re-evaluation of 1.8.6 (build 2026091700). Each entry names
+the MindFree finding it closes and the tests that back it.
+
+## Fixed
+- **CDR-SEC-003: the release workflow no longer runs the dispatch tag as shell code**
+  `.github/workflows/moodle-release.yml` put the `workflow_dispatch` tag straight into a bash step that held the moodle.org publishing token, so anyone allowed to dispatch it could run commands and read the token. The workflow never published (moodle.org rejected every run) and releases reach the plugins directory another way, so it is removed. A guard test fails if any workflow interpolates untrusted event input into a shell step or references the token. Tests: `tests/ci/workflow_security_test.php`
+- **CDR-SEC-007: the GitHub CI runs on every pull request again**
+  `plugin-ci.yml` was manual only. It now runs on pull requests to `main` and the `MOODLE_*_STABLE` and `WORKPLACE_*_STABLE` branches, and its token is read-only. The branch ruleset also requires the Jenkins check before any merge. Tests: `tests/ci/workflow_security_test.php`
+- **CDR-SEC-006: a rule creates one AI activity per student and action**
+  Each regrade, completion toggle or periodic pass generated another activity, and two cron runs could generate in parallel. The generated activity now carries a key derived from the action and the student (an HMAC, so the user id is not stored in clear) in its ID number. Generation checks the key before calling the service and holds a lock per action and student, and restore rewrites the key for the restored action. Tests: `tests/action/createaiactivity/createaiactivity_action_test.php`, `tests/observer/user_graded_ai_activity_test.php`, `tests/backup_restore_round_trip_test.php`
+- **CDR-PRIV-002: deleting a user erases their id from AI-generated activities**
+  Deleting an account only cleaned enable-activity restrictions, so the user id written into an AI activity's restriction stayed behind, and privacy requests missed AI activities whose marker had been lost. Account deletion now uses the same eraser as the privacy provider. AI activities are found through their key even without the marker, erasure clears the key, and restore marks verified AI restrictions again. Tests: `tests/privacy/granted_user_deletion_test.php`, `tests/privacy/data_provider_test.php`, `tests/backup_restore_round_trip_test.php`
+- **CDR-PRIV-001-R2: the AI request carries less personal data, and a test shows what leaves the site**
+  The student's name was already pseudonymised. The student's email, username and ID number and the course URL are now masked too, and the plugin no longer sets `site_url` itself. A test captures the request body after the shared Datacurso transport adds its defaults, so it records what really leaves the site: `site_id`, `timezone` and `site_url` are added by `aiprovider_datacurso`, and `userid` stays the student's for billing. The privacy metadata now declares the plan approval request, the transport's fields and the generated activity key. Tests: `tests/privacy/outgoing_request_test.php`, `tests/privacy/external_transfer_declaration_test.php`, `tests/local/payload_anonymizer_test.php`
+
+## Changed
+- **Periodic rules create a single AI activity per student**
+  Because of CDR-SEC-006, a rule with a periodic condition (no course access, course inactivity) and the AI action no longer creates a new activity in every period. A teacher who wants it generated again deletes the activity or clears its ID number in the activity settings
+
 ## 1.8.7-502
 
 **Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
