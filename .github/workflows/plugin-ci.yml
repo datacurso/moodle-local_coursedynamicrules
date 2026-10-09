@@ -1,7 +1,11 @@
 name: Moodle Plugin CI
 
+# Manual only: Jenkins is the required check on every change (branch ruleset "STABLE BRANCHS").
 on:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:

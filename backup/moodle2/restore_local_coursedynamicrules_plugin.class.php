@@ -356,7 +356,118 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $this->remap_notification_roles();
         $this->remap_ownership_markers();
         $this->readopt_stripped_markers();
+        $this->rekey_generated_ai_activities();
         $this->report_restored_components();
+    }
+
+    /**
+     * Rewrite the idempotency key of the restored AI activities onto the restored actions.
+     *
+     * An AI-generated activity carries in its ID number a key derived from its action and student
+     * (\local_coursedynamicrules\local\aiactivity_key). The restored action holds a new id, so the
+     * key restored verbatim names the source action, and the restored rule would generate the
+     * student's activity again. Each restored module with a key is matched against the restored
+     * createaiactivity actions and the students its restriction lists, and rewritten when one of
+     * them reproduces the key.
+     *
+     * The key is an HMAC keyed with the site identifier. Restored on another site it matches nothing
+     * and is left as it is; the restored action then recognises the activity by its ownership marker
+     * (remapped above), and only if that marker was lost too is the activity generated once more.
+     *
+     * A key that matches also proves who the module belongs to, so it gives back the marker core
+     * strips when it re-encodes a tree with a changed sibling condition (CDR-PRIV-002). When no node
+     * carries the restored action's marker and exactly one unmarked user node lists exactly the
+     * student - the shape the action writes - that node is marked again with mark_node(), WITHOUT the
+     * adopted flag: the attribution is verified, not deduced as readopt_stripped_markers() does, so
+     * the privacy provider may act on it. Two such nodes are ambiguous and left unmarked; the
+     * provider still finds the module through its key and reports it instead of guessing.
+     *
+     * @return void
+     */
+    protected function rekey_generated_ai_activities(): void {
+        global $DB;
+
+        $actionidmap = [];
+        foreach ($this->get_restored_action_id_map() as $oldactionid => $newactionid) {
+            $type = $DB->get_field('local_coursedynamicrules_action', 'actiontype', ['id' => $newactionid]);
+            if ($type === 'createaiactivity') {
+                $actionidmap[$oldactionid] = $newactionid;
+            }
+        }
+        // Only the modules THIS restore created, for the reason given in remap_ownership_markers().
+        $restoredcmids = $this->get_restored_course_module_ids();
+        if (empty($actionidmap) || empty($restoredcmids)) {
+            return;
+        }
+
+        [$insql, $inparams] = $DB->get_in_or_equal($restoredcmids, SQL_PARAMS_NAMED, 'cm');
+        $modules = $DB->get_records_select(
+            'course_modules',
+            "id $insql AND course = :courseid AND " . $DB->sql_like('idnumber', ':prefix') . ' AND availability IS NOT NULL',
+            $inparams + [
+                'courseid' => $this->task->get_courseid(),
+                'prefix' => $DB->sql_like_escape(\local_coursedynamicrules\local\aiactivity_key::PREFIX) . '%',
+            ],
+            '',
+            'id, idnumber, availability'
+        );
+
+        $remarked = false;
+        foreach ($modules as $module) {
+            $tree = json_decode((string) $module->availability);
+            if (!$tree instanceof \stdClass) {
+                continue;
+            }
+            $match = \local_coursedynamicrules\local\aiactivity_key::attribution(
+                (string) $module->idnumber,
+                array_keys($actionidmap),
+                \local_coursedynamicrules\local\aiactivity_key::user_ids_in_tree($tree)
+            );
+            if ($match === null) {
+                continue;
+            }
+            [$oldactionid, $userid] = $match;
+            $newactionid = (int) $actionidmap[$oldactionid];
+            $newkey = \local_coursedynamicrules\local\aiactivity_key::for_action_user($newactionid, $userid);
+            if ($newkey !== $module->idnumber) {
+                \local_coursedynamicrules\action\createaiactivity\createaiactivity_action::set_generated_module_key(
+                    (int) $module->id,
+                    $newkey
+                );
+            }
+
+            if ($this->remark_generated_node($tree, $newactionid, $userid)) {
+                $DB->set_field('course_modules', 'availability', json_encode($tree), ['id' => $module->id]);
+                $remarked = true;
+            }
+        }
+
+        if ($remarked) {
+            rebuild_course_cache($this->task->get_courseid(), true);
+        }
+    }
+
+    /**
+     * Mark the AI node of a restored activity again, when its key verified the attribution.
+     *
+     * @param \stdClass $tree The decoded availability tree, modified in place.
+     * @param int $actionid The restored createaiactivity action.
+     * @param int $userid The student the key names.
+     * @return bool Whether a node was marked.
+     */
+    protected function remark_generated_node(\stdClass $tree, int $actionid, int $userid): bool {
+        foreach (\local_coursedynamicrules\action\enableactivity\enableactivity_action::owned_user_nodes($tree) as $node) {
+            if (\local_coursedynamicrules\action\enableactivity\enableactivity_action::action_id_of($node) === $actionid) {
+                return false;
+            }
+        }
+        $nodes = \local_coursedynamicrules\local\owned_gate_eraser::generated_nodes($tree, $userid);
+        if (count($nodes) !== 1) {
+            return false;
+        }
+        \local_coursedynamicrules\action\enableactivity\enableactivity_action::mark_node($nodes[0], $actionid);
+
+        return true;
     }
 
     /**

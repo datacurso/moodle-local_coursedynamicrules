@@ -16,16 +16,17 @@
 
 namespace local_coursedynamicrules\privacy;
 
-use aiprovider_datacurso\httpclient\ai_course_api;
 use core_privacy\local\metadata\collection;
 use local_coursedynamicrules\action\createaiactivity\testable_createaiactivity_action;
+use local_coursedynamicrules\tests\wire_capturing_ai_course_api;
 
 defined('MOODLE_INTERNAL') || die();
 
 require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
+require_once(__DIR__ . '/../fixtures/wire_capturing_ai_course_api.php');
 
 /**
- * Couples the Privacy API declaration to the payload the plugin actually sends.
+ * Couples the Privacy API declaration to the requests the plugin actually sends.
  *
  * provider_test.php already asserts that every declared field resolves to a language string. That
  * is a check on the STRINGS, not on the FIELDS: a declaration can name fields the service never
@@ -33,23 +34,20 @@ require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
  * is exactly how the declaration drifted away from the payload once the action moved from
  * /smartrules/create-mod to /activity/init.
  *
- * These tests close the loop in both directions by capturing what this plugin hands to the AI
- * client and comparing its keys against the declaration - so renaming a payload key here without
- * touching provider.php turns the suite red instead of silently misdeclaring the transfer.
+ * These tests close the loop in both directions, for both requests that carry a body
+ * (/activity/init and the /activity/feedback approval), at two points:
  *
- * KNOW WHAT THIS DOES NOT COVER, because an earlier version of this docblock claimed it did. The
- * capture point is the client seam, which is ABOVE the wire: aiprovider_datacurso's transport
- * merges its own fields into every POST body before sending it
- * (aiprovider_datacurso\httpclient\datacurso_api_base::send_request(), the $defaultpayload array on
- * the POST branch, currently site_id and timezone). Those keys never pass through the seam this
- * test stubs, so nothing here can see them, and no assertion below should be read as a statement
- * about them. They are added by that plugin's transport, so declaring them is that plugin's
- * responsibility - the same reasoning that keeps core's messaging fields out of this plugin's
- * declaration, and that plugin does discharge it: from 2026090700 (release 1.5.1) its provider
- * declares the course service as its own external location, transport fields included - site_id,
- * site_url, timezone, lang, userid. Note the floor: 1.5.0 did not, and this plugin's declared
- * dependency must therefore not fall below the version that does, or a site can satisfy it with a
- * provider that leaves those fields undeclared.
+ * - the client seam, where this plugin hands its payload to aiprovider_datacurso. The key sets
+ *   there are pinned, so a payload change here forces a contract update;
+ * - the wire, captured at datacurso_api_base::execute_request() through
+ *   wire_capturing_ai_course_api, after the shared transport has merged its own fields (site_id,
+ *   userid, timezone, lang, site_url) into the body. The declaration is compared with THIS body,
+ *   because it is what leaves the site. Until CDR-PRIV-001-R2 the comparison stopped at the seam
+ *   and could not see the transport's fields at all.
+ *
+ * The transport's fields are declared by aiprovider_datacurso as its own external location as
+ * well (from 2026090700, release 1.5.1). This plugin declares them too, because they travel in
+ * requests it makes, and its strings say who adds them.
  *
  * @package    local_coursedynamicrules
  * @category   test
@@ -59,16 +57,27 @@ require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
  */
 final class external_transfer_declaration_test extends \advanced_testcase {
     /**
-     * @var string[] Contractual payload keys handed to the AI client at this seam.
+     * @var string[] Contractual /activity/init keys handed to the AI client at the seam.
+     *
+     * site_url is not one of them since CDR-PRIV-001-R2: the transport adds it anyway.
      */
     private const PAYLOAD_CONTRACT_KEYS = [
         'instructions',
         'lang',
         'with_images',
         'userid',
-        'site_url',
         'auto_approve',
         'service_id',
+    ];
+
+    /**
+     * @var string[] Contractual /activity/feedback keys handed to the AI client at the seam.
+     */
+    private const FEEDBACK_CONTRACT_KEYS = [
+        'thread_id',
+        'approval_status',
+        'instruction',
+        'userid',
     ];
 
     /**
@@ -77,14 +86,24 @@ final class external_transfer_declaration_test extends \advanced_testcase {
      * Each entry is a deliberate exclusion from the metadata comparison, not an oversight. This
      * test records the plugin's classification; it does not establish a legal classification.
      *
-     * - with_images:  configured at action level and may vary between actions.
-     * - auto_approve: always true - rules run unattended from cron, so nobody can approve a plan.
-     * - service_id:   the billing identity of the calling plugin.
+     * - with_images:     configured at action level and may vary between actions.
+     * - auto_approve:    always true - rules run unattended from cron, so nobody can approve a plan.
+     * - service_id:      the billing identity of the calling plugin.
+     * - thread_id:       the opaque generation id the service itself issued in its init response.
+     * - approval_status: always 'accept' - the plan is approved on the student's behalf.
+     * - instruction:     always empty - no free text accompanies the approval.
      *
-     * A payload key that is NOT here and NOT declared fails the test on purpose: adding one forces
+     * A key that is NOT here and NOT declared fails the test on purpose: adding one forces
      * whoever adds it to decide explicitly whether the metadata declaration must include it.
      */
-    private const OPERATIONAL_CONTROL_KEYS = ['with_images', 'auto_approve', 'service_id'];
+    private const OPERATIONAL_CONTROL_KEYS = [
+        'with_images',
+        'auto_approve',
+        'service_id',
+        'thread_id',
+        'approval_status',
+        'instruction',
+    ];
 
     /**
      * Skip when the external AI stack is absent: without it the action returns before building a
@@ -101,50 +120,40 @@ final class external_transfer_declaration_test extends \advanced_testcase {
     }
 
     /**
-     * Run the AI activity action against a client double and return the captured request body.
+     * Run the AI activity action through a plan review and capture both requests.
      *
-     * @return array The payload sent to /activity/init.
+     * @return array ['handed' => [path => body], 'wire' => [path => body]] for /activity/init and
+     *     /activity/feedback.
      */
-    private function capture_init_payload(): array {
+    private function capture_requests(): array {
         $this->setAdminUser();
-        set_config('datacurso_service_url', 'https://svc.example.test', 'local_coursegen');
+        testable_createaiactivity_action::reset();
+        wire_capturing_ai_course_api::seed_provider();
 
         $course = $this->getDataGenerator()->create_course();
         $user = $this->getDataGenerator()->create_user();
         $this->getDataGenerator()->enrol_user($user->id, $course->id, 'student');
 
-        $captured = null;
-
-        $client = $this->getMockBuilder(ai_course_api::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['request', 'get_base_url'])
-            ->getMock();
-        $client->method('request')
-            ->willReturnCallback(function ($method, $path, $body = []) use (&$captured) {
-                // Only the init call carries a body; the later result GET must not overwrite it.
-                if ($method === 'POST' && $path === '/activity/init') {
-                    $captured = $body;
-                }
-                return ['thread_id' => 'thread-1', 'status' => 'pending'];
-            });
-        $client->method('get_base_url')->willReturn('https://ai.example.test/api/v1/');
-
+        $client = wire_capturing_ai_course_api::create();
         testable_createaiactivity_action::$client = $client;
-        testable_createaiactivity_action::$streamevent = [
-            'type' => 'completed',
-            'result' => [
-                'action' => 'create',
-                'resource_type' => 'page',
-                'parameters' => [
-                    'modulename' => 'page',
-                    'name' => 'AI reinforcement page',
-                    'introeditor' => ['text' => '<p>Intro</p>', 'format' => FORMAT_HTML, 'itemid' => 0],
-                    'page' => ['text' => '<p>Reinforcement content</p>', 'format' => FORMAT_HTML, 'itemid' => 0],
-                    'display' => 5,
-                    'printintro' => 0,
-                    'printlastmodified' => 1,
-                    'visible' => 1,
-                    'cmidnumber' => '',
+        testable_createaiactivity_action::$streamevents = [
+            ['type' => 'review_needed', 'message' => 'Plan ready'],
+            [
+                'type' => 'completed',
+                'result' => [
+                    'action' => 'create',
+                    'resource_type' => 'page',
+                    'parameters' => [
+                        'modulename' => 'page',
+                        'name' => 'AI reinforcement page',
+                        'introeditor' => ['text' => '<p>Intro</p>', 'format' => FORMAT_HTML, 'itemid' => 0],
+                        'page' => ['text' => '<p>Reinforcement content</p>', 'format' => FORMAT_HTML, 'itemid' => 0],
+                        'display' => 5,
+                        'printintro' => 0,
+                        'printlastmodified' => 1,
+                        'visible' => 1,
+                        'cmidnumber' => '',
+                    ],
                 ],
             ],
         ];
@@ -167,7 +176,15 @@ final class external_transfer_declaration_test extends \advanced_testcase {
         $action = new testable_createaiactivity_action($record, $course->id);
         $action->execute((object) ['courseid' => $course->id, 'userid' => $user->id]);
 
-        $this->assertIsArray($captured, 'The action sent no /activity/init request to compare against.');
+        $captured = ['handed' => [], 'wire' => []];
+        foreach (['/activity/init', '/activity/feedback'] as $path) {
+            $handed = $client->handed_to($path);
+            $wire = $client->wire_to($path);
+            $this->assertCount(1, $handed, "The action handed no {$path} request to the client.");
+            $this->assertCount(1, $wire, "No {$path} request reached the wire.");
+            $captured['handed'][$path] = $handed[0]['body'];
+            $captured['wire'][$path] = $wire[0]['body'];
+        }
 
         return $captured;
     }
@@ -198,7 +215,7 @@ final class external_transfer_declaration_test extends \advanced_testcase {
         $this->require_ai_stack();
         $this->resetAfterTest(true);
 
-        $actual = array_keys($this->capture_init_payload());
+        $actual = array_keys($this->capture_requests()['handed']['/activity/init']);
         $expected = self::PAYLOAD_CONTRACT_KEYS;
         sort($actual);
         sort($expected);
@@ -209,22 +226,24 @@ final class external_transfer_declaration_test extends \advanced_testcase {
     /**
      * A declared field the service never receives misdescribes the transfer, so it must not exist.
      *
+     * Compared with the union of both wire bodies: a field is really sent when either request
+     * carries it out of the site.
+     *
      * @return void
      */
     public function test_every_declared_field_is_really_sent(): void {
         $this->require_ai_stack();
         $this->resetAfterTest(true);
 
-        $payload = $this->capture_init_payload();
-        $declared = $this->declared_fields();
+        $wire = $this->capture_requests()['wire'];
+        $sent = array_merge(array_keys($wire['/activity/init']), array_keys($wire['/activity/feedback']));
 
-        $phantom = array_diff($declared, array_keys($payload));
+        $phantom = array_diff($this->declared_fields(), $sent);
 
         $this->assertSame(
             [],
             array_values($phantom),
-            'provider.php declares fields that are absent from the /activity/init payload: '
-                . implode(', ', $phantom)
+            'provider.php declares fields that are absent from every request on the wire: ' . implode(', ', $phantom)
         );
     }
 
@@ -237,15 +256,47 @@ final class external_transfer_declaration_test extends \advanced_testcase {
         $this->require_ai_stack();
         $this->resetAfterTest(true);
 
-        $payload = $this->capture_init_payload();
-        $declared = $this->declared_fields();
-
-        $undeclared = array_diff(array_keys($payload), $declared, self::OPERATIONAL_CONTROL_KEYS);
+        $wire = $this->capture_requests()['wire']['/activity/init'];
+        $undeclared = array_diff(array_keys($wire), $this->declared_fields(), self::OPERATIONAL_CONTROL_KEYS);
 
         $this->assertSame(
             [],
             array_values($undeclared),
-            'The /activity/init payload carries fields that provider.php does not declare: '
+            'The /activity/init body on the wire carries fields that provider.php does not declare: '
+                . implode(', ', $undeclared)
+        );
+    }
+
+    /**
+     * The plan approval is a transfer too, so it is held to the same contract as the init request.
+     *
+     * CDR-PRIV-001-R2. /activity/feedback carries the student's id and, through the transport, the
+     * site's identifiers and the session's time zone; until this test only /activity/init was
+     * compared with the declaration.
+     *
+     * @return void
+     */
+    public function test_feedback_request_is_covered_by_the_declaration(): void {
+        $this->require_ai_stack();
+        $this->resetAfterTest(true);
+
+        $captured = $this->capture_requests();
+
+        $handed = array_keys($captured['handed']['/activity/feedback']);
+        $expected = self::FEEDBACK_CONTRACT_KEYS;
+        sort($handed);
+        sort($expected);
+        $this->assertSame($expected, $handed);
+
+        $undeclared = array_diff(
+            array_keys($captured['wire']['/activity/feedback']),
+            $this->declared_fields(),
+            self::OPERATIONAL_CONTROL_KEYS
+        );
+        $this->assertSame(
+            [],
+            array_values($undeclared),
+            'The /activity/feedback body on the wire carries fields that provider.php does not declare: '
                 . implode(', ', $undeclared)
         );
     }
