@@ -1,3 +1,11 @@
+## 1.8.9-wp
+
+**Compatibility note:** This version is compatible only with **Moodle Workplace 4.5**.
+
+## Changed
+- **The course service is told which release of this plugin is calling**
+  The AI activity action now sends `X-Plugin-Name: local_coursedynamicrules` and `X-Plugin-Version` (this release) with its calls to the course service, so the service can ask for an update when the release is too old. Requires `aiprovider_datacurso` 1.6.3 or later. Test: `tests/action/createaiactivity/createaiactivity_plugin_identity_test.php`
+
 ## 1.8.7-wp
 
 **Compatibility note:** This version is compatible only with **Moodle Workplace 4.5**.
