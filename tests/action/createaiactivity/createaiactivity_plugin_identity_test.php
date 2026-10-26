@@ -12,10 +12,9 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 namespace local_coursedynamicrules\action\createaiactivity;
-
-defined('MOODLE_INTERNAL') || die();
 
 /**
  * Tests that the AI activity action tells the course service which plugin is calling.
