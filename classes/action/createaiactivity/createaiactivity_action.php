@@ -507,7 +507,7 @@ class createaiactivity_action extends action {
      * @return ai_course_api
      */
     protected function get_api_client(?string $baseurl, ?string $baseurleu): ai_course_api {
-        return new ai_course_api(null, $baseurl, $baseurleu);
+        return (new ai_course_api(null, $baseurl, $baseurleu))->set_caller_component('local_coursedynamicrules');
     }
 
     /**
