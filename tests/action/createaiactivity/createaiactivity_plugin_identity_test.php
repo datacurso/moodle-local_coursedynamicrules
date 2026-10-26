@@ -12,7 +12,6 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 namespace local_coursedynamicrules\action\createaiactivity;
 
@@ -33,17 +32,34 @@ final class createaiactivity_plugin_identity_test extends \advanced_testcase {
      */
     public function test_the_client_identifies_as_this_plugin_with_its_release(): void {
         $this->resetAfterTest();
+        if (!class_exists(\aiprovider_datacurso\httpclient\plugin_identity::class)) {
+            $this->markTestSkipped('The installed aiprovider_datacurso does not send plugin headers.');
+        }
         // The real client reads the license and asks the shop for its region: give it both, offline.
         set_config('licensekey', 'test-license-key', 'aiprovider_datacurso');
-        \curl::mock_response(json_encode(['is_for_eu' => false]));
-        $release = \core_plugin_manager::instance()->get_plugin_info('local_coursedynamicrules')->release;
+        \curl::mock_response('{"is_for_eu": false}');
+        $manager = \core_plugin_manager::instance();
+        $plugin = $manager->get_plugin_info('local_coursedynamicrules');
+        $release = $plugin->release;
         $this->assertNotEmpty($release);
 
-        $method = new \ReflectionMethod(createaiactivity_action::class, 'get_api_client');
-        $action = (new \ReflectionClass(createaiactivity_action::class))->newInstanceWithoutConstructor();
-        $headers = $method->invoke($action, null, null)->get_plugin_headers();
+        $client = $this->build_the_client_of_the_action();
+        $headers = $client->get_plugin_headers();
 
         $this->assertContains('X-Plugin-Name: local_coursedynamicrules', $headers);
         $this->assertContains('X-Plugin-Version: ' . $release, $headers);
+    }
+
+    /**
+     * Build the client with the method the action uses, without running the action.
+     *
+     * @return \aiprovider_datacurso\httpclient\ai_course_api
+     */
+    private function build_the_client_of_the_action() {
+        $method = new \ReflectionMethod(createaiactivity_action::class, 'get_api_client');
+        $class = new \ReflectionClass(createaiactivity_action::class);
+        $action = $class->newInstanceWithoutConstructor();
+
+        return $method->invoke($action, null, null);
     }
 }
