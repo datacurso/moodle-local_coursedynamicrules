@@ -4,7 +4,7 @@
 
 ## Changed
 - **Requires the provider that sends the build number**
-  The course service now validates the plugin by its build number, which `aiprovider_datacurso` sends in `X-Plugin-Build` from `1.6.4`. The dependency on `aiprovider_datacurso` is raised to `2026102601`, so this plugin cannot be installed or run with a provider older than the release that sends it. The dependency on `local_coursegen` is raised to `2026102599`, the build just below its latest public release (2.0.10, build `2026102600`), so it cannot be installed with an older course creator.
+  The course service now validates the plugin by its build number, which `aiprovider_datacurso` sends in `X-Plugin-Build` from `1.6.4`. The dependency on `aiprovider_datacurso` is raised to `2026102601`, so this plugin cannot be installed or run with a provider older than the release that sends it. The dependency on `local_coursegen` is raised to `2026102601` (2.0.11), the course creator that requires that provider. The dependency on `local_coursegen` is raised to `2026102599`, the build just below its latest public release (2.0.10, build `2026102600`), so it cannot be installed with an older course creator.
 
 ## 1.8.9
 
