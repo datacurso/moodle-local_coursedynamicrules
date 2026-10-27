@@ -32,7 +32,7 @@ $plugin->maturity = MATURITY_STABLE;
 $plugin->supported = [405, 405];
 $plugin->dependencies = [
     'aiprovider_datacurso' => 2026102601,
-    'local_coursegen' => 2026082400,
+    'local_coursegen' => 2026102601,
     'availability_user' => 2024082101,
     'tool_tenant' => 2024110500,
 ];
