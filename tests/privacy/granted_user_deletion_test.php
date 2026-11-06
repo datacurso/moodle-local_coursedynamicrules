@@ -514,6 +514,7 @@ final class granted_user_deletion_test extends \advanced_testcase {
      */
     public function test_a_rule_task_queued_before_the_deletion_does_not_grant_the_deleted_user(): void {
         global $DB;
+        $this->require_ai_provider();
         $this->resetAfterTest(true);
         $this->setAdminUser();
 
@@ -646,5 +647,17 @@ final class granted_user_deletion_test extends \advanced_testcase {
             );
         }
         $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * Skip when the Datacurso AI provider is absent: the code under test asks it whether this plugin is enabled.
+     *
+     * @return void
+     */
+    private function require_ai_provider(): void {
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider this test cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
     }
 }

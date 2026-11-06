@@ -27,6 +27,19 @@ namespace local_coursedynamicrules\task;
  */
 final class no_complete_activity_task_test extends \advanced_testcase {
     /**
+     * Skip the whole class when the Datacurso AI provider is absent.
+     *
+     * @return void
+     */
+    protected function setUp(): void {
+        parent::setUp();
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider these tests cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
+    }
+
+    /**
      * MDL-INT-004: the no-complete-activity pass notifies each active enrolled non-completer once, not per enrolment method.
      *
      * A user enrolled through two methods must be notified only once when the activity is not completed.

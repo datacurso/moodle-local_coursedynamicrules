@@ -33,6 +33,7 @@ final class course_inactivity_task_test extends \advanced_testcase {
      */
     public function test_dual_enrolled_user_is_notified_once(): void {
         global $DB;
+        $this->require_ai_provider();
 
         $this->resetAfterTest(true);
 
@@ -188,6 +189,7 @@ final class course_inactivity_task_test extends \advanced_testcase {
      * first may notify.
      */
     public function test_second_run_in_the_same_window_does_not_repeat_custom_milestone(): void {
+        $this->require_ai_provider();
         $this->resetAfterTest(true);
         [, $student] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'custom', '2');
 
@@ -203,6 +205,7 @@ final class course_inactivity_task_test extends \advanced_testcase {
      * MDL-UNIT-010: a second run inside the same window does not repeat a recurring milestone.
      */
     public function test_second_run_in_the_same_window_does_not_repeat_recurring_milestone(): void {
+        $this->require_ai_provider();
         $this->resetAfterTest(true);
         [, $student] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'recurring', '1');
 
@@ -251,6 +254,7 @@ final class course_inactivity_task_test extends \advanced_testcase {
      */
     public function test_an_event_on_a_mixed_rule_does_not_block_the_milestone_for_other_students(): void {
         global $DB;
+        $this->require_ai_provider();
 
         $this->resetAfterTest(true);
         // The inactive student (B) is the one the helper enrols; A is active in the course.
@@ -297,6 +301,7 @@ final class course_inactivity_task_test extends \advanced_testcase {
      */
     public function test_a_duplicated_rule_notifies_as_a_first_run(): void {
         global $DB;
+        $this->require_ai_provider();
 
         $this->resetAfterTest(true);
         [$course, $student, $ruleid] = $this->create_inactivity_rule(time() - (2 * DAYSECS) - (2 * HOURSECS), 'custom', '2');
@@ -316,5 +321,17 @@ final class course_inactivity_task_test extends \advanced_testcase {
         $this->run_task();
 
         $this->assertSame(2, $this->count_to($sink, (int) $student->id), 'The copy notifies once; the original does not repeat.');
+    }
+
+    /**
+     * Skip when the Datacurso AI provider is absent: the code under test asks it whether this plugin is enabled.
+     *
+     * @return void
+     */
+    private function require_ai_provider(): void {
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider this test cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
     }
 }
