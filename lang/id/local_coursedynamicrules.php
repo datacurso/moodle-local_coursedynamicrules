@@ -215,5 +215,6 @@ $string['searchcourseactivitymodules'] = 'Cari modul aktivitas kursus';
 $string['selectanactivity'] = 'Pilih aktivitas';
 $string['sendnotification'] = 'Kirim notifikasi';
 $string['sendnotification_description'] = 'Kirim notifikasi "{$a}" kepada pengguna';
+$string['task_skipped_plugindisabled'] = 'Plugin dinonaktifkan di penyedia AI Datacurso; eksekusi dilewati.';
 $string['typemissing'] = 'Nilai "type" hilang';
 $string['weeks'] = 'Minggu';

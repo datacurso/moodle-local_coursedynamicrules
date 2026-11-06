@@ -215,5 +215,6 @@ $string['searchcourseactivitymodules'] = 'Kurs-Aktivitätsmodule suchen';
 $string['selectanactivity'] = 'Aktivität auswählen';
 $string['sendnotification'] = 'Benachrichtigung senden';
 $string['sendnotification_description'] = 'Benachrichtigung "{$a}" an Nutzer senden';
+$string['task_skipped_plugindisabled'] = 'Das Plugin ist im Datacurso-KI-Anbieter deaktiviert; die Ausführung wird übersprungen.';
 $string['typemissing'] = 'Fehlender Wert "type"';
 $string['weeks'] = 'Wochen';

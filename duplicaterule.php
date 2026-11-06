@@ -26,6 +26,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use aiprovider_datacurso\local\plugin_settings;
+
 require('../../config.php');
 
 $id = required_param('id', PARAM_INT);
@@ -35,6 +37,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+plugin_settings::require_enabled('local_coursedynamicrules');
 // Duplicating creates a rule: the create capability is the one that speaks here.
 require_capability('local/coursedynamicrules:createrule', $context);
 require_sesskey();

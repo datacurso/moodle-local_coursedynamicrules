@@ -333,6 +333,7 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
      * @covers ::evaluate
      */
     public function test_evaluate_false_when_finalgrade_is_null(): void {
+        $this->require_ai_provider();
         $this->resetAfterTest(true);
 
         [$course, $cm, $gradeitemid, $student] = $this->create_graded_quiz();
@@ -408,6 +409,7 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
      * @covers ::evaluate
      */
     public function test_evaluate_true_when_grade_below_threshold(): void {
+        $this->require_ai_provider();
         $this->resetAfterTest(true);
 
         [$course, $cm, $gradeitemid, $student] = $this->create_graded_quiz();
@@ -457,5 +459,17 @@ final class grade_in_activity_condition_test extends \advanced_testcase {
             $condition->get_description()
         );
         $this->assertDebuggingNotCalled();
+    }
+
+    /**
+     * Skip when the Datacurso AI provider is absent: the code under test asks it whether this plugin is enabled.
+     *
+     * @return void
+     */
+    private function require_ai_provider(): void {
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider this test cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
     }
 }

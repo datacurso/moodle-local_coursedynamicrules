@@ -215,5 +215,6 @@ $string['searchcourseactivitymodules'] = 'Поиск модулей активн
 $string['selectanactivity'] = 'Выберите активность';
 $string['sendnotification'] = 'Отправить уведомление';
 $string['sendnotification_description'] = 'Отправить уведомление «{$a}» пользователям';
+$string['task_skipped_plugindisabled'] = 'Плагин отключён в ИИ-провайдере Datacurso; выполнение пропущено.';
 $string['typemissing'] = 'Отсутствует значение «type»';
 $string['weeks'] = 'Недели';

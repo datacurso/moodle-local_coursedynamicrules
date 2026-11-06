@@ -16,6 +16,7 @@
 
 namespace local_coursedynamicrules\task;
 
+use aiprovider_datacurso\local\plugin_settings;
 use local_coursedynamicrules\core\rule;
 
 /**
@@ -49,9 +50,18 @@ class rule_task extends \core\task\adhoc_task {
 
     /**
      * This function is execute when cron jobs are executed
+     *
+     * Skipped, without running any rule, while the plugin is disabled in the Datacurso AI provider.
+     *
+     * @return void
      */
     public function execute() {
         global $DB;
+
+        if (!plugin_settings::is_enabled('local_coursedynamicrules')) {
+            mtrace(get_string('task_skipped_plugindisabled', 'local_coursedynamicrules'));
+            return;
+        }
 
         try {
             $customdata = $this->get_custom_data();
