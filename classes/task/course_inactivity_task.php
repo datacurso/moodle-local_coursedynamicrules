@@ -16,6 +16,7 @@
 
 namespace local_coursedynamicrules\task;
 
+use aiprovider_datacurso\local\plugin_settings;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\enrolled_users;
 use local_coursedynamicrules\helper\task_batch;
@@ -46,9 +47,17 @@ class course_inactivity_task extends \core\task\scheduled_task {
     /**
      * Execute the task.
      *
+     * Skipped, without running any rule, while the plugin is disabled in the Datacurso AI provider.
+     *
+     * @return void
      */
     public function execute() {
         global $DB;
+
+        if (!plugin_settings::is_enabled('local_coursedynamicrules')) {
+            mtrace(get_string('task_skipped_plugindisabled', 'local_coursedynamicrules'));
+            return;
+        }
 
         $conditiontype = $this->conditiontype;
         $starttime = microtime(true);

@@ -289,6 +289,7 @@ $string['selectanactivity'] = 'Seleccioná una actividad';
 $string['sendnotification'] = 'Enviar notificación';
 $string['sendnotification_description'] = 'Enviar notificación "{$a}" a los usuarios';
 $string['sendnotification_description_details'] = 'Destinatarios: {$a->primaryroles}. Con copia a: {$a->copyroles}. Mensaje: "{$a->body}"';
+$string['task_skipped_plugindisabled'] = 'El plugin está deshabilitado en el proveedor de IA de Datacurso; se omite la ejecución.';
 $string['taskbatchsize'] = 'Usuarios por lote';
 $string['taskbatchsize_desc'] = 'Cuántos usuarios matriculados toma cada tarea programada por vez mientras recorre un curso. Las tareas nunca retienen más de esa cantidad a la vez, así que un valor menor cuesta menos memoria por corrida y más consultas; uno mayor, al revés. Los cursos que superan este valor se informan en el registro de la tarea. Por omisión: 500.';
 $string['typemissing'] = 'Falta el valor "type"';

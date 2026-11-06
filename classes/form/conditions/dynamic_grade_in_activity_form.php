@@ -16,6 +16,7 @@
 
 namespace local_coursedynamicrules\form\conditions;
 
+use aiprovider_datacurso\local\plugin_settings;
 use cm_info;
 use context;
 use context_course;
@@ -292,8 +293,15 @@ class dynamic_grade_in_activity_form extends dynamic_form {
      *
      * Example:
      *     require_capability('dosomething', $this->get_context_for_dynamic_submission());
+     *
+     * Refuses first while the plugin is disabled in the Datacurso AI provider.
+     *
+     * @return void
+     * @throws \moodle_exception plugindisabled or plugindisabled_admin when the plugin is disabled.
+     * @throws \required_capability_exception When the user cannot manage conditions.
      */
     protected function check_access_for_dynamic_submission(): void {
+        plugin_settings::require_enabled('local_coursedynamicrules');
         // The same pair every condition screen demands, through the same helper. Asking for manage
         // alone let a role the pages refuse - manage allowed, view prevented - reach this form over
         // the web service and read back every grade-tracked activity of the course with each grade

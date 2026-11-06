@@ -215,5 +215,6 @@ $string['searchcourseactivitymodules'] = 'Rechercher des modules d’activité d
 $string['selectanactivity'] = 'Sélectionner une activité';
 $string['sendnotification'] = 'Envoyer une notification';
 $string['sendnotification_description'] = 'Envoyer la notification « {$a} » aux utilisateurs';
+$string['task_skipped_plugindisabled'] = 'Le plugin est désactivé dans le fournisseur d’IA Datacurso ; exécution ignorée.';
 $string['typemissing'] = 'Valeur « type » manquante';
 $string['weeks'] = 'Semaines';

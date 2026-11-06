@@ -289,6 +289,7 @@ $string['selectanactivity'] = 'Select an activity';
 $string['sendnotification'] = 'Send notification';
 $string['sendnotification_description'] = 'Send notification \'{$a}\' to users';
 $string['sendnotification_description_details'] = 'Recipients: {$a->primaryroles}. Copy to: {$a->copyroles}. Message: "{$a->body}"';
+$string['task_skipped_plugindisabled'] = 'The plugin is disabled in the Datacurso AI provider; skipping.';
 $string['taskbatchsize'] = 'Users per batch';
 $string['taskbatchsize_desc'] = 'How many enrolled users each scheduled task fetches at a time while it walks a course. The tasks never hold more than this many at once, so a lower value costs less memory per run and more queries; a higher one, the opposite. Courses larger than this value are reported in the task log. Default: 500.';
 $string['typemissing'] = 'Missing value "type"';

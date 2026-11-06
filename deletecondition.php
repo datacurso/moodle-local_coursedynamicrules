@@ -22,6 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use aiprovider_datacurso\local\plugin_settings;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 
@@ -37,6 +38,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+plugin_settings::require_enabled('local_coursedynamicrules');
 require_capability('local/coursedynamicrules:deletecondition', $context);
 // Ownership resolves the target BEFORE the lock speaks about it: lock-first let anyone holding
 // the capability in their own course probe foreign rule ids and read the lock state off the

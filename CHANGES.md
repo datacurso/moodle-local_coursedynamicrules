@@ -1,3 +1,15 @@
+## 1.8.11
+
+**Released on:** 2026-11-06
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
+
+## Added
+- **The plugin can be switched off from the Datacurso AI provider**
+  Site administrators can now switch the plugin off from the Datacurso AI provider (Site administration > AI > Datacurso plugins list > Settings); the plugin has no "Enabled" setting of its own. While it is off, the course navigation entry is hidden; the rules, conditions and actions pages (including the edit, delete and duplicate pages) and the grade condition dynamic form refuse with the Datacurso AI provider's message (users are told to contact the administrator, and site administrators get a link to the provider's plugins list); the grade and activity completion observers queue no rule execution; and the scheduled tasks (no complete activity, no course access, course inactivity) and the rule execution adhoc task log *The plugin is disabled in the Datacurso AI provider; skipping.* and stop without running any rule, so no AI activity is created and no notification is sent. Rules and their data are kept. With the plugin on, nothing changes. Requires `aiprovider_datacurso` 2026110400. Tests: `tests/plugin_disabled_test.php`
+
+---
+
 ## 1.8.10
 
 **Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.

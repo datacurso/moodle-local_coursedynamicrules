@@ -22,6 +22,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use aiprovider_datacurso\local\plugin_settings;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\component_renderer;
 
@@ -38,6 +39,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+plugin_settings::require_enabled('local_coursedynamicrules');
 require_capability('local/coursedynamicrules:deleterule', $context);
 
 $url = new moodle_url('/local/coursedynamicrules/deleterule.php', ['id' => $id, 'courseid' => $courseid]);

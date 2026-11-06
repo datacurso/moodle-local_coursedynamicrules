@@ -16,6 +16,7 @@
 
 namespace local_coursedynamicrules\observer;
 
+use aiprovider_datacurso\local\plugin_settings;
 use local_coursedynamicrules\task\rule_task;
 
 /**
@@ -33,10 +34,18 @@ class course_module_completion_updated {
     /**
      * The definition of the event.
      *
+     * Queues nothing while the plugin is disabled in the Datacurso AI provider.
+     *
      * @param \core\event\course_module_completion_updated $event The event object
+     * @return void
      */
     public static function observe(\core\event\course_module_completion_updated $event) {
         global $DB;
+
+        if (!plugin_settings::is_enabled('local_coursedynamicrules')) {
+            return;
+        }
+
         $eventdata = $event->get_data();
 
         $completion = $event->get_record_snapshot('course_modules_completion', $eventdata["objectid"]);
