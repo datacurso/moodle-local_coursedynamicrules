@@ -1,3 +1,15 @@
+## 1.8.12
+
+**Released on:** 2026-11-09
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.3**.
+
+## Changed
+- **Moodle 5.3 compatibility**
+  Declared compatibility with Moodle 5.3 (`$plugin->supported` is now `[405, 503]`) added `MOODLE_503_STABLE` with MariaDB to the Jenkins CI, and updated the supported versions in the README. A review of the Moodle 5.3 upgrade notes against the APIs the plugin uses (course navigation callback, completion and grade events, `completion_info`, `grade_item`, dynamic forms, scheduled and adhoc tasks, admin settings) found no removed or changed API that affects it, so no code change was needed. The form docblock now points to `\core_external\external_api`, as the global `\external_api` alias is deprecated in Moodle 5.3.
+
+---
+
 ## 1.8.11
 
 **Released on:** 2026-11-06
