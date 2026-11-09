@@ -300,6 +300,29 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026110900, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026110901) {
+        // CDR-PRIV-001-R2: a requested remote erasure is recorded on its rows, so it survives any task.
+        $table = new xmldb_table('local_coursedynamicrules_aireq');
+        $field = new xmldb_field('erasurerequested', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'timecreated');
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+        $index = new xmldb_index('erasurerequested', XMLDB_INDEX_NOTUNIQUE, ['erasurerequested']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        // Requests of courses deleted since the table exists: their course went, so their erasure is due.
+        $DB->set_field_select(
+            'local_coursedynamicrules_aireq',
+            'erasurerequested',
+            time(),
+            'erasurerequested IS NULL AND courseid NOT IN (SELECT id FROM {course})'
+        );
+
+        upgrade_plugin_savepoint(true, 2026110901, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 

@@ -23,19 +23,42 @@ namespace local_coursedynamicrules\local;
  * implementation is unavailable_remote_erasure_client until the course service exposes an erasure
  * endpoint; see that class for the expected contract.
  *
+ * WHAT IS SENT. The course service was never told the course of a request (the payload of
+ * /activity/init carries no course id), so a request is scoped by thread or by user, never by course:
+ *
+ * - SCOPE_THREADS: erase exactly the listed threads of the student. The list is never empty. This is
+ *   what an erasure limited to some courses sends: the thread ids recorded for those courses.
+ * - SCOPE_USER: erase every thread of the student for this service id, including threads this site
+ *   has no id for (requests recorded by the upgrade, or an /activity/init whose answer was lost). It is
+ *   sent only when every request recorded for the student is to be erased; the listed thread ids are
+ *   the ones known here, possibly none.
+ *
+ * A request recorded without a thread id whose erasure covers only some of the student's courses is
+ * not sent at all: by user it would erase the other courses too, and by thread there is nothing to
+ * name. It stays pending (local_coursedynamicrules_aireq.erasurerequested) and is covered by the
+ * SCOPE_USER request sent once every request of the student is to be erased - an account deletion
+ * always is.
+ *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 interface remote_erasure_client {
+    /** @var string Erase exactly the listed threads of the student. */
+    public const SCOPE_THREADS = 'threads';
+
+    /** @var string Erase every thread of the student for this service id. */
+    public const SCOPE_USER = 'user';
+
     /**
      * Erase the student's threads of one calling plugin on the course service.
      *
      * @param string $serviceid The calling plugin's service id (always local_coursedynamicrules here).
      * @param int $userid The student, as this site knows them.
-     * @param string[] $threadids The threads recorded for the student; may be empty for requests
-     *     recorded before thread ids were kept, which the service must then find by user.
+     * @param string $scope SCOPE_THREADS or SCOPE_USER.
+     * @param string[] $threadids The threads to erase (SCOPE_THREADS, never empty), or the threads known
+     *     on this site for the student (SCOPE_USER, possibly empty).
      * @return bool True only when the service confirmed the erasure.
      */
-    public function erase(string $serviceid, int $userid, array $threadids): bool;
+    public function erase(string $serviceid, int $userid, string $scope, array $threadids): bool;
 }

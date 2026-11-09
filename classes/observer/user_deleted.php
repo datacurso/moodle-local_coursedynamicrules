@@ -90,10 +90,9 @@ class user_deleted {
         }
 
         // The course service keeps a thread for every AI request made for this user. Its erasure is
-        // a remote call, so it is queued rather than made inside the deletion; the task retries until
-        // the service confirms, and the local rows stay until then (CDR-PRIV-001-R2).
-        if (remote_erasure::requests_of($userid) !== []) {
-            remote_erasure::queue_retry($userid);
-        }
+        // a remote call, so it is only recorded here, on the rows, rather than made inside the
+        // deletion; the scheduled remote_erasure_task sends it until the service confirms, and the
+        // local rows stay until then (CDR-PRIV-001-R2).
+        remote_erasure::request_erasure($userid);
     }
 }

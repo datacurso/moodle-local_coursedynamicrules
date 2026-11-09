@@ -60,6 +60,7 @@
         <FIELD NAME="threadid" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="The thread id returned by /activity/init. NULL for requests recorded by the upgrade, whose thread was never stored"/>
         <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The generated course module, once it exists"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+        <FIELD NAME="erasurerequested" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="When the erasure of this request on the course service was asked for; the row is kept until the service confirms it"/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
@@ -67,6 +68,7 @@
       </KEYS>
       <INDEXES>
         <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
+        <INDEX NAME="erasurerequested" UNIQUE="false" FIELDS="erasurerequested"/>
       </INDEXES>
     </TABLE>
   </TABLES>

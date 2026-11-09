@@ -24,7 +24,7 @@ namespace local_coursedynamicrules\local;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class fake_remote_erasure_client implements remote_erasure_client {
-    /** @var array[] Every call, as ['serviceid' => string, 'userid' => int, 'threadids' => string[]]. */
+    /** @var array[] Every call, as ['serviceid' => string, 'userid' => int, 'scope' => string, 'threadids' => string[]]. */
     public array $calls = [];
 
     /**
@@ -39,8 +39,8 @@ class fake_remote_erasure_client implements remote_erasure_client {
     }
 
     #[\Override]
-    public function erase(string $serviceid, int $userid, array $threadids): bool {
-        $this->calls[] = ['serviceid' => $serviceid, 'userid' => $userid, 'threadids' => $threadids];
+    public function erase(string $serviceid, int $userid, string $scope, array $threadids): bool {
+        $this->calls[] = ['serviceid' => $serviceid, 'userid' => $userid, 'scope' => $scope, 'threadids' => $threadids];
 
         return $this->succeeds;
     }

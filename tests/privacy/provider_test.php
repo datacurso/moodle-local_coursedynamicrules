@@ -90,7 +90,7 @@ final class provider_test extends \advanced_testcase {
 
         $this->assertArrayHasKey('local_coursedynamicrules_aireq', $items);
         $this->assertSame(
-            ['actionid', 'cmid', 'courseid', 'threadid', 'timecreated', 'userid'],
+            ['actionid', 'cmid', 'courseid', 'erasurerequested', 'threadid', 'timecreated', 'userid'],
             $this->sorted_keys($items['local_coursedynamicrules_aireq']->get_privacy_fields())
         );
 

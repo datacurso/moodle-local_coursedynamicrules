@@ -41,7 +41,8 @@ require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
  * the request configuration and the generated activity) on its side. The plugin records each thread
  * against its student, so the privacy provider can list it, export it and ask the service to erase
  * it. The service endpoint for that does not exist yet: the call goes through remote_erasure_client,
- * a fake here, and a failed or unavailable call keeps the rows and queues a retry.
+ * a fake here, and a failed or unavailable call keeps the rows marked as pending erasure, which the
+ * scheduled remote_erasure_task sends again on every run until the service confirms.
  *
  * CDR-PRIV-001-R2.
  *
@@ -181,23 +182,31 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
             [[
                 'serviceid' => 'local_coursedynamicrules',
                 'userid' => (int) $student->id,
+                'scope' => remote_erasure_client::SCOPE_USER,
                 'threadids' => ['thread-a1', 'thread-a2'],
             ]],
             $fake->calls
         );
         $this->assertSame(0, $DB->count_records(remote_erasure::TABLE, ['userid' => $student->id]));
         $this->assertSame(1, $DB->count_records(remote_erasure::TABLE, ['userid' => $bystander->id]));
-        $this->assertSame([], \core\task\manager::get_adhoc_tasks(remote_erasure_task::class));
+        $this->assertSame(
+            0,
+            $DB->count_records_select(remote_erasure::TABLE, 'erasurerequested IS NOT NULL'),
+            'The bystander, whom nobody asked to erase, was marked for erasure.'
+        );
     }
 
     /**
-     * When the service does not confirm the erasure, the rows stay and a retry is queued.
+     * When the service does not confirm the erasure, the rows stay, marked as pending erasure.
+     *
+     * The mark is what the scheduled task works from, so the request outlives any task.
      *
      * @return void
      */
-    public function test_failed_remote_erasure_keeps_rows_and_queues_retry(): void {
+    public function test_failed_remote_erasure_keeps_rows_pending_for_the_scheduled_task(): void {
         global $DB;
         \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(false));
+        $this->mock_clock_with_frozen(1767225600);
 
         $course = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
@@ -206,20 +215,18 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
         $contextids = provider::get_contexts_for_userid((int) $student->id)->get_contextids();
         provider::delete_data_for_user(new approved_contextlist($student, 'local_coursedynamicrules', $contextids));
 
-        $this->assertSame(1, $DB->count_records(remote_erasure::TABLE, ['userid' => $student->id]));
-        $tasks = \core\task\manager::get_adhoc_tasks(remote_erasure_task::class);
-        $this->assertCount(1, $tasks, 'No retry was queued for an erasure the service did not confirm.');
-        $task = reset($tasks);
-        $this->assertSame((int) $student->id, (int) $task->get_custom_data()->userid);
-        $this->assertSame((int) $course->id, (int) $task->get_custom_data()->courseid);
+        $rows = remote_erasure::requests_of((int) $student->id);
+        $this->assertCount(1, $rows, 'A request the service did not confirm erasing was forgotten.');
+        $this->assertSame(1767225600, (int) $rows[0]->erasurerequested, 'Nothing records that erasure was requested.');
+        $this->assertSame([], \core\task\manager::get_adhoc_tasks(remote_erasure_task::class));
     }
 
     /**
-     * Deleting an account queues the remote erasure of the user's threads.
+     * Deleting an account marks the user's requests pending; the remote call is left to the task.
      *
      * @return void
      */
-    public function test_user_deleted_queues_remote_erasure(): void {
+    public function test_user_deleted_marks_requests_pending_without_calling_the_service(): void {
         $fake = new fake_remote_erasure_client(true);
         \core\di::set(remote_erasure_client::class, $fake);
 
@@ -229,36 +236,36 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
 
         delete_user($student);
 
-        $tasks = \core\task\manager::get_adhoc_tasks(remote_erasure_task::class);
-        $this->assertCount(1, $tasks, 'Deleting the account queued no erasure of its threads on the service.');
-        $task = reset($tasks);
-        $this->assertSame((int) $student->id, (int) $task->get_custom_data()->userid);
-        $this->assertNull($task->get_custom_data()->courseid);
+        $this->assertSame([], $fake->calls, 'The account deletion called the service inside the deletion.');
+        $rows = remote_erasure::requests_of((int) $student->id);
+        $this->assertCount(1, $rows);
+        $this->assertNotNull($rows[0]->erasurerequested, 'Deleting the account did not request the erasure of its threads.');
     }
 
     /**
-     * The retry task erases once the service confirms, and fails loudly so core retries otherwise.
+     * The scheduled task sends the pending erasure and forgets the rows once the service confirms.
      *
      * @return void
      */
-    public function test_retry_task_erases_when_the_service_confirms_and_fails_otherwise(): void {
+    public function test_scheduled_task_erases_pending_requests_once_the_service_confirms(): void {
         global $DB;
         $course = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
         remote_erasure::record_request($this->ai_action((int) $course->id), (int) $course->id, (int) $student->id, 'thread-1');
-        $task = new remote_erasure_task();
-        $task->set_custom_data((object) ['userid' => (int) $student->id, 'courseid' => null]);
+        delete_user($student);
 
         \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(false));
-        try {
-            $task->execute();
-            $this->fail('A retry the service did not confirm must fail, so core schedules the next attempt.');
-        } catch (\moodle_exception $e) {
-            $this->assertSame(1, $DB->count_records(remote_erasure::TABLE, ['userid' => $student->id]));
-        }
+        $this->run_scheduled_task();
+        $this->assertSame(1, $DB->count_records(remote_erasure::TABLE, ['userid' => $student->id]));
 
-        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true));
-        $task->execute();
+        $fake = new fake_remote_erasure_client(true);
+        \core\di::set(remote_erasure_client::class, $fake);
+        $this->run_scheduled_task();
+        $this->assertSame(
+            [['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
+                'scope' => remote_erasure_client::SCOPE_USER, 'threadids' => ['thread-1']]],
+            $fake->calls
+        );
         $this->assertSame(0, $DB->count_records(remote_erasure::TABLE, ['userid' => $student->id]));
     }
 
@@ -269,7 +276,12 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
      */
     public function test_the_production_client_reports_not_available(): void {
         $this->assertFalse(
-            \core\di::get(remote_erasure_client::class)->erase('local_coursedynamicrules', 2, ['thread-1'])
+            \core\di::get(remote_erasure_client::class)->erase(
+                'local_coursedynamicrules',
+                2,
+                remote_erasure_client::SCOPE_THREADS,
+                ['thread-1']
+            )
         );
     }
 
@@ -304,6 +316,20 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
         $this->assertSame((int) $student->id, (int) $rows[0]->userid);
         $this->assertSame((int) $generated->cmid, (int) $rows[0]->cmid);
         $this->assertSame($actionid, (int) $rows[0]->actionid);
+    }
+
+    /**
+     * Run the scheduled remote erasure task once, discarding what it prints.
+     *
+     * @return void
+     */
+    private function run_scheduled_task(): void {
+        ob_start();
+        try {
+            (new remote_erasure_task())->execute();
+        } finally {
+            ob_end_clean();
+        }
     }
 
     /**

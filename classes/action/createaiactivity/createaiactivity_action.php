@@ -56,6 +56,13 @@ class createaiactivity_action extends action {
     /**
      * Execute the action
      *
+     * The thread the course service opens with /activity/init is recorded for the student
+     * (remote_erasure::record_request()) as soon as its id is known. Known limitation: when the service
+     * opened the thread but its answer never arrived (a timeout or a dropped connection), there is no
+     * thread id, so nothing is recorded for that request on this site and it cannot be listed in a
+     * privacy export or erased by thread. Only a user-wide erasure reaches such a thread
+     * (remote_erasure_client::SCOPE_USER), which is what an account deletion sends.
+     *
      * @param object $context Context of the rule
      */
     public function execute($context) {
