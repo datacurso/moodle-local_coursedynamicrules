@@ -277,6 +277,29 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026091600, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026110900) {
+        // CDR-PRIV-001-R2: every AI activity request is recorded against its student, so a privacy
+        // request can list it and ask the course service to erase it.
+        $table = new xmldb_table('local_coursedynamicrules_aireq');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('actionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('threadid', XMLDB_TYPE_CHAR, '255', null, null, null, null);
+        $table->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('courseid', XMLDB_KEY_FOREIGN, ['courseid'], 'course', ['id']);
+        $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        local_coursedynamicrules_upgrade_backfill_ai_requests();
+
+        upgrade_plugin_savepoint(true, 2026110900, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 
@@ -425,4 +448,74 @@ function local_coursedynamicrules_upgrade_grant_component_deletion(): void {
     }
 
     $systemcontext->mark_dirty();
+}
+
+/**
+ * Record the AI activity requests made before the plugin kept them (CDR-PRIV-001-R2).
+ *
+ * Each AI-generated activity carries in its ID number a key derived from its action and student
+ * (aiactivity_key), so the student can be recovered by trying the users its restriction lists against
+ * the course's AI actions. One row per activity found is recorded, with no thread id: the thread the
+ * course service opened was never stored, and it cannot be recovered on this site. The remote erasure
+ * then asks the service to find that student's requests of this plugin by user.
+ *
+ * What cannot be recovered: requests whose activity was never created (a failed or cut generation),
+ * activities deleted since, and activities whose ID number was cleared or changed - none of them leaves
+ * anything on this site naming the student. Idempotent: an activity already recorded is skipped.
+ *
+ * @return void
+ */
+function local_coursedynamicrules_upgrade_backfill_ai_requests(): void {
+    global $DB;
+
+    $sql = "SELECT a.id, r.courseid
+              FROM {local_coursedynamicrules_action} a
+              JOIN {local_coursedynamicrules_rule} r ON r.id = a.ruleid
+             WHERE a.actiontype = :actiontype";
+    $actionsbycourse = [];
+    foreach ($DB->get_records_sql($sql, ['actiontype' => 'createaiactivity']) as $action) {
+        $actionsbycourse[(int) $action->courseid][] = (int) $action->id;
+    }
+    if ($actionsbycourse === []) {
+        return;
+    }
+
+    $modules = $DB->get_recordset_select(
+        'course_modules',
+        $DB->sql_like('idnumber', ':prefix') . ' AND availability IS NOT NULL',
+        ['prefix' => $DB->sql_like_escape(\local_coursedynamicrules\local\aiactivity_key::PREFIX) . '%'],
+        'id',
+        'id, course, idnumber, availability, added'
+    );
+    foreach ($modules as $module) {
+        $actionids = $actionsbycourse[(int) $module->course] ?? [];
+        $tree = json_decode((string) $module->availability);
+        if ($actionids === [] || !$tree instanceof stdClass) {
+            continue;
+        }
+        $match = \local_coursedynamicrules\local\aiactivity_key::attribution(
+            (string) $module->idnumber,
+            $actionids,
+            \local_coursedynamicrules\local\aiactivity_key::user_ids_in_tree($tree)
+        );
+        if ($match === null) {
+            continue;
+        }
+        [$actionid, $userid] = $match;
+        $exists = $DB->record_exists(
+            'local_coursedynamicrules_aireq',
+            ['actionid' => $actionid, 'userid' => $userid, 'cmid' => $module->id]
+        );
+        if (!$exists) {
+            $DB->insert_record('local_coursedynamicrules_aireq', (object) [
+                'actionid' => $actionid,
+                'courseid' => (int) $module->course,
+                'userid' => $userid,
+                'threadid' => null,
+                'cmid' => (int) $module->id,
+                'timecreated' => (int) $module->added,
+            ]);
+        }
+    }
+    $modules->close();
 }

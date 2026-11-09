@@ -30,6 +30,9 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
     /** @var array<int, string> Source role id => source role shortname, from the backup file. */
     protected $notificationroleshortnames = [];
 
+    /** @var \stdClass[] The gates the backup recorded (cmid, actionid, fingerprint), in file order. */
+    protected $gates = [];
+
     /**
      * Define plugin structure
      *
@@ -56,6 +59,10 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
             new restore_path_element(
                 'local_coursedynamicrules_notificationrole',
                 $this->get_pathfor('/coursedynamicrules_notificationroles/coursedynamicrules_notificationrole')
+            ),
+            new restore_path_element(
+                'local_coursedynamicrules_gate',
+                $this->get_pathfor('/coursedynamicrules_gates/coursedynamicrules_gate')
             ),
 
             // Legacy element names, from backups made before these elements were prefixed to avoid
@@ -100,6 +107,27 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
 
         if ($roleid > 0 && $shortname !== '') {
             $this->notificationroleshortnames[$roleid] = $shortname;
+        }
+    }
+
+    /**
+     * Record a gate the backup says this plugin wrote.
+     *
+     * Only remembered here: the module and the action are mapped in the after-restore pass, once both
+     * exist and core has finished re-encoding the availability trees.
+     *
+     * @param array $data
+     *
+     * @return void
+     */
+    public function process_local_coursedynamicrules_gate($data) {
+        $data = (object) $data;
+
+        $cmid = (int) ($data->cmid ?? 0);
+        $actionid = (int) ($data->actionid ?? 0);
+        $fingerprint = (string) ($data->fingerprint ?? '');
+        if ($cmid > 0 && $actionid > 0 && $fingerprint !== '') {
+            $this->gates[] = (object) ['cmid' => $cmid, 'actionid' => $actionid, 'fingerprint' => $fingerprint];
         }
     }
 
@@ -355,9 +383,117 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $this->remap_persisted_params();
         $this->remap_notification_roles();
         $this->remap_ownership_markers();
+        $this->reattribute_recorded_gates();
         $this->readopt_stripped_markers();
         $this->rekey_generated_ai_activities();
         $this->report_restored_components();
+    }
+
+    /**
+     * Give the marker back to every gate the backup recorded, on the node its fingerprint matches.
+     *
+     * Runs after remap_ownership_markers() and BEFORE readopt_stripped_markers(): a node this pass
+     * marks is written by the plugin as far as the privacy provider is concerned (mark_node(), not
+     * adopted), and the re-adoption then finds its action's marker already there and leaves it alone.
+     *
+     * Each gate names the source module and action, mapped here onto the ones this restore created
+     * (the course module mapping only holds modules of this restore, so another course's activity is
+     * never touched). On that module the one node whose fingerprint matches is marked for the restored
+     * action. When the action creates AI activities and the node lists exactly one student, the module's
+     * key is rewritten for the restored action on THIS site too: the key is an HMAC keyed with the site
+     * identifier, so on another site the copied key verifies nothing (CDR-PRIV-002-R1).
+     *
+     * Two or more matching nodes - a teacher's restriction listing exactly the same students - are
+     * ambiguous: none is marked, they keep whatever the re-adoption decides, and the count goes to the
+     * restore log. A backup made before gates were recorded has none, and restores as it always did.
+     *
+     * @return void
+     */
+    protected function reattribute_recorded_gates(): void {
+        global $DB;
+
+        $courseid = $this->task->get_courseid();
+        $remarked = 0;
+        $ambiguous = 0;
+        foreach ($this->gates as $gate) {
+            $newcmid = $this->get_mapped_cmid($gate->cmid);
+            $newactionid = (int) $this->get_mappingid('local_coursedynamicrules_action', $gate->actionid);
+            if ($newcmid === null || $newactionid <= 0) {
+                continue;
+            }
+            $cm = $DB->get_record('course_modules', ['id' => $newcmid, 'course' => $courseid], 'id, idnumber, availability');
+            $root = $cm ? json_decode((string) $cm->availability) : null;
+            if (!$root instanceof \stdClass) {
+                continue;
+            }
+
+            $nodes = \local_coursedynamicrules\local\gate_fingerprint::matching_nodes(
+                $root,
+                (int) $gate->actionid,
+                $newactionid,
+                $gate->fingerprint
+            );
+            if (count($nodes) > 1) {
+                $ambiguous++;
+                continue;
+            }
+            if (count($nodes) === 0) {
+                continue;
+            }
+
+            \local_coursedynamicrules\action\enableactivity\enableactivity_action::mark_node($nodes[0], $newactionid);
+            $encoded = json_encode($root);
+            if (is_string($encoded) && $encoded !== $cm->availability) {
+                $DB->set_field('course_modules', 'availability', $encoded, ['id' => $cm->id]);
+                $remarked++;
+            }
+            $this->rekey_reattributed_ai_activity($cm, $newactionid, $nodes[0]);
+        }
+
+        if ($ambiguous > 0) {
+            $this->task->log(
+                'local_coursedynamicrules: ' . $ambiguous . ' restored access restriction(s) recorded by the backup '
+                . 'matched more than one identical restriction on their activity, so none of them was attributed '
+                . 'to the plugin. They are excluded from privacy exports and erasures and need a manual check.',
+                backup::LOG_WARNING
+            );
+        }
+        if ($remarked > 0) {
+            rebuild_course_cache($courseid, true);
+        }
+    }
+
+    /**
+     * Write the restored action's key on an AI activity whose gate the backup's fingerprint matched.
+     *
+     * Only an ID number that already is a key of this plugin is rewritten, never one a teacher set,
+     * and only when the node names exactly one student, the shape the AI action writes.
+     *
+     * @param \stdClass $cm The restored module row (id, idnumber, availability).
+     * @param int $actionid The restored action.
+     * @param \stdClass $node The node just marked for it.
+     * @return void
+     */
+    protected function rekey_reattributed_ai_activity(\stdClass $cm, int $actionid, \stdClass $node): void {
+        global $DB;
+
+        if (strpos((string) $cm->idnumber, \local_coursedynamicrules\local\aiactivity_key::PREFIX) !== 0) {
+            return;
+        }
+        if ($DB->get_field('local_coursedynamicrules_action', 'actiontype', ['id' => $actionid]) !== 'createaiactivity') {
+            return;
+        }
+        $userids = \local_coursedynamicrules\local\owned_gate_eraser::userids_of($node);
+        if (count($userids) !== 1) {
+            return;
+        }
+        $key = \local_coursedynamicrules\local\aiactivity_key::for_action_user($actionid, $userids[0]);
+        if ($key !== $cm->idnumber) {
+            \local_coursedynamicrules\action\createaiactivity\createaiactivity_action::set_generated_module_key(
+                (int) $cm->id,
+                $key
+            );
+        }
     }
 
     /**
@@ -547,6 +683,10 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
      * provider ignores them, and the count is reported here rather than in debugging() - for the
      * same reason the dropped notification roles are, a few methods down: the restore log is what an
      * operator reads afterwards, and this pass writes into a core column on their behalf.
+     *
+     * A gate the backup recorded with its fingerprint has already been marked as written by
+     * reattribute_recorded_gates(), so this pass finds its marker and leaves it alone: only gates
+     * from older backups, and ambiguous ones, are left to this deduction.
      *
      * @return void
      */

@@ -22,13 +22,17 @@ use core_privacy\local\request\approved_userlist;
 use core_privacy\local\request\contextlist;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
+use core_privacy\local\request\transform;
 use local_coursedynamicrules\local\owned_gate_eraser;
+use local_coursedynamicrules\local\remote_erasure;
 
 /**
  * Privacy provider for local_coursedynamicrules.
  *
- * The plugin's own three tables hold course configuration only - a rule, its conditions and its
- * actions - and no row in them names a person. Its personal data lives somewhere less obvious: the
+ * Three of the plugin's own tables hold course configuration only - a rule, its conditions and its
+ * actions - and no row in them names a person; the fourth, local_coursedynamicrules_aireq, records
+ * the AI requests the course service keeps for each student (see below). The rest of its personal
+ * data lives somewhere less obvious: the
  * enable-activity action grants a student access to an activity by writing that student's id into
  * {course_modules}.availability, a CORE column that no core component accounts for, and the
  * create-AI-activity action restricts the activity it generates to its student the same way, and
@@ -109,11 +113,15 @@ use local_coursedynamicrules\local\owned_gate_eraser;
  *    restrictions on that site carried no marker that day.
  * 3. A marker a RESTORE stripped from an enable-activity node. Core re-encodes a module's whole
  *    tree through each condition's save() whenever any sibling changed, and availability_user::save()
- *    emits only {type, userids}. When the course is restored with its rules, an AI-generated
- *    activity is re-marked afterwards from its key, as written rather than adopted, because the key
- *    verifies the restored action and the student (two candidate nodes leave it unmarked, and found
- *    through the key as above). On another site the key does not verify and the activity comes back
- *    unattributable. An enable-activity node is only re-adopted, as follows.
+ *    emits only {type, userids}. Since CDR-PRIV-002-R1 the backup records, for every node this plugin
+ *    wrote, the module, the action and a fingerprint of the action and the ids the node lists
+ *    (gate_fingerprint). The restore gives the marker back, as written rather than adopted, to the
+ *    single node of the restored module that matches it - enable-activity and AI alike, on this site
+ *    or another one - and rewrites an AI activity's key for the restored action on this site. Two
+ *    identical matching nodes (a teacher's restriction listing exactly the same students) are
+ *    ambiguous: neither is marked, and the restore log says so. What follows applies to those, and
+ *    to backups made before the fingerprint existed: an AI-generated activity is still re-marked
+ *    from its key when it verifies, and an enable-activity node is only re-adopted.
  *
  *    A re-adopted marker is not attributable either, and this class refuses it. The re-adoption
  *    claims the tree's single unmarked user node, which on a module the action still lists but whose
@@ -135,6 +143,19 @@ use local_coursedynamicrules\local\owned_gate_eraser;
  * component is free to drop. That is what the availability_coursedynamicrules plugin does. Until it
  * lands they are recorded here and in CHANGES.md, because a gap a reader can see is a different
  * thing from one the registry now hides behind a compliance tick.
+ *
+ * WHAT THE COURSE SERVICE KEEPS, AND HOW IT IS REACHED (CDR-PRIV-001-R2)
+ *
+ * Every AI activity starts with /activity/init, and the course service keeps that thread - the
+ * activity instructions, the request configuration and the generated activity - on its side. The
+ * plugin records each thread against its student and course in local_coursedynamicrules_aireq
+ * (remote_erasure). Those rows put the COURSE context in the student's contextlist, are exported
+ * there, and on erasure the plugin asks the course service to erase the student's threads of this
+ * plugin first and deletes the rows only once the service confirmed it. When it did not, the rows are
+ * kept (still exportable) and an adhoc task retries. The service has no erasure endpoint yet, so the
+ * production client reports every erasure as not done (unavailable_remote_erasure_client): the data
+ * subject is told the request completed, because that is tool_dataprivacy's behaviour, while the
+ * remote part stays pending and visible in the rows and the queued task.
  *
  * WHAT AN ERASURE DOES TO ACCESS, WHICH IS NOT ALWAYS WHAT A READER EXPECTS
  *
@@ -263,6 +284,31 @@ class provider implements
             'privacy:metadata:datacurso_ai'
         );
 
+        // CDR-PRIV-001-R2: the threads the course service keeps per student, recorded here so they can
+        // be listed and their erasure requested, and what the service keeps for each of them.
+        $collection->add_database_table(
+            remote_erasure::TABLE,
+            [
+                'actionid' => 'privacy:metadata:local_coursedynamicrules_aireq:actionid',
+                'cmid' => 'privacy:metadata:local_coursedynamicrules_aireq:cmid',
+                'courseid' => 'privacy:metadata:local_coursedynamicrules_aireq:courseid',
+                'threadid' => 'privacy:metadata:local_coursedynamicrules_aireq:threadid',
+                'timecreated' => 'privacy:metadata:local_coursedynamicrules_aireq:timecreated',
+                'userid' => 'privacy:metadata:local_coursedynamicrules_aireq:userid',
+            ],
+            'privacy:metadata:local_coursedynamicrules_aireq'
+        );
+        $collection->add_external_location_link(
+            'datacurso_course_service',
+            [
+                'generated_activity' => 'privacy:metadata:datacurso_course_service:generated_activity',
+                'instructions' => 'privacy:metadata:datacurso_course_service:instructions',
+                'request_config' => 'privacy:metadata:datacurso_course_service:request_config',
+                'userid' => 'privacy:metadata:datacurso_course_service:userid',
+            ],
+            'privacy:metadata:datacurso_course_service'
+        );
+
         return $collection;
     }
 
@@ -280,13 +326,24 @@ class provider implements
      * It reads no user record and resolves no user context, so nothing here depends on the account
      * still existing. A database failure still raises, as everywhere else.
      *
+     * The course contexts in which the course service keeps an AI request thread of the user are added
+     * too, from local_coursedynamicrules_aireq.
+     *
      * @param int $userid The user to search for.
-     * @return contextlist The module contexts, possibly empty.
+     * @return contextlist The module and course contexts, possibly empty.
      */
     public static function get_contexts_for_userid(int $userid): contextlist {
         global $DB;
 
         $contextlist = new contextlist();
+        $contextlist->add_from_sql(
+            "SELECT ctx.id
+               FROM {context} ctx
+               JOIN {" . remote_erasure::TABLE . "} q ON q.courseid = ctx.instanceid
+              WHERE ctx.contextlevel = :courselevel AND q.userid = :userid",
+            ['courselevel' => CONTEXT_COURSE, 'userid' => $userid]
+        );
+
         $cmids = owned_gate_eraser::modules_holding($userid);
         if ($cmids === []) {
             return $contextlist;
@@ -313,6 +370,14 @@ class provider implements
      */
     public static function get_users_in_context(userlist $userlist): void {
         $context = $userlist->get_context();
+        if ((int) $context->contextlevel === CONTEXT_COURSE) {
+            $userlist->add_from_sql(
+                'userid',
+                'SELECT userid FROM {' . remote_erasure::TABLE . '} WHERE courseid = :courseid',
+                ['courseid' => (int) $context->instanceid]
+            );
+            return;
+        }
         if ((int) $context->contextlevel !== CONTEXT_MODULE) {
             return;
         }
@@ -365,6 +430,10 @@ class provider implements
         $subcontext = [get_string('privacy:export:activityaccess', 'local_coursedynamicrules')];
 
         foreach ($contextlist->get_contexts() as $context) {
+            if ((int) $context->contextlevel === CONTEXT_COURSE) {
+                self::export_remote_requests($context, $userid);
+                continue;
+            }
             if ((int) $context->contextlevel !== CONTEXT_MODULE) {
                 continue;
             }
@@ -428,6 +497,10 @@ class provider implements
         $ambiguous = [];
         try {
             foreach ($contextlist->get_contexts() as $context) {
+                if ((int) $context->contextlevel === CONTEXT_COURSE) {
+                    remote_erasure::erase($userid, (int) $context->instanceid);
+                    continue;
+                }
                 $result = self::erase_in($context, [$userid]);
                 if ($result['courseid'] !== null) {
                     $courseids[$result['courseid']] = $result['courseid'];
@@ -451,6 +524,13 @@ class provider implements
      * @return void
      */
     public static function delete_data_for_users(approved_userlist $userlist): void {
+        $context = $userlist->get_context();
+        if ((int) $context->contextlevel === CONTEXT_COURSE) {
+            foreach ($userlist->get_userids() as $userid) {
+                remote_erasure::erase((int) $userid, (int) $context->instanceid);
+            }
+            return;
+        }
         $result = self::erase_in($userlist->get_context(), array_map('intval', $userlist->get_userids()));
         if ($result['courseid'] !== null) {
             rebuild_course_cache($result['courseid'], true);
@@ -472,6 +552,12 @@ class provider implements
      * @return void
      */
     public static function delete_data_for_all_users_in_context(\context $context): void {
+        if ((int) $context->contextlevel === CONTEXT_COURSE) {
+            foreach (remote_erasure::users_in_course((int) $context->instanceid) as $userid) {
+                remote_erasure::erase($userid, (int) $context->instanceid);
+            }
+            return;
+        }
         $result = self::erase_in($context, null);
         if ($result['courseid'] !== null) {
             rebuild_course_cache($result['courseid'], true);
@@ -519,6 +605,41 @@ class provider implements
             'local_coursedynamicrules: ambiguous AI activity restriction left unedited, manual cleanup required',
             'course module(s) ' . implode(', ', $cmids) . ': more than one unmarked user restriction lists exactly '
                 . 'the user the activity key names'
+        );
+    }
+
+    /**
+     * Export the AI requests the course service keeps for the user in one course.
+     *
+     * What is recorded on this site, as stored: the thread id the service gave each request (empty
+     * for a request recorded by the upgrade, whose thread was never stored), the rule behind it, the
+     * activity it generated and when it was made.
+     *
+     * @param \context $context The course context.
+     * @param int $userid The user.
+     * @return void
+     */
+    private static function export_remote_requests(\context $context, int $userid): void {
+        $courseid = (int) $context->instanceid;
+        $requests = [];
+        foreach (remote_erasure::requests_of($userid, $courseid) as $row) {
+            $requests[] = [
+                'threadid' => $row->threadid === null ? '' : (string) $row->threadid,
+                'rule' => self::rule_name_behind((int) $row->actionid, $courseid),
+                'activity' => $row->cmid === null ? null : (int) $row->cmid,
+                'timecreated' => transform::datetime((int) $row->timecreated),
+            ];
+        }
+        if ($requests === []) {
+            return;
+        }
+
+        writer::with_context($context)->export_data(
+            [get_string('privacy:export:airequests', 'local_coursedynamicrules')],
+            (object) [
+                'requests' => $requests,
+                'whatthismeans' => get_string('privacy:export:airequestsexplained', 'local_coursedynamicrules'),
+            ]
         );
     }
 

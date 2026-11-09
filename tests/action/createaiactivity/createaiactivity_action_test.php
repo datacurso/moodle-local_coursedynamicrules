@@ -426,11 +426,18 @@ final class createaiactivity_action_test extends \advanced_testcase {
         $this->assertCount(1, $owned, 'The restriction the action writes must carry this plugin\'s ownership marker.');
         $this->assertSame([(int) $user->id], array_map('intval', $owned[0]->userids));
 
-        $contexts = \local_coursedynamicrules\privacy\provider::get_contexts_for_userid((int) $user->id);
+        // The course context is there too since CDR-PRIV-001-R2: the course service keeps the thread
+        // this generation opened, recorded against the student in that course.
+        $expected = [(int) \context_module::instance($cm->id)->id, (int) \context_course::instance($course->id)->id];
+        sort($expected);
+        $actual = array_map('intval', \local_coursedynamicrules\privacy\provider::get_contexts_for_userid((int) $user->id)
+            ->get_contextids());
+        sort($actual);
         $this->assertSame(
-            [(int) \context_module::instance($cm->id)->id],
-            array_map('intval', $contexts->get_contextids()),
-            'The generated activity holds the student\'s id, so it must be one of their privacy contexts.'
+            $expected,
+            $actual,
+            'The generated activity holds the student\'s id, and the course service keeps their request: both '
+                . 'must be among their privacy contexts.'
         );
     }
 

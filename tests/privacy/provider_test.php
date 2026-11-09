@@ -76,4 +76,41 @@ final class provider_test extends \advanced_testcase {
         $this->assertArrayHasKey('idnumber', $fields);
         $this->assertNotEmpty(get_string($fields['idnumber'], 'local_coursedynamicrules'));
     }
+
+    /**
+     * CDR-PRIV-001-R2: the threads recorded per student, and what the course service keeps, are declared.
+     *
+     * @return void
+     */
+    public function test_get_metadata_declares_the_remote_requests_and_what_the_service_keeps(): void {
+        $items = [];
+        foreach (provider::get_metadata(new collection('local_coursedynamicrules'))->get_collection() as $item) {
+            $items[$item->get_name()] = $item;
+        }
+
+        $this->assertArrayHasKey('local_coursedynamicrules_aireq', $items);
+        $this->assertSame(
+            ['actionid', 'cmid', 'courseid', 'threadid', 'timecreated', 'userid'],
+            $this->sorted_keys($items['local_coursedynamicrules_aireq']->get_privacy_fields())
+        );
+
+        $this->assertArrayHasKey('datacurso_course_service', $items);
+        $this->assertSame(
+            ['generated_activity', 'instructions', 'request_config', 'userid'],
+            $this->sorted_keys($items['datacurso_course_service']->get_privacy_fields())
+        );
+    }
+
+    /**
+     * The keys of an array, sorted.
+     *
+     * @param array $fields The array.
+     * @return string[]
+     */
+    private function sorted_keys(array $fields): array {
+        $keys = array_keys($fields);
+        sort($keys);
+
+        return $keys;
+    }
 }
