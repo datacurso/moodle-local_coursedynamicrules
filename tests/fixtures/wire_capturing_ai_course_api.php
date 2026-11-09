@@ -85,6 +85,10 @@ class wire_capturing_ai_course_api extends ai_course_api {
                 config: ['licensekey' => 'test-licence-key'],
             );
         }
+        // Current provider releases refuse every request while the provider plugin is disabled.
+        if (class_exists(\core\plugininfo\aiprovider::class)) {
+            \core\plugininfo\aiprovider::enable_plugin('datacurso', 1);
+        }
     }
 
     /**
@@ -129,6 +133,100 @@ class wire_capturing_ai_course_api extends ai_course_api {
      * @return string|null
      */
     protected function execute_request(\curl $curl, string $method, string $url, $payload, array $headers): ?string {
+        return $this->capture($method, $url, $payload);
+    }
+
+    /**
+     * Replace the transport's cURL wrapper with one that records the request instead of sending it.
+     *
+     * The provider exposes create_curl() as its test seam; older releases used execute_request().
+     *
+     * @return \curl
+     */
+    protected function create_curl(): \curl {
+        $client = $this;
+        return new class ($client) extends \curl {
+            /** @var wire_capturing_ai_course_api The client that records the requests. */
+            private wire_capturing_ai_course_api $client;
+
+            /**
+             * Constructor.
+             *
+             * @param wire_capturing_ai_course_api $client The client that records the requests.
+             */
+            public function __construct(wire_capturing_ai_course_api $client) {
+                parent::__construct();
+                $this->client = $client;
+            }
+
+            /**
+             * Record a GET request.
+             *
+             * @param string $url The URL.
+             * @param array $params The query parameters.
+             * @param array $options The cURL options.
+             * @return string
+             */
+            public function get($url, $params = [], $options = []) {
+                return (string) $this->client->capture('GET', $url, $params);
+            }
+
+            /**
+             * Record a POST request.
+             *
+             * @param string $url The URL.
+             * @param array|string $params The body.
+             * @param array $options The cURL options.
+             * @return string
+             */
+            public function post($url, $params = '', $options = []) {
+                return (string) $this->client->capture('POST', $url, $params);
+            }
+
+            /**
+             * Record a PUT request.
+             *
+             * @param string $url The URL.
+             * @param array|string $params The body.
+             * @param array $options The cURL options.
+             * @return string
+             */
+            public function put($url, $params = [], $options = []) {
+                return (string) $this->client->capture('PUT', $url, $params);
+            }
+
+            /**
+             * Record a DELETE request.
+             *
+             * @param string $url The URL.
+             * @param array $param The parameters.
+             * @param array $options The cURL options.
+             * @return string
+             */
+            public function delete($url, $param = [], $options = []) {
+                return (string) $this->client->capture('DELETE', $url, $param);
+            }
+
+            /**
+             * Report a successful HTTP answer.
+             *
+             * @return array
+             */
+            public function get_info() {
+                return ['http_code' => 200];
+            }
+        };
+    }
+
+    /**
+     * Record one request and answer it with the canned response of its endpoint.
+     *
+     * @param string $method The HTTP method.
+     * @param string $url Full request URL.
+     * @param mixed $payload The body, already merged with the transport's defaults and encoded.
+     * @return string
+     */
+    public function capture(string $method, string $url, $payload): string {
         $this->wire[] = [
             'method' => $method,
             'url' => $url,
