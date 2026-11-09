@@ -32,8 +32,8 @@ require_once(__DIR__ . '/../fixtures/fake_remote_erasure_client.php');
 /**
  * A requested remote erasure is durable: it is recorded on the rows and sent until the service confirms.
  *
- * The course service has no erasure endpoint yet, so every erasure requested today stays pending for
- * as long as it takes to publish one. An adhoc task gives up after core's attempt limit; the request
+ * The course service may not confirm an erasure for a long time (unreachable, a site without token
+ * balance or subscription). An adhoc task gives up after core's attempt limit; the request
  * is therefore recorded in local_coursedynamicrules_aireq.erasurerequested and the scheduled
  * remote_erasure_task sends it again on every run, whatever happened to any task before.
  *
@@ -42,7 +42,7 @@ require_once(__DIR__ . '/../fixtures/fake_remote_erasure_client.php');
  * @package    local_coursedynamicrules
  * @category   test
  * @covers     \local_coursedynamicrules\local\remote_erasure
- * @covers     \local_coursedynamicrules\local\unavailable_remote_erasure_client
+ * @covers     \local_coursedynamicrules\local\course_service_remote_erasure_client
  * @covers     \local_coursedynamicrules\privacy\provider
  * @covers     \local_coursedynamicrules\task\remote_erasure_task
  * @covers     \local_coursedynamicrules\observer\course_deleted
@@ -263,7 +263,7 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
     }
 
     /**
-     * With the production client nothing is ever reported as erased: the rows stay, still pending.
+     * With the production client and no configured provider nothing is erased: the rows stay, still pending.
      *
      * @return void
      */

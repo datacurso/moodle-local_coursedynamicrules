@@ -20,8 +20,18 @@ namespace local_coursedynamicrules\local;
  * Asks the course service to erase what it keeps about one student for this plugin.
  *
  * Resolved through \core\di (registered in db/hooks.php), so tests inject a fake. The production
- * implementation is unavailable_remote_erasure_client until the course service exposes an erasure
- * endpoint; see that class for the expected contract.
+ * implementation is course_service_remote_erasure_client.
+ *
+ * THE CONTRACT. POST /privacy/erase on the course service, relative to the same base URL as
+ * /activity/init and sent through aiprovider_datacurso's course client, with the body
+ * {"userid": <Moodle user id>, "service_id": <calling plugin>, "scope": "threads"|"user",
+ * "thread_ids": [...]}. The transport pseudonymises the user id and adds site_id and site_url, so the
+ * service erases only this site's data of that student, and only for that service id: the activity
+ * instructions, the request configuration and the generated activity kept for those threads. The
+ * service accepts at most 1000 thread ids per call, each 1 to 255 characters, and refuses a
+ * "threads" request with an empty list (422). It confirms with HTTP 200 and
+ * {"status": "erased", "requests": n, "threads": m}. Anything else is not a confirmation, including
+ * the 403 a site without token balance or with an inactive subscription receives.
  *
  * WHAT IS SENT. The course service was never told the course of a request (the payload of
  * /activity/init carries no course id), so a request is scoped by thread or by user, never by course:

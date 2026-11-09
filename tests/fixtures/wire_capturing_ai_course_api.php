@@ -63,6 +63,12 @@ class wire_capturing_ai_course_api extends ai_course_api {
         '/activity/feedback' => ['status' => 'accepted'],
     ];
 
+    /** @var array[] Canned responses answered once each, in order, by path suffix; before $responses. */
+    public array $sequences = [];
+
+    /** @var int The HTTP status every request is answered with. */
+    public int $httpcode = 200;
+
     /**
      * Create the enabled provider instance the client constructor insists on.
      *
@@ -208,12 +214,12 @@ class wire_capturing_ai_course_api extends ai_course_api {
             }
 
             /**
-             * Report a successful HTTP answer.
+             * Report the HTTP status the client is told to answer with.
              *
              * @return array
              */
             public function get_info() {
-                return ['http_code' => 200];
+                return ['http_code' => $this->client->httpcode];
             }
         };
     }
@@ -233,6 +239,12 @@ class wire_capturing_ai_course_api extends ai_course_api {
             'raw' => is_string($payload) ? $payload : null,
             'body' => is_string($payload) ? json_decode($payload, true) : $payload,
         ];
+
+        foreach ($this->sequences as $suffix => $queue) {
+            if (str_ends_with($url, $suffix) && $queue !== []) {
+                return json_encode(array_shift($this->sequences[$suffix]));
+            }
+        }
 
         foreach ($this->responses as $suffix => $response) {
             if (str_ends_with($url, $suffix)) {
