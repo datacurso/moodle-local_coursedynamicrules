@@ -268,7 +268,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
     /**
      * Returns context where this form is used
      *
-     * This context is validated in {@see \external_api::validate_context()}
+     * This context is validated in {@see \core_external\external_api::validate_context()}
      *
      * If context depends on the form data, it is available in $this->_ajaxformdata or
      * by calling $this->optional_param()
