@@ -25,11 +25,11 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_coursedynamicrules';
-$plugin->release = '1.8.11';
+$plugin->release = '1.8.12';
 $plugin->version = 2026110901;
 $plugin->requires = 2024100700; // Moodle 4.5.
 $plugin->maturity = MATURITY_STABLE;
-$plugin->supported = [405, 502];
+$plugin->supported = [405, 503];
 $plugin->dependencies = [
     'aiprovider_datacurso' => 2026110400,
     'local_coursegen' => 2026102601,
