@@ -1,3 +1,21 @@
+## Unreleased
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
+
+Response to the MindFree security re-evaluation. Each entry names the MindFree finding it closes and the tests that back it.
+
+## Removed
+- **CDR-SEC-007: the plugin no longer ships GitHub workflows**
+  The `.github/` folder (the manual `plugin-ci.yml` workflow) is removed, together with `tests/ci/workflow_security_test.php`, which only tested that folder. The automatic check before any change reaches a stable branch is the Jenkins check required by the branch ruleset, which runs the plugin suite; no workflow in the plugin can run with a token any more
+
+## Fixed
+- **CDR-PRIV-002-R1: a restored gate stays reachable by privacy requests after core strips its marker**
+  On restore, core re-encodes a module's whole availability tree when another condition changed (a completion restriction always does) and drops the plugin's ownership marker; the restore then only re-adopted the node, flagged as deduced, so the student's id stayed in the restored course without being exported or erased. AI activities restored on another site were left out too, because their key is keyed with the site identifier. The course backup now records, for every restriction the plugin wrote, the activity, the action and a fingerprint (SHA-256 of the action id and the sorted user ids). The restore marks again, as written by the plugin, the single node of the restored activity that matches it, and rewrites the AI activity key for the restored action on this site. Two identical matching restrictions (a teacher's restriction listing exactly the same students) are attributed to nobody and reported in the restore log. Backups made before this release restore as before. Tests: `tests/privacy/restored_gate_privacy_test.php` (`test_a_restored_gate_whose_marker_core_stripped_is_exported_and_erased`, `test_restore_does_not_claim_a_teachers_identical_restriction`, `test_ai_activity_restored_on_another_site_is_reattributed`)
+- **CDR-PRIV-001-R2: the requests kept by the course service are recorded, exported and their erasure requested**
+  Every AI activity starts with `/activity/init`, and the course service keeps that thread (activity instructions, request configuration and generated activity). The plugin now records each thread against its student, course, action and generated activity in the new table `local_coursedynamicrules_aireq`. The privacy provider puts the course context in the student's context list, exports the recorded requests, and on erasure asks the course service to erase the student's threads of this plugin first, deleting the local rows only once the service confirms; otherwise the rows are kept and an adhoc task (`remote_erasure_task`) retries. Deleting an account queues the same task. The privacy metadata declares the new table and what the course service keeps. **The remote erasure is pending the course service endpoint**: it does not exist yet, so the plugin calls nothing and reports every remote erasure as not done, keeping the rows and the queued retry until the endpoint is connected. The upgrade records the students of the existing AI activities (found through their key) without a thread id; requests whose activity was never created, was deleted or lost its ID number cannot be recovered. Tests: `tests/privacy/remote_lifecycle_test.php` (`test_init_records_the_thread_for_the_student`, `test_user_with_remote_data_is_in_contextlist`, `test_export_lists_the_remote_requests`, `test_erasure_calls_the_service_scoped_to_this_plugin_and_forgets_rows`, `test_failed_remote_erasure_keeps_rows_and_queues_retry`, `test_user_deleted_queues_remote_erasure`, `test_retry_task_erases_when_the_service_confirms_and_fails_otherwise`, `test_the_production_client_reports_not_available`, `test_upgrade_backfills_requests_from_keyed_activities`), `tests/privacy/provider_test.php` (`test_get_metadata_declares_the_remote_requests_and_what_the_service_keeps`)
+
+---
+
 ## 1.8.11
 
 **Released on:** 2026-11-06
