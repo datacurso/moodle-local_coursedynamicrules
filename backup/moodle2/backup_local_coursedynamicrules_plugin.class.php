@@ -98,11 +98,29 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         ]);
         $notificationroles->add_child($notificationrole);
 
+        // The gates the plugin wrote on this course's modules, one per node: the module, the action
+        // and a fingerprint of the action and the ids the node lists. Core strips the ownership
+        // marker whenever it re-encodes a restored tree, and this is what lets the restore give it
+        // back to the right node, on this site or another one (CDR-PRIV-002-R1). Kept at the wrapper
+        // level, beside the notification roles, because a gate is computed from the modules' JSON
+        // and not read from a table a nested element could select by its parent action.
+        $gates = new backup_nested_element('coursedynamicrules_gates');
+        $pluginwrapper->add_child($gates);
+        $gate = new backup_nested_element('coursedynamicrules_gate', ['id'], [
+            'cmid',
+            'actionid',
+            'fingerprint',
+        ]);
+        $gates->add_child($gate);
+
         // Sources.
         $rule->set_source_table('local_coursedynamicrules_rule', ['courseid' => backup::VAR_COURSEID]);
         $condition->set_source_table('local_coursedynamicrules_condition', ['ruleid' => backup::VAR_PARENTID]);
         $action->set_source_table('local_coursedynamicrules_action', ['ruleid' => backup::VAR_PARENTID]);
         $notificationrole->set_source_array($this->collect_notification_roles());
+        $gate->set_source_array(
+            \local_coursedynamicrules\local\gate_fingerprint::gates_of_course((int) $this->task->get_courseid())
+        );
 
         // Annotations.
         $notificationrole->annotate_ids('role', 'roleid');

@@ -182,15 +182,31 @@ $string['plugin_missing'] = 'Esta ação requer que o plugin <strong>{$a->plugin
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Este plugin não está disponível porque a licença do produto expirou ou é inválida. Acesse <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> para renovar ou comprar uma nova licença.';
 $string['privacy:export:activitykey'] = 'O número de ID de uma atividade que uma regra de IA gerou para você. É um código calculado a partir da ação da regra e do seu id de usuário: seu id não pode ser recuperado a partir dele, mas ele identifica a atividade como a gerada para você, por isso faz parte dos seus dados. Ele é apagado quando seus dados são apagados.';
+$string['privacy:export:airequests'] = 'Solicitações de atividades com IA guardadas pelo serviço de cursos (Smart Rules AI)';
+$string['privacy:export:airequestsexplained'] = 'Cada entrada é uma solicitação que este site enviou ao serviço de cursos da Datacurso para gerar uma atividade com IA para si. Para cada fio, o serviço guarda as instruções da atividade, a configuração da solicitação e a atividade gerada. Um id de fio vazio significa que a solicitação foi feita antes de o plugin registar ids de fio. Quando os seus dados são apagados, o plugin pede ao serviço que apague estes fios e só os esquece aqui quando o serviço o confirma. Uma data em erasurerequested significa que o apagamento foi pedido e o serviço de cursos ainda não o confirmou; as solicitações de um curso eliminado aparecem no seu próprio contexto.';
 $string['privacy:metadata:course_modules:idnumber'] = 'O número de ID de uma atividade gerada por uma regra de IA. O plugin o define com uma chave calculada a partir da ação da regra e do id de usuário do estudante (um hash com chave que começa com cdrai_), para que a mesma atividade nunca seja gerada duas vezes para o mesmo estudante. O id de usuário não pode ser recuperado a partir da chave, mas a chave é derivada dele, por isso é tratada como dado do estudante: é exportada com os seus dados e apagada quando esses dados são apagados.';
 $string['privacy:metadata:datacurso_ai:site_id'] = 'Um identificador aleatório e permanente deste site Moodle. Este plugin não o define: a conexão compartilhada da Datacurso (aiprovider_datacurso) o adiciona a cada solicitação que envia, incluindo a solicitação da atividade e a aprovação do seu plano.';
 $string['privacy:metadata:datacurso_ai:timezone'] = 'O fuso horário da conta com a qual a solicitação é executada. Este plugin não o define: a conexão compartilhada da Datacurso (aiprovider_datacurso) o adiciona a cada solicitação que envia. As regras são executadas a partir de tarefas agendadas, então normalmente é o fuso horário da conta que executa a tarefa (geralmente o administrador) ou o padrão do site, e não o do estudante.';
+$string['privacy:metadata:datacurso_course_service'] = 'O serviço de cursos da Datacurso guarda, para cada solicitação de atividade com IA, um fio com o que recebeu e o que produziu. O apagamento destes fios é pedido ao serviço de cursos; até o serviço o confirmar, as solicitações continuam registadas neste site e o apagamento é tentado novamente.';
+$string['privacy:metadata:datacurso_course_service:generated_activity'] = 'A atividade que o serviço gerou para o estudante.';
+$string['privacy:metadata:datacurso_course_service:instructions'] = 'As instruções da atividade que o serviço recebeu para o estudante.';
+$string['privacy:metadata:datacurso_course_service:request_config'] = 'A configuração da solicitação: idioma, geração de imagens e aprovação.';
+$string['privacy:metadata:datacurso_course_service:userid'] = 'O id do estudante para quem a solicitação foi feita.';
+$string['privacy:metadata:local_coursedynamicrules_aireq'] = 'As solicitações de atividades com IA que o plugin enviou ao serviço de cursos para cada estudante, para as poder exportar e pedir o seu apagamento.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:actionid'] = 'A ação da regra que fez a solicitação.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:cmid'] = 'A atividade gerada pela solicitação, quando já existe.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:courseid'] = 'O curso em que a solicitação foi feita.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'Quando foi pedido o apagamento da solicitação. A solicitação continua registada até o serviço de cursos confirmar o apagamento.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'O id de fio que o serviço de cursos deu à solicitação.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Quando a solicitação foi feita.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'O estudante para quem a solicitação foi feita.';
 $string['provider_not_enabled_warning'] = 'Ative as notificações com o <strong>Datacurso Message Hub</strong> para que esta ação envie notificações via WhatsApp e SMS usando provedores como Twilio.
 Você pode habilitar em <a href="{$a}" target="_blank">Configurações de notificação</a> pesquisando por <strong>Smart Rules AI notification</strong>.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Consulte a documentação para mais informações.</a>';
 $string['recurringinterval'] = 'Intervalo recorrente';
 $string['recurringinterval_help'] = 'Insira um valor numérico que represente um intervalo recorrente de inatividade (ex.: "7" para a cada 7 dias de inatividade).';
+$string['remote_erasure_task'] = 'Enviar ao serviço de cursos os apagamentos pendentes de solicitações de atividades com IA';
 $string['rolestonotify'] = 'Funções a notificar';
 $string['rolestonotify_help'] = 'Selecione as funções que o usuário deve ter para receber a notificação. Selecione pelo menos uma.';
 $string['ruleactive'] = 'Ativa';

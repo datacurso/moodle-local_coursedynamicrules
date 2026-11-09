@@ -26,6 +26,7 @@ use local_coursedynamicrules\form\actions\createaiactivity_form;
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\local\aiactivity_key;
 use local_coursedynamicrules\local\payload_anonymizer;
+use local_coursedynamicrules\local\remote_erasure;
 use local_coursegen\ai_context;
 use local_coursegen\local\service\create_mod_service;
 
@@ -54,6 +55,13 @@ class createaiactivity_action extends action {
 
     /**
      * Execute the action
+     *
+     * The thread the course service opens with /activity/init is recorded for the student
+     * (remote_erasure::record_request()) as soon as its id is known. Known limitation: when the service
+     * opened the thread but its answer never arrived (a timeout or a dropped connection), there is no
+     * thread id, so nothing is recorded for that request on this site and it cannot be listed in a
+     * privacy export or erased by thread. Only a user-wide erasure reaches such a thread
+     * (remote_erasure_client::SCOPE_USER), which is what an account deletion sends.
      *
      * @param object $context Context of the rule
      */
@@ -167,6 +175,12 @@ class createaiactivity_action extends action {
                 throw new \moodle_exception('error_unexpected_airesponse', 'local_coursedynamicrules');
             }
 
+            // From here the course service keeps a thread for this student - the instructions, the
+            // request configuration and, later, the generated activity - whatever happens next. It is
+            // recorded before anything else can fail, so a privacy request can always list it and ask
+            // the service to erase it (CDR-PRIV-001-R2).
+            $requestid = remote_erasure::record_request($actionid, (int) $courseid, (int) $userid, $threadid);
+
             // The graph only advances while the stream is open: consume it until a lifecycle
             // event. The service ignores auto_approve and stops on review_needed once the plan
             // is drafted: nobody can review it under cron, so the plan is approved on the
@@ -252,6 +266,7 @@ class createaiactivity_action extends action {
             if ((string) $DB->get_field('course_modules', 'idnumber', ['id' => $newcm->coursemodule]) === '') {
                 self::set_generated_module_key((int) $newcm->coursemodule, $key);
             }
+            remote_erasure::attach_module($requestid, (int) $newcm->coursemodule);
 
             // Restrict the new activity to the current user only, and stamp the restriction as this
             // plugin's own. The stamp is what makes the student's id REACHABLE: nothing in core

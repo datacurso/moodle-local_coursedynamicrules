@@ -192,15 +192,31 @@ $string['plugin_missing'] = 'Tindakan ini memerlukan plugin <strong>{$a->pluginn
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Plugin ini tidak tersedia karena lisensi produk telah kedaluwarsa atau tidak valid. Silakan kunjungi <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> untuk memperbarui atau membeli lisensi baru.';
 $string['privacy:export:activitykey'] = 'Nomor ID aktivitas yang dibuat oleh aturan AI untuk Anda. Ini adalah kode yang dihitung dari tindakan aturan dan id pengguna Anda: id Anda tidak dapat diperoleh kembali darinya, tetapi kode ini menandai aktivitas tersebut sebagai aktivitas yang dibuat untuk Anda, sehingga termasuk data Anda. Kode ini dihapus ketika data Anda dihapus.';
+$string['privacy:export:airequests'] = 'Permintaan aktivitas AI yang disimpan oleh layanan kursus (Smart Rules AI)';
+$string['privacy:export:airequestsexplained'] = 'Setiap entri adalah permintaan yang dikirim situs ini ke layanan kursus Datacurso untuk membuat aktivitas AI bagi Anda. Untuk setiap utas, layanan menyimpan instruksi aktivitas, konfigurasi permintaan, dan aktivitas yang dihasilkan. ID utas yang kosong berarti permintaan dibuat sebelum plugin mencatat ID utas. Saat data Anda dihapus, plugin meminta layanan menghapus utas-utas ini dan baru melupakannya di sini setelah layanan mengonfirmasi. Tanggal pada erasurerequested berarti penghapusannya telah diminta dan layanan kursus belum mengonfirmasinya; permintaan dari kursus yang dihapus dicantumkan dalam konteks Anda sendiri.';
 $string['privacy:metadata:course_modules:idnumber'] = 'Nomor ID aktivitas yang dibuat oleh aturan AI. Plugin mengisinya dengan kunci yang dihitung dari tindakan aturan dan id pengguna siswa (hash berkunci yang diawali cdrai_), agar aktivitas yang sama tidak pernah dibuat dua kali untuk siswa yang sama. Id pengguna tidak dapat diperoleh kembali dari kunci tersebut, tetapi kunci itu diturunkan darinya, sehingga diperlakukan sebagai data siswa: kunci diekspor bersama data siswa dan dihapus ketika data tersebut dihapus.';
 $string['privacy:metadata:datacurso_ai:site_id'] = 'Pengenal acak dan permanen dari situs Moodle ini. Plugin ini tidak mengisinya: koneksi Datacurso bersama (aiprovider_datacurso) menambahkannya ke setiap permintaan yang dikirimnya, termasuk permintaan aktivitas dan persetujuan rencananya.';
 $string['privacy:metadata:datacurso_ai:timezone'] = 'Zona waktu akun yang menjalankan permintaan. Plugin ini tidak mengisinya: koneksi Datacurso bersama (aiprovider_datacurso) menambahkannya ke setiap permintaan yang dikirimnya. Aturan dijalankan dari tugas terjadwal, sehingga biasanya ini adalah zona waktu akun yang menjalankan tugas (umumnya administrator) atau zona waktu bawaan situs, bukan milik siswa.';
+$string['privacy:metadata:datacurso_course_service'] = 'Layanan kursus Datacurso menyimpan, untuk setiap permintaan aktivitas AI, sebuah utas berisi apa yang diterima dan apa yang dihasilkannya. Penghapusan utas-utas ini diminta melalui layanan kursus; sampai layanan mengonfirmasi, permintaan tetap tercatat di situs ini dan penghapusan dicoba lagi.';
+$string['privacy:metadata:datacurso_course_service:generated_activity'] = 'Aktivitas yang dihasilkan layanan untuk siswa.';
+$string['privacy:metadata:datacurso_course_service:instructions'] = 'Instruksi aktivitas yang diterima layanan untuk siswa.';
+$string['privacy:metadata:datacurso_course_service:request_config'] = 'Konfigurasi permintaan: bahasa, pembuatan gambar, dan persetujuan.';
+$string['privacy:metadata:datacurso_course_service:userid'] = 'ID siswa yang menjadi tujuan permintaan.';
+$string['privacy:metadata:local_coursedynamicrules_aireq'] = 'Permintaan aktivitas AI yang dikirim plugin ke layanan kursus untuk setiap siswa, agar dapat diekspor dan penghapusannya diminta.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:actionid'] = 'Aksi aturan yang membuat permintaan.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:cmid'] = 'Aktivitas yang dihasilkan oleh permintaan, setelah ada.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:courseid'] = 'Kursus tempat permintaan dibuat.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'Kapan penghapusan permintaan diminta. Permintaan tetap tercatat sampai layanan kursus mengonfirmasi penghapusan.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'ID utas yang diberikan layanan kursus untuk permintaan.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Kapan permintaan dibuat.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'Siswa yang menjadi tujuan permintaan.';
 $string['provider_not_enabled_warning'] = 'Aktifkan notifikasi dengan <strong>Datacurso Message Hub</strong> agar tindakan ini dapat mengirim notifikasi melalui WhatsApp dan SMS menggunakan penyedia seperti Twilio.
 Anda dapat mengaktifkannya dari <a href="{$a}" target="_blank">Pengaturan notifikasi</a> dengan mencari <strong>Smart Rules AI notification</strong>.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Lihat dokumentasi untuk informasi lebih lanjut.</a>';
 $string['recurringinterval'] = 'Interval berulang';
 $string['recurringinterval_help'] = 'Masukkan nilai numerik yang mewakili interval ketidakaktifan berulang (mis., "7" untuk setiap 7 hari ketidakaktifan).';
+$string['remote_erasure_task'] = 'Kirim penghapusan permintaan aktivitas AI yang tertunda ke layanan kursus';
 $string['rolestonotify'] = 'Peran yang diberi notifikasi';
 $string['rolestonotify_help'] = 'Pilih peran yang harus dimiliki pengguna untuk menerima notifikasi. Anda harus memilih setidaknya satu.';
 $string['ruleactive'] = 'Aktif';
