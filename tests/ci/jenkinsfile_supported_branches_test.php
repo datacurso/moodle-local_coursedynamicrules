@@ -76,6 +76,29 @@ final class jenkinsfile_supported_branches_test extends \basic_testcase {
     }
 
     /**
+     * Every Moodle release inside the supported range has its branch in Jenkins, not only the two ends.
+     *
+     * `$plugin->supported` is a range: [405, 503] also covers 5.0, 5.1 and 5.2.
+     */
+    public function test_every_moodle_release_in_the_supported_range_has_a_jenkins_branch(): void {
+        // Moodle releases from 4.5 on; Moodle has no 4.6 to 4.9.
+        $releases = [405, 500, 501, 502, 503];
+        $supported = $this->supported_versions();
+        $jenkins = $this->jenkins_versions();
+
+        foreach ($releases as $version) {
+            if ($version < min($supported) || $version > max($supported)) {
+                continue;
+            }
+            $this->assertContains(
+                $version,
+                $jenkins,
+                "Moodle {$version} is inside \$plugin->supported but Jenkinsfile.moodleplugin has no MOODLE_{$version}_STABLE branch"
+            );
+        }
+    }
+
+    /**
      * Jenkins runs no branch outside the supported range, which would hide a stale declaration.
      */
     public function test_every_jenkins_branch_is_within_the_supported_range(): void {
