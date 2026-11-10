@@ -1,3 +1,17 @@
+## 1.8.11-wp
+
+**Compatibility note:** This version is compatible only with **Moodle Workplace 4.5**.
+
+## Added
+- **The plugin can be disabled per tenant from the Datacurso AI provider**
+  Smart Rules AI now asks `aiprovider_datacurso` whether it is enabled for the tenant of the user, and it is always the user's tenant that decides, never the tenant that owns the course. While it is disabled for a tenant, no user of that tenant uses the plugin in any course - their own tenant's courses, another tenant's courses or shared courses - and nothing is done for them: the course menu entry is hidden from them, the plugin pages and the grade condition form refuse them with the provider's message (a site administrator gets a link to the provider's plugin list), the grade and completion observers queue no evaluation for them, and an evaluation already queued for them is skipped. The scheduled tasks skip only the enrolled users of a tenant that disabled the plugin and keep processing the other users of the same course; the task log reports how many users were skipped per rule. Interactive requests follow the tenant of the current user; background work follows the tenant of the user the rule acts for, never the cron user. On a site without tenancy the provider's site default applies. This plugin never had its own "Enabled" setting, so there is nothing to migrate. Test: `tests/plugin_disabled_test.php`
+
+## Changed
+- **Requires the provider that keeps the state of each plugin per tenant**
+  The dependency on `aiprovider_datacurso` is raised to `2026110901` (1.7.0-wp). The dependencies on `local_coursegen`, `availability_user` and `tool_tenant` are unchanged.
+- **The README lists Moodle Workplace 4.5 as the only supported version**
+  The prerequisites still said "Moodle 4.5 to 5.2", which applies to the Moodle LMS line, not to this branch. They now match `$plugin->supported` and list the Datacurso AI provider requirement.
+
 ## 1.8.10-wp
 
 **Compatibility note:** This version is compatible only with **Moodle Workplace 4.5**.

@@ -26,6 +26,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use local_coursedynamicrules\local\tenant_context;
+
 require('../../config.php');
 
 $id = required_param('id', PARAM_INT);
@@ -35,6 +37,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+tenant_context::require_enabled_for_current_user();
 // Duplicating creates a rule: the create capability is the one that speaks here.
 require_capability('local/coursedynamicrules:createrule', $context);
 require_sesskey();

@@ -19,6 +19,7 @@ namespace local_coursedynamicrules\task;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\enrolled_users;
 use local_coursedynamicrules\helper\task_batch;
+use local_coursedynamicrules\local\tenant_context;
 
 /**
  * Class no_course_access_task
@@ -44,6 +45,12 @@ class no_course_access_task extends \core\task\scheduled_task {
     /**
      * Execute the task.
      *
+     * A rule acts only for the enrolled users whose tenant has the plugin enabled in the Datacurso AI
+     * provider: the users of a tenant that disabled it are skipped in every course, shared or not, and
+     * the other users of the same course are processed as usual. The tenant of the course and of the
+     * cron user play no part.
+     *
+     * @return void
      */
     public function execute() {
         global $DB;
@@ -65,6 +72,8 @@ class no_course_access_task extends \core\task\scheduled_task {
         );
 
         $executed = 0;
+        // One provider lookup per tenant for the whole run.
+        $tenants = new tenant_context();
         $totalusers = 0;
 
         // Iterate through each rule and execute if conditions are met.
@@ -74,7 +83,9 @@ class no_course_access_task extends \core\task\scheduled_task {
             // nothing but the id, and a course is never held in memory whole. Nothing is queried
             // until the rule is really executed; the walk itself is live (see helper\enrolled_users).
             $context = \context_course::instance($rule->courseid);
-            $users = enrolled_users::ids($context, $batchsize);
+            // Users of a tenant that disabled the plugin are dropped from the stream before the rule
+            // sees them; the others still run, whichever tenant owns the course.
+            $users = $tenants->filter_users(enrolled_users::ids($context, $batchsize));
 
             $ruleinstance = new rule($rule, $users);
             if ($this->could_be_execute_rule($ruleinstance)) {
@@ -86,6 +97,7 @@ class no_course_access_task extends \core\task\scheduled_task {
                         . "(over batch threshold {$batchsize}) while evaluating rule {$rule->id}.");
                 }
                 $ruleinstance->execute();
+                $tenants->trace_skipped_users((int) $rule->courseid, (int) $rule->id);
                 $this->set_time_period($ruleinstance);
                 $executed++;
             }

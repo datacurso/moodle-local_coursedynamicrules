@@ -30,6 +30,19 @@ final class rule_test extends \advanced_testcase {
     private const EVENT_TYPES = ['complete_activity', 'grade_in_activity', 'passgrade'];
 
     /**
+     * Skip the whole class when the Datacurso AI provider is absent.
+     *
+     * @return void
+     */
+    protected function setUp(): void {
+        parent::setUp();
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider these tests cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
+    }
+
+    /**
      * Create a module with manual completion and mark the given user complete.
      *
      * @param \stdClass $course Course.

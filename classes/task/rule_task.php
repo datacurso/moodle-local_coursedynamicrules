@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\local\tenant_context;
 
 /**
  * Class rule_task
@@ -49,6 +50,12 @@ class rule_task extends \core\task\adhoc_task {
 
     /**
      * This function is execute when cron jobs are executed
+     *
+     * Skipped, without running any rule, while the plugin is disabled in the Datacurso AI provider for the
+     * tenant of the user it was queued for, whichever tenant owns the course. Cron runs as the admin, so
+     * the current user is never consulted.
+     *
+     * @return void
      */
     public function execute() {
         global $DB;
@@ -59,6 +66,11 @@ class rule_task extends \core\task\adhoc_task {
             $courseid = $customdata->courseid;
             $userid = $customdata->userid;
             $conditiontypes = $customdata->conditiontypes;
+
+            if (!tenant_context::is_enabled_for_user((int) $userid)) {
+                mtrace(get_string('task_skipped_plugindisabled', 'local_coursedynamicrules'));
+                return;
+            }
 
             // A deleted user is out: this task can be drained after the site deleted the user it
             // was queued for, and a rule must not act for them - the enable-activity action would
