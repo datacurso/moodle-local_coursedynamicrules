@@ -1,8 +1,10 @@
-## Unreleased
+## 1.8.13
+
+**Released on:** 2026-11-10
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
-Response to the MindFree security re-evaluation. Each entry names the MindFree finding it closes and the tests that back it.
+Response to the MindFree security re-evaluation. Each entry that closes a MindFree finding names its code, and every entry names the tests that back it (the CDR-SEC-007 removal deletes the only test of the removed folder). The entries without a code are not MindFree findings: the 4.5-only line, the guard for an older Datacurso AI provider and the upgrade fix for sites already on 1.8.12.
 
 ## Changed
 - **This line supports only Moodle 4.5**
