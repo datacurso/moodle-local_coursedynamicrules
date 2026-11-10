@@ -156,10 +156,10 @@ use local_coursedynamicrules\local\remote_erasure;
  * only once the service confirmed it. When it did not, the rows are kept, still exportable with the
  * date their erasure was requested, and the scheduled remote_erasure_task sends them again on every
  * run; the stamp, not any task, is what keeps the request. A course deletion and an account deletion
- * stamp the rows the same way. The service has no erasure endpoint yet, so the production client
- * reports every erasure as not done (unavailable_remote_erasure_client): the data subject is told the
- * request completed, because that is tool_dataprivacy's behaviour, while the remote part stays
- * pending and visible in the rows. What is sent for which rows is described in remote_erasure_client.
+ * stamp the rows the same way. The production client (course_service_remote_erasure_client) sends
+ * POST /privacy/erase to the course service; while the service does not confirm, the data subject is
+ * told the request completed, because that is tool_dataprivacy's behaviour, while the remote part
+ * stays pending and visible in the rows. What is sent for which rows is described in remote_erasure_client.
  *
  * WHAT AN ERASURE DOES TO ACCESS, WHICH IS NOT ALWAYS WHAT A READER EXPECTS
  *

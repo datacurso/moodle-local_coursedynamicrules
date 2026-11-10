@@ -277,9 +277,12 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026091600, 'local', 'coursedynamicrules');
     }
 
-    if ($oldversion < 2026110900) {
+    if ($oldversion < 2026111000) {
         // CDR-PRIV-001-R2: every AI activity request is recorded against its student, so a privacy
-        // request can list it and ask the course service to erase it.
+        // request can list it and ask the course service to erase it. Numbered above the 1.8.12
+        // release (2026110900): a site already on 1.8.12 would skip a step numbered at or below it
+        // and never get the table. Every part is idempotent, so a site that built the table on the
+        // pre-release line loses nothing by running it again.
         $table = new xmldb_table('local_coursedynamicrules_aireq');
         $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
         $table->add_field('actionid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
@@ -288,20 +291,17 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         $table->add_field('threadid', XMLDB_TYPE_CHAR, '255', null, null, null, null);
         $table->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
         $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('erasurerequested', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
         $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
         $table->add_key('courseid', XMLDB_KEY_FOREIGN, ['courseid'], 'course', ['id']);
         $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+        $table->add_index('erasurerequested', XMLDB_INDEX_NOTUNIQUE, ['erasurerequested']);
         if (!$dbman->table_exists($table)) {
             $dbman->create_table($table);
         }
 
-        local_coursedynamicrules_upgrade_backfill_ai_requests();
-
-        upgrade_plugin_savepoint(true, 2026110900, 'local', 'coursedynamicrules');
-    }
-
-    if ($oldversion < 2026110901) {
-        // CDR-PRIV-001-R2: a requested remote erasure is recorded on its rows, so it survives any task.
+        // A requested remote erasure is recorded on its rows, so it survives any task. A table
+        // built before the column existed gets it here.
         $table = new xmldb_table('local_coursedynamicrules_aireq');
         $field = new xmldb_field('erasurerequested', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'timecreated');
         if (!$dbman->field_exists($table, $field)) {
@@ -312,6 +312,8 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
             $dbman->add_index($table, $index);
         }
 
+        local_coursedynamicrules_upgrade_backfill_ai_requests();
+
         // Requests of courses deleted since the table exists: their course went, so their erasure is due.
         $DB->set_field_select(
             'local_coursedynamicrules_aireq',
@@ -320,7 +322,7 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
             'erasurerequested IS NULL AND courseid NOT IN (SELECT id FROM {course})'
         );
 
-        upgrade_plugin_savepoint(true, 2026110901, 'local', 'coursedynamicrules');
+        upgrade_plugin_savepoint(true, 2026111000, 'local', 'coursedynamicrules');
     }
 
     return true;

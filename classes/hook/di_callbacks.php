@@ -16,8 +16,8 @@
 
 namespace local_coursedynamicrules\hook;
 
+use local_coursedynamicrules\local\course_service_remote_erasure_client;
 use local_coursedynamicrules\local\remote_erasure_client;
-use local_coursedynamicrules\local\unavailable_remote_erasure_client;
 
 /**
  * Dependency injection definitions of this plugin.
@@ -36,7 +36,7 @@ class di_callbacks {
     public static function provide_di_configuration(\core\hook\di_configuration $hook): void {
         $hook->add_definition(
             remote_erasure_client::class,
-            static fn(): remote_erasure_client => new unavailable_remote_erasure_client()
+            static fn(): remote_erasure_client => new course_service_remote_erasure_client()
         );
     }
 }

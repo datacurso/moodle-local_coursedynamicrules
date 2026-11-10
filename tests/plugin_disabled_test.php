@@ -298,10 +298,11 @@ final class plugin_disabled_test extends \advanced_testcase {
     }
 
     /**
-     * Every page refuses through the provider right after the course login check.
+     * Every page refuses through the provider guard right after the course login check.
      *
      * Page scripts cannot run inside PHPUnit, so the contract is checked on the script itself;
-     * the refusal itself is the provider's require_enabled(), exercised by the dynamic form test above.
+     * the refusal itself is provider_dependency::require_enabled(), exercised by the dynamic form test above
+     * and by tests/local/provider_dependency_test.php.
      *
      * @dataProvider page_provider
      * @param string $page Page script name.
@@ -312,7 +313,7 @@ final class plugin_disabled_test extends \advanced_testcase {
         $source = file_get_contents($CFG->dirroot . '/local/coursedynamicrules/' . $page);
 
         $login = strpos($source, 'require_login($course);');
-        $gate = strpos($source, "plugin_settings::require_enabled('local_coursedynamicrules');");
+        $gate = strpos($source, "provider_dependency::require_enabled();");
         $this->assertNotFalse($login);
         $this->assertNotFalse($gate);
         $this->assertGreaterThan($login, $gate);

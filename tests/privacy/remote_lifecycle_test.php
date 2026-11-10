@@ -40,8 +40,8 @@ require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
  * Every AI activity starts with /activity/init, and the service keeps that thread (the instructions,
  * the request configuration and the generated activity) on its side. The plugin records each thread
  * against its student, so the privacy provider can list it, export it and ask the service to erase
- * it. The service endpoint for that does not exist yet: the call goes through remote_erasure_client,
- * a fake here, and a failed or unavailable call keeps the rows marked as pending erasure, which the
+ * it. The call goes through remote_erasure_client (POST /privacy/erase on the course service in
+ * production), a fake here, and a failed or unavailable call keeps the rows marked as pending erasure, which the
  * scheduled remote_erasure_task sends again on every run until the service confirms.
  *
  * CDR-PRIV-001-R2.
@@ -270,11 +270,11 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
     }
 
     /**
-     * Without a connected service the production client reports the erasure as not done.
+     * Without a configured AI provider the production client reports the erasure as not done.
      *
      * @return void
      */
-    public function test_the_production_client_reports_not_available(): void {
+    public function test_the_production_client_without_a_provider_reports_not_done(): void {
         $this->assertFalse(
             \core\di::get(remote_erasure_client::class)->erase(
                 'local_coursedynamicrules',

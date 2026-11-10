@@ -26,11 +26,11 @@ use local_coursedynamicrules\local\remote_erasure;
  * every run, what is stamped and not yet confirmed, and the rows go only once the service confirmed.
  * The stamp is the only memory of the request, so it is never given up: a scheduled task runs again
  * whatever happened before, where an adhoc task stops after core's attempt limit (about 34 hours)
- * and is purged four weeks later. The course service has no erasure endpoint yet, so every run today
- * leaves everything pending.
+ * and is purged four weeks later.
  *
- * It never fails because the service did not confirm: that is the expected state until the endpoint
- * exists, and the pending rows say so, both here and in the privacy export.
+ * It never fails because the service did not confirm (unreachable, a site without token balance or
+ * subscription, any other answer): the pending rows say so, both here and in the privacy export, and
+ * the next run sends them again.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>

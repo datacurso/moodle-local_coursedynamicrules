@@ -27,8 +27,8 @@ namespace local_coursedynamicrules\local;
  * An erasure is durable. Requesting it stamps the rows (erasurerequested) before anything is sent;
  * the rows are deleted only once the service confirmed, and the scheduled remote_erasure_task sends
  * every stamped row again on each run until it does. Nothing depends on a task surviving: an adhoc
- * task gives up after core's attempt limit, a stamp in the table does not. Until the service exposes
- * an erasure endpoint every erasure stays pending (see unavailable_remote_erasure_client). What is
+ * task gives up after core's attempt limit, a stamp in the table does not. The production client is
+ * course_service_remote_erasure_client (POST /privacy/erase on the course service). What is
  * sent for which rows - by thread, or by user once every request of the student is to be erased - is
  * described in remote_erasure_client.
  *

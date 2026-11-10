@@ -271,6 +271,8 @@ $string['provider_not_enabled_warning'] = 'Enable notifications with <strong>Dat
 You can enable it from <a href="{$a}" target="_blank">Notification settings</a> and searching <strong>Smart Rules AI notification</strong>.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">See documentation for more information.</a>';
+$string['providerupdaterequired'] = 'Smart Rules AI is not available right now. Please contact your site administrator.';
+$string['providerupdaterequired_admin'] = 'Smart Rules AI needs the Datacurso AI provider (aiprovider_datacurso) 1.7.0 or later. The installed version is older, so Smart Rules AI is paused: no rule runs and its pages stay closed. Update the Datacurso AI provider to 1.7.0 or later to use it again.';
 $string['recurringinterval'] = 'Recurring interval';
 $string['recurringinterval_help'] = 'Enter a whole number greater than 0 representing a recurring inactivity interval (e.g., "7" for every 7 days of inactivity).';
 $string['remote_erasure_task'] = 'Send pending erasures of AI activity requests to the course service';
@@ -306,6 +308,7 @@ $string['sendnotification'] = 'Send notification';
 $string['sendnotification_description'] = 'Send notification \'{$a}\' to users';
 $string['sendnotification_description_details'] = 'Recipients: {$a->primaryroles}. Copy to: {$a->copyroles}. Message: "{$a->body}"';
 $string['task_skipped_plugindisabled'] = 'The plugin is disabled in the Datacurso AI provider; skipping.';
+$string['task_skipped_providerupdaterequired'] = 'The Datacurso AI provider is older than 1.7.0; skipping. Update the Datacurso AI provider to 1.7.0 or later.';
 $string['taskbatchsize'] = 'Users per batch';
 $string['taskbatchsize_desc'] = 'How many enrolled users each scheduled task fetches at a time while it walks a course. The tasks never hold more than this many at once, so a lower value costs less memory per run and more queries; a higher one, the opposite. Courses larger than this value are reported in the task log. Default: 500.';
 $string['typemissing'] = 'Missing value "type"';
