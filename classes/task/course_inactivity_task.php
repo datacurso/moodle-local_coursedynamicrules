@@ -19,6 +19,7 @@ namespace local_coursedynamicrules\task;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\enrolled_users;
 use local_coursedynamicrules\helper\task_batch;
+use local_coursedynamicrules\local\tenant_context;
 
 defined('MOODLE_INTERNAL') || die();
 require_once($CFG->libdir . '/completionlib.php');
@@ -46,6 +47,12 @@ class course_inactivity_task extends \core\task\scheduled_task {
     /**
      * Execute the task.
      *
+     * A rule acts only for the enrolled users whose tenant has the plugin enabled in the Datacurso AI
+     * provider: the users of a tenant that disabled it are skipped in every course, shared or not, and
+     * the other users of the same course are processed as usual. The tenant of the course and of the
+     * cron user play no part.
+     *
+     * @return void
      */
     public function execute() {
         global $DB;
@@ -67,6 +74,8 @@ class course_inactivity_task extends \core\task\scheduled_task {
         );
 
         $executed = 0;
+        // One provider lookup per tenant for the whole run.
+        $tenants = new tenant_context();
         $totalusers = 0;
 
         // Iterate through each rule and execute if conditions are met.
@@ -80,7 +89,9 @@ class course_inactivity_task extends \core\task\scheduled_task {
             // however many enrolments they hold), walked in pages of ids and filtered as they stream:
             // the course is never held in memory whole (see helper\enrolled_users).
             $context = \context_course::instance($rule->courseid);
-            $users = enrolled_users::ids($context, $batchsize);
+            // Users of a tenant that disabled the plugin are dropped from the stream before the rule
+            // sees them; the others still run, whichever tenant owns the course.
+            $users = $tenants->filter_users(enrolled_users::ids($context, $batchsize));
 
             // Counted only for a rule that runs, for the report and the threshold notice.
             $usercount = count_enrolled_users($context, '', 0, true);
@@ -92,6 +103,7 @@ class course_inactivity_task extends \core\task\scheduled_task {
 
             $ruleinstance = new rule($rule, self::without_course_completion($users, $completion));
             $ruleinstance->execute();
+            $tenants->trace_skipped_users((int) $rule->courseid, (int) $rule->id);
             $executed++;
         }
 

@@ -29,6 +29,7 @@ use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
 use local_coursedynamicrules\helper\rule_lock;
 use local_coursedynamicrules\helper\rule_badge;
+use local_coursedynamicrules\local\tenant_context;
 
 require('../../config.php');
 
@@ -38,6 +39,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+tenant_context::require_enabled_for_current_user();
 
 // The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
 // unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and

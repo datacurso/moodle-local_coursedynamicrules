@@ -45,6 +45,10 @@ final class rule_task_oneshot_test extends \advanced_testcase {
     protected function setUp(): void {
         global $DB;
         parent::setUp();
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider these tests cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
         $this->resetAfterTest(true);
 
         $this->course = $this->getDataGenerator()->create_course(['enablecompletion' => 1]);

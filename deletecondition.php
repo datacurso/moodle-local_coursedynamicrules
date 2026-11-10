@@ -24,6 +24,7 @@
 
 use local_coursedynamicrules\helper\component_renderer;
 use local_coursedynamicrules\helper\rule_component_loader;
+use local_coursedynamicrules\local\tenant_context;
 
 require('../../config.php');
 
@@ -37,6 +38,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+tenant_context::require_enabled_for_current_user();
 require_capability('local/coursedynamicrules:deletecondition', $context);
 // Ownership resolves the target BEFORE the lock speaks about it: lock-first let anyone holding
 // the capability in their own course probe foreign rule ids and read the lock state off the

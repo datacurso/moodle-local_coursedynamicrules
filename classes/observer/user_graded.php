@@ -16,6 +16,7 @@
 
 namespace local_coursedynamicrules\observer;
 
+use local_coursedynamicrules\local\tenant_context;
 use local_coursedynamicrules\task\rule_task;
 
 /**
@@ -37,10 +38,19 @@ class user_graded {
 
     /**
      * Trigger when user receive grade
+     *
+     * Queues nothing while the plugin is disabled in the Datacurso AI provider for the tenant of the graded
+     * user, whichever tenant owns the course. The grader may belong to another tenant, so the current user
+     * is never consulted.
+     *
      * @param \core\event\user_graded $event
+     * @return void
      */
     public static function observe(\core\event\user_graded $event) {
         $eventdata = $event->get_data();
+        if (!tenant_context::is_enabled_for_user((int) $eventdata['relateduserid'])) {
+            return;
+        }
 
         $grade = $event->get_grade();
         $gradeitemtype = $grade->grade_item->itemtype;

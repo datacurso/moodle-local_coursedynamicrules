@@ -16,6 +16,7 @@
 
 namespace local_coursedynamicrules\observer;
 
+use local_coursedynamicrules\local\tenant_context;
 use local_coursedynamicrules\task\rule_task;
 
 /**
@@ -33,11 +34,19 @@ class course_module_completion_updated {
     /**
      * The definition of the event.
      *
+     * Queues nothing while the plugin is disabled in the Datacurso AI provider for the tenant of the user
+     * whose completion changed, whichever tenant owns the course.
+     *
      * @param \core\event\course_module_completion_updated $event The event object
+     * @return void
      */
     public static function observe(\core\event\course_module_completion_updated $event) {
         global $DB;
+
         $eventdata = $event->get_data();
+        if (!tenant_context::is_enabled_for_user((int) $eventdata['relateduserid'])) {
+            return;
+        }
 
         $completion = $event->get_record_snapshot('course_modules_completion', $eventdata["objectid"]);
 

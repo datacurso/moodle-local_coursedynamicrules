@@ -27,6 +27,19 @@ namespace local_coursedynamicrules\task;
  */
 final class no_course_access_task_test extends \advanced_testcase {
     /**
+     * Skip the whole class when the Datacurso AI provider is absent.
+     *
+     * @return void
+     */
+    protected function setUp(): void {
+        parent::setUp();
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider these tests cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
+    }
+
+    /**
      * Create an active no_course_access rule that notifies students, due to run now.
      *
      * @param int $courseid Course id.
