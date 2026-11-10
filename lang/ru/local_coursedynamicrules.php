@@ -214,6 +214,8 @@ $string['provider_not_enabled_warning'] = 'Включите уведомлени
 Вы можете включить это в <a href="{$a}" target="_blank">Настройках уведомлений</a>, найдя <strong>Smart Rules AI notification</strong>.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">См. документацию для получения дополнительной информации.</a>';
+$string['providerupdaterequired'] = 'Smart Rules AI сейчас недоступен. Обратитесь к администратору сайта.';
+$string['providerupdaterequired_admin'] = 'Для Smart Rules AI нужен ИИ-провайдер Datacurso (aiprovider_datacurso) версии 1.7.0 или новее. Установлена более старая версия, поэтому Smart Rules AI приостановлен: правила не выполняются, а его страницы закрыты. Обновите ИИ-провайдер Datacurso до версии 1.7.0 или новее, чтобы снова им пользоваться.';
 $string['recurringinterval'] = 'Повторяющийся интервал';
 $string['recurringinterval_help'] = 'Введите числовое значение, представляющее повторяющийся интервал неактивности (например, «7» для каждых 7 дней неактивности).';
 $string['remote_erasure_task'] = 'Отправлять в сервис курсов ожидающие удаления запросов на ИИ-активности';
@@ -232,5 +234,6 @@ $string['selectanactivity'] = 'Выберите активность';
 $string['sendnotification'] = 'Отправить уведомление';
 $string['sendnotification_description'] = 'Отправить уведомление «{$a}» пользователям';
 $string['task_skipped_plugindisabled'] = 'Плагин отключён в ИИ-провайдере Datacurso; выполнение пропущено.';
+$string['task_skipped_providerupdaterequired'] = 'ИИ-провайдер Datacurso старше версии 1.7.0; выполнение пропущено. Обновите ИИ-провайдер Datacurso до версии 1.7.0 или новее.';
 $string['typemissing'] = 'Отсутствует значение «type»';
 $string['weeks'] = 'Недели';

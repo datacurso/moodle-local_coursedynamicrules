@@ -204,6 +204,8 @@ $string['provider_not_enabled_warning'] = 'Ative as notificações com o <strong
 Você pode habilitar em <a href="{$a}" target="_blank">Configurações de notificação</a> pesquisando por <strong>Smart Rules AI notification</strong>.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Consulte a documentação para mais informações.</a>';
+$string['providerupdaterequired'] = 'O Smart Rules AI não está disponível no momento. Entre em contato com o administrador do site.';
+$string['providerupdaterequired_admin'] = 'O Smart Rules AI precisa do provedor de IA da Datacurso (aiprovider_datacurso) 1.7.0 ou posterior. A versão instalada é anterior, então o Smart Rules AI está pausado: nenhuma regra é executada e suas páginas permanecem fechadas. Atualize o provedor de IA da Datacurso para a versão 1.7.0 ou posterior para usá-lo novamente.';
 $string['recurringinterval'] = 'Intervalo recorrente';
 $string['recurringinterval_help'] = 'Insira um valor numérico que represente um intervalo recorrente de inatividade (ex.: "7" para a cada 7 dias de inatividade).';
 $string['remote_erasure_task'] = 'Enviar ao serviço de cursos os apagamentos pendentes de solicitações de atividades com IA';
@@ -222,5 +224,6 @@ $string['selectanactivity'] = 'Selecionar uma atividade';
 $string['sendnotification'] = 'Enviar notificação';
 $string['sendnotification_description'] = 'Enviar notificação "{$a}" aos usuários';
 $string['task_skipped_plugindisabled'] = 'O plugin está desativado no provedor de IA da Datacurso; execução ignorada.';
+$string['task_skipped_providerupdaterequired'] = 'O provedor de IA da Datacurso é anterior à 1.7.0; execução ignorada. Atualize o provedor de IA da Datacurso para a versão 1.7.0 ou posterior.';
 $string['typemissing'] = 'Valor "type" ausente';
 $string['weeks'] = 'Semanas';
