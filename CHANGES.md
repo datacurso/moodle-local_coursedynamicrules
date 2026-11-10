@@ -1,8 +1,12 @@
 ## Unreleased
 
-**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.3**.
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
 Response to the MindFree security re-evaluation. Each entry names the MindFree finding it closes and the tests that back it.
+
+## Changed
+- **This line supports only Moodle 4.5**
+  The plugin now has one branch per Moodle line: `MOODLE_405_STABLE` for Moodle 4.5 and `MOODLE_503_STABLE` for Moodle 5.0 to 5.3. On this line `$plugin->supported` is `[405, 405]`, the Jenkins check runs only `MOODLE_405_STABLE` (MariaDB and PostgreSQL), and the README lists Moodle 4.5. Tests: `tests/ci/jenkinsfile_supported_branches_test.php`
 
 ## Removed
 - **CDR-SEC-007: the plugin no longer ships GitHub workflows**
