@@ -24,6 +24,7 @@ use core_grades\component_gradeitems;
 use grade_item;
 use local_coursedynamicrules\helper\grade_condition_thresholds;
 use local_coursedynamicrules\helper\page_gate;
+use local_coursedynamicrules\local\tenant_context;
 use moodle_url;
 use MoodleQuickForm;
 
@@ -267,7 +268,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
     /**
      * Returns context where this form is used
      *
-     * This context is validated in {@see \external_api::validate_context()}
+     * This context is validated in {@see \core_external\external_api::validate_context()}
      *
      * If context depends on the form data, it is available in $this->_ajaxformdata or
      * by calling $this->optional_param()
@@ -293,10 +294,12 @@ class dynamic_grade_in_activity_form extends dynamic_form {
      * Example:
      *     require_capability('dosomething', $this->get_context_for_dynamic_submission());
      *
-     * Refuses first while the plugin is disabled in the Datacurso AI provider for the tenant of the current user.
+     * Refuses first while the plugin is disabled in the Datacurso AI provider for the tenant of the current
+     * user, or while the provider is older than 1.7.0.
      *
      * @return void
-     * @throws \moodle_exception plugindisabled or plugindisabled_admin when the plugin is disabled.
+     * @throws \moodle_exception plugindisabled or plugindisabled_admin when the plugin is disabled,
+     *     providerupdaterequired or providerupdaterequired_admin when the provider is older than 1.7.0.
      * @throws \required_capability_exception When the user cannot manage conditions.
      */
     protected function check_access_for_dynamic_submission(): void {

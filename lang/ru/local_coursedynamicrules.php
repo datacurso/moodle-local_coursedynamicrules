@@ -191,12 +191,34 @@ $string['plugin_disabled'] = 'Для этого действия требует�
 $string['plugin_missing'] = 'Для этого действия требуется, чтобы плагин <strong>{$a->pluginname}</strong> был установлен и включен. Загрузите его с <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> и установите.';
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Этот плагин недоступен, поскольку срок действия лицензии истек или она недействительна. Перейдите на <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a>, чтобы продлить или приобрести новую лицензию.';
+$string['privacy:export:activitykey'] = 'Идентификационный номер элемента курса, который правило ИИ создало для вас. Это код, вычисленный из действия правила и вашего идентификатора пользователя: восстановить ваш идентификатор из него нельзя, но он указывает, что элемент курса создан именно для вас, поэтому относится к вашим данным. Он удаляется при удалении ваших данных.';
+$string['privacy:export:airequests'] = 'Запросы на ИИ-активности, хранящиеся в сервисе курсов (Smart Rules AI)';
+$string['privacy:export:airequestsexplained'] = 'Каждая запись — это запрос, который этот сайт отправил в сервис курсов Datacurso, чтобы создать для вас ИИ-активность. Для каждой ветки сервис хранит инструкции к активности, настройки запроса и созданную активность. Пустой идентификатор ветки означает, что запрос был сделан до того, как плагин начал записывать идентификаторы веток. Когда ваши данные удаляются, плагин просит сервис удалить эти ветки и забывает их здесь только после подтверждения сервиса. Дата в erasurerequested означает, что удаление запрошено, но сервис курсов его ещё не подтвердил; запросы удалённого курса перечислены в вашем собственном контексте.';
+$string['privacy:metadata:course_modules:idnumber'] = 'Идентификационный номер элемента курса, созданного правилом ИИ. Плагин записывает в него ключ, вычисленный из действия правила и идентификатора пользователя студента (хеш с ключом, начинающийся с cdrai_), чтобы один и тот же элемент никогда не создавался дважды для одного студента. Восстановить идентификатор пользователя из ключа нельзя, но ключ получен из него, поэтому он считается данными студента: он экспортируется вместе с его данными и удаляется при удалении этих данных.';
+$string['privacy:metadata:datacurso_ai:site_id'] = 'Постоянный случайный идентификатор этого сайта Moodle. Этот плагин его не задаёт: общее подключение Datacurso (aiprovider_datacurso) добавляет его в каждый отправляемый запрос, включая запрос на создание элемента курса и подтверждение его плана.';
+$string['privacy:metadata:datacurso_ai:timezone'] = 'Часовой пояс учётной записи, от имени которой выполняется запрос. Этот плагин его не задаёт: общее подключение Datacurso (aiprovider_datacurso) добавляет его в каждый отправляемый запрос. Правила выполняются из запланированных задач, поэтому обычно это часовой пояс учётной записи, от имени которой работает задача (как правило, администратора), или часовой пояс сайта по умолчанию, а не студента.';
+$string['privacy:metadata:datacurso_course_service'] = 'Сервис курсов Datacurso хранит для каждого запроса на ИИ-активность ветку с тем, что он получил и что создал. Удаление этих веток запрашивается у сервиса курсов; пока сервис его не подтвердит, запросы остаются записанными на этом сайте, а удаление повторяется.';
+$string['privacy:metadata:datacurso_course_service:generated_activity'] = 'Активность, которую сервис создал для студента.';
+$string['privacy:metadata:datacurso_course_service:instructions'] = 'Инструкции к активности, которые сервис получил для студента.';
+$string['privacy:metadata:datacurso_course_service:request_config'] = 'Настройки запроса: язык, создание изображений и утверждение.';
+$string['privacy:metadata:datacurso_course_service:userid'] = 'Идентификатор студента, для которого сделан запрос.';
+$string['privacy:metadata:local_coursedynamicrules_aireq'] = 'Запросы на ИИ-активности, которые плагин отправил в сервис курсов для каждого студента, чтобы их можно было экспортировать и запросить их удаление.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:actionid'] = 'Действие правила, сделавшее запрос.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:cmid'] = 'Активность, созданная по запросу, когда она уже существует.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:courseid'] = 'Курс, в котором сделан запрос.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'Когда было запрошено удаление запроса. Запрос остаётся записанным, пока сервис курсов не подтвердит удаление.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'Идентификатор ветки, который сервис курсов присвоил запросу.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Когда был сделан запрос.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'Студент, для которого сделан запрос.';
 $string['provider_not_enabled_warning'] = 'Включите уведомления с помощью <strong>Datacurso Message Hub</strong>, чтобы это действие могло отправлять уведомления через WhatsApp и SMS с использованием провайдеров вроде Twilio.
 Вы можете включить это в <a href="{$a}" target="_blank">Настройках уведомлений</a>, найдя <strong>Smart Rules AI notification</strong>.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">См. документацию для получения дополнительной информации.</a>';
+$string['providerupdaterequired'] = 'Smart Rules AI сейчас недоступен. Обратитесь к администратору сайта.';
+$string['providerupdaterequired_admin'] = 'Для Smart Rules AI нужен ИИ-провайдер Datacurso (aiprovider_datacurso) версии 1.7.0 или новее. Установлена более старая версия, поэтому Smart Rules AI приостановлен: правила не выполняются, а его страницы закрыты. Обновите ИИ-провайдер Datacurso до версии 1.7.0 или новее, чтобы снова им пользоваться.';
 $string['recurringinterval'] = 'Повторяющийся интервал';
 $string['recurringinterval_help'] = 'Введите числовое значение, представляющее повторяющийся интервал неактивности (например, «7» для каждых 7 дней неактивности).';
+$string['remote_erasure_task'] = 'Отправлять в сервис курсов ожидающие удаления запросов на ИИ-активности';
 $string['rolestonotify'] = 'Роли для уведомления';
 $string['rolestonotify_help'] = 'Выберите роли, которые должен иметь пользователь, чтобы получить уведомление. Необходимо выбрать как минимум одну.';
 $string['ruleactive'] = 'Активно';
@@ -212,5 +234,6 @@ $string['selectanactivity'] = 'Выберите активность';
 $string['sendnotification'] = 'Отправить уведомление';
 $string['sendnotification_description'] = 'Отправить уведомление «{$a}» пользователям';
 $string['task_skipped_plugindisabled'] = 'Плагин отключён в ИИ-провайдере Datacurso; выполнение пропущено.';
+$string['task_skipped_providerupdaterequired'] = 'ИИ-провайдер Datacurso старше версии 1.7.0; выполнение пропущено. Обновите ИИ-провайдер Datacurso до версии 1.7.0 или новее.';
 $string['typemissing'] = 'Отсутствует значение «type»';
 $string['weeks'] = 'Недели';

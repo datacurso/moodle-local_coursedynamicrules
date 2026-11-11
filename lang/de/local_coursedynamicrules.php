@@ -191,12 +191,34 @@ $string['plugin_disabled'] = 'Für diese Aktion muss das Plugin <strong>{$a->plu
 $string['plugin_missing'] = 'Für diese Aktion muss das Plugin <strong>{$a->pluginname}</strong> installiert und aktiviert sein. Laden Sie es von <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> herunter und installieren Sie es.';
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Dieses Plugin ist nicht verfügbar, da die Produktlizenz abgelaufen oder ungültig ist. Bitte gehen Sie zu <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a>, um sie zu erneuern oder eine neue zu erwerben.';
+$string['privacy:export:activitykey'] = 'Die ID-Nummer einer Aktivität, die eine KI-Regel für Sie erzeugt hat. Sie ist ein Code, der aus der Aktion der Regel und Ihrer Nutzer-ID berechnet wird: Ihre ID lässt sich daraus nicht zurückgewinnen, aber der Code kennzeichnet die Aktivität als die für Sie erzeugte und gehört daher zu Ihren Daten. Er wird gelöscht, wenn Ihre Daten gelöscht werden.';
+$string['privacy:export:airequests'] = 'Vom Kursdienst gespeicherte KI-Aktivitätsanfragen (Smart Rules AI)';
+$string['privacy:export:airequestsexplained'] = 'Jeder Eintrag ist eine Anfrage, die diese Website an den Datacurso-Kursdienst gesendet hat, um eine KI-Aktivität für Sie zu erzeugen. Zu jedem Thread speichert der Dienst die Aktivitätsanweisungen, die Konfiguration der Anfrage und die erzeugte Aktivität. Eine leere Thread-ID bedeutet, dass die Anfrage gestellt wurde, bevor das Plugin Thread-IDs gespeichert hat. Wenn Ihre Daten gelöscht werden, bittet das Plugin den Dienst, diese Threads zu löschen, und vergisst sie hier erst, wenn der Dienst dies bestätigt. Ein Datum unter erasurerequested bedeutet, dass die Löschung angefordert wurde und der Kursdienst sie noch nicht bestätigt hat; Anfragen eines gelöschten Kurses werden in Ihrem eigenen Kontext aufgeführt.';
+$string['privacy:metadata:course_modules:idnumber'] = 'Die ID-Nummer einer Aktivität, die von einer KI-Regel erzeugt wurde. Das Plugin setzt sie auf einen Schlüssel, der aus der Aktion der Regel und der Nutzer-ID der Teilnehmerin oder des Teilnehmers berechnet wird (ein verschlüsselter Hash, der mit cdrai_ beginnt), damit dieselbe Aktivität für dieselbe Person nie zweimal erzeugt wird. Die Nutzer-ID lässt sich aus dem Schlüssel nicht zurückgewinnen, aber der Schlüssel ist von ihr abgeleitet und wird daher als Daten dieser Person behandelt: Er wird mit ihren Daten exportiert und gelöscht, wenn diese Daten gelöscht werden.';
+$string['privacy:metadata:datacurso_ai:site_id'] = 'Eine dauerhafte, zufällige Kennung dieser Moodle-Website. Dieses Plugin setzt sie nicht: Die gemeinsame Datacurso-Verbindung (aiprovider_datacurso) fügt sie jeder Anfrage hinzu, die sie sendet, auch der Anfrage nach der Aktivität und der Freigabe ihres Plans.';
+$string['privacy:metadata:datacurso_ai:timezone'] = 'Die Zeitzone des Kontos, unter dem die Anfrage läuft. Dieses Plugin setzt sie nicht: Die gemeinsame Datacurso-Verbindung (aiprovider_datacurso) fügt sie jeder Anfrage hinzu, die sie sendet. Regeln laufen in geplanten Aufgaben, daher ist es normalerweise die Zeitzone des Kontos, unter dem die Aufgabe läuft (meist die Administration), oder die Standardzeitzone der Website, nicht die der Teilnehmerin oder des Teilnehmers.';
+$string['privacy:metadata:datacurso_course_service'] = 'Der Datacurso-Kursdienst speichert zu jeder KI-Aktivitätsanfrage einen Thread mit dem, was er erhalten und erzeugt hat. Die Löschung dieser Threads wird beim Kursdienst angefordert; bis der Dienst sie bestätigt, bleiben die Anfragen auf dieser Website gespeichert und die Löschung wird erneut versucht.';
+$string['privacy:metadata:datacurso_course_service:generated_activity'] = 'Die Aktivität, die der Dienst für die/den Teilnehmer/in erzeugt hat.';
+$string['privacy:metadata:datacurso_course_service:instructions'] = 'Die Aktivitätsanweisungen, die der Dienst für die/den Teilnehmer/in erhalten hat.';
+$string['privacy:metadata:datacurso_course_service:request_config'] = 'Die Konfiguration der Anfrage: Sprache, Bilderzeugung und Freigabe.';
+$string['privacy:metadata:datacurso_course_service:userid'] = 'Die ID der/des Teilnehmer/in, für die/den die Anfrage gestellt wurde.';
+$string['privacy:metadata:local_coursedynamicrules_aireq'] = 'Die KI-Aktivitätsanfragen, die das Plugin für jede/n Teilnehmer/in an den Kursdienst gesendet hat, damit sie exportiert und ihre Löschung angefordert werden können.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:actionid'] = 'Die Regelaktion, die die Anfrage gestellt hat.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:cmid'] = 'Die durch die Anfrage erzeugte Aktivität, sobald sie existiert.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:courseid'] = 'Der Kurs, in dem die Anfrage gestellt wurde.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'Wann die Löschung der Anfrage angefordert wurde. Die Anfrage bleibt gespeichert, bis der Kursdienst die Löschung bestätigt.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'Die Thread-ID, die der Kursdienst der Anfrage gegeben hat.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Wann die Anfrage gestellt wurde.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'Die/der Teilnehmer/in, für die/den die Anfrage gestellt wurde.';
 $string['provider_not_enabled_warning'] = 'Aktivieren Sie Benachrichtigungen mit <strong>Datacurso Message Hub</strong>, damit diese Aktion Benachrichtigungen über WhatsApp und SMS mit Anbietern wie Twilio sendet.
 Sie können dies unter <a href="{$a}" target="_blank">Benachrichtigungseinstellungen</a> aktivieren, indem Sie nach <strong>Smart Rules AI notification</strong> suchen.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Weitere Informationen finden Sie in der Dokumentation.</a>';
+$string['providerupdaterequired'] = 'Smart Rules AI ist derzeit nicht verfügbar. Bitte wenden Sie sich an die Administration der Website.';
+$string['providerupdaterequired_admin'] = 'Smart Rules AI benötigt den Datacurso-KI-Anbieter (aiprovider_datacurso) 1.7.0 oder neuer. Die installierte Version ist älter, daher ist Smart Rules AI pausiert: Es werden keine Regeln ausgeführt und die Seiten bleiben geschlossen. Aktualisieren Sie den Datacurso-KI-Anbieter auf 1.7.0 oder neuer, um es wieder zu nutzen.';
 $string['recurringinterval'] = 'Wiederkehrendes Intervall';
 $string['recurringinterval_help'] = 'Geben Sie einen numerischen Wert für ein wiederkehrendes Inaktivitätsintervall ein (z. B. "7" für alle 7 Tage Inaktivität).';
+$string['remote_erasure_task'] = 'Ausstehende Löschungen von KI-Aktivitätsanfragen an den Kursdienst senden';
 $string['rolestonotify'] = 'Zu benachrichtigende Rollen';
 $string['rolestonotify_help'] = 'Wählen Sie die Rollen aus, die der Nutzer haben muss, um die Benachrichtigung zu erhalten. Wählen Sie mindestens eine aus.';
 $string['ruleactive'] = 'Aktiv';
@@ -212,5 +234,6 @@ $string['selectanactivity'] = 'Aktivität auswählen';
 $string['sendnotification'] = 'Benachrichtigung senden';
 $string['sendnotification_description'] = 'Benachrichtigung "{$a}" an Nutzer senden';
 $string['task_skipped_plugindisabled'] = 'Das Plugin ist im Datacurso-KI-Anbieter deaktiviert; die Ausführung wird übersprungen.';
+$string['task_skipped_providerupdaterequired'] = 'Der Datacurso-KI-Anbieter ist älter als 1.7.0; die Ausführung wird übersprungen. Aktualisieren Sie den Datacurso-KI-Anbieter auf 1.7.0 oder neuer.';
 $string['typemissing'] = 'Fehlender Wert "type"';
 $string['weeks'] = 'Wochen';

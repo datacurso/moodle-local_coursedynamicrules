@@ -297,6 +297,8 @@ final class payload_anonymizer_test extends \advanced_testcase {
             '[STUDENT_NAME]' => 'Eva Pérez',
             '[STUDENT_FIRSTNAME]' => 'Eva',
             '[STUDENT_LASTNAME]' => 'Pérez',
+            '[STUDENT_EMAIL]' => $user->email,
+            '[STUDENT_USERNAME]' => $user->username,
         ], $result['replacements']);
     }
 
@@ -348,5 +350,131 @@ final class payload_anonymizer_test extends \advanced_testcase {
         $this->assertSame('<p>Hola Eva Pérez</p>', $restored['parameters']['page']['text']);
         $this->assertSame(5, $restored['parameters']['display']);
         $this->assertSame('page', $restored['resource_type']);
+    }
+
+    /**
+     * CDR-PRIV-001-R2: the student's email, username and ID number are masked like the name.
+     *
+     * A teacher can type any of them into the prompt, and each one identifies the student on its
+     * own. They are replaced as whole words in both free-text keys.
+     *
+     * @return void
+     */
+    public function test_anonymize_masks_email_username_and_idnumber(): void {
+        $this->resetAfterTest(true);
+        $user = $this->getDataGenerator()->create_user([
+            'firstname' => 'Eva',
+            'lastname' => 'Pérez',
+            'email' => 'eva.perez@example.com',
+            'username' => 'evaperez',
+            'idnumber' => 'STU-0042',
+        ]);
+
+        $result = payload_anonymizer::anonymize([
+            'instructions' => 'Write to eva.perez@example.com. Login: evaperez; ID STU-0042.',
+            'message' => '(eva.perez@example.com) evaperez STU-0042',
+        ], $user);
+
+        $this->assertSame(
+            'Write to [STUDENT_EMAIL]. Login: [STUDENT_USERNAME]; ID [STUDENT_IDNUMBER].',
+            $result['payload']['instructions']
+        );
+        $this->assertSame('([STUDENT_EMAIL]) [STUDENT_USERNAME] [STUDENT_IDNUMBER]', $result['payload']['message']);
+    }
+
+    /**
+     * CDR-PRIV-001-R2: a word that merely contains the username is not masked.
+     *
+     * @return void
+     */
+    public function test_a_word_that_merely_contains_the_username_is_not_masked(): void {
+        $this->resetAfterTest(true);
+        $user = $this->getDataGenerator()->create_user(['username' => 'mat']);
+
+        $result = payload_anonymizer::anonymize([
+            'instructions' => 'Review mathematics with mat today; format and mat2 stay.',
+        ], $user);
+
+        $this->assertSame(
+            'Review mathematics with [STUDENT_USERNAME] today; format and mat2 stay.',
+            $result['payload']['instructions']
+        );
+    }
+
+    /**
+     * CDR-PRIV-001-R2: an email is masked only as a whole address, in any letter case.
+     *
+     * The characters around an address are punctuation, so the ordinary word boundary would mask
+     * the student's address inside a longer one ("ana.eva@...") or a longer domain ("...com.co").
+     * Those are different addresses and stay as written; a full stop ending the sentence does not.
+     *
+     * @return void
+     */
+    public function test_an_email_is_masked_only_as_a_whole_address(): void {
+        $this->resetAfterTest(true);
+        $user = $this->getDataGenerator()->create_user(['email' => 'eva@example.com']);
+
+        $result = payload_anonymizer::anonymize([
+            'instructions' => 'Mail eva@example.com, not ana.eva@example.com or eva@example.com.co. Also EVA@Example.com.',
+        ], $user);
+
+        $this->assertSame(
+            'Mail [STUDENT_EMAIL], not ana.eva@example.com or eva@example.com.co. Also [STUDENT_EMAIL].',
+            $result['payload']['instructions']
+        );
+    }
+
+    /**
+     * CDR-PRIV-001-R2: the course URL is masked before sending and restored in the generated activity.
+     *
+     * The course URL carries the site address and the course id. It reaches the prompt through
+     * {$a->courseurl} or typed by hand; either way it is replaced with [COURSE_URL], and a link the
+     * service writes with that placeholder points to the real course again once the activity is
+     * built locally. Another course's URL, which only starts the same, is left alone.
+     *
+     * @return void
+     */
+    public function test_the_course_url_is_masked_in_instructions(): void {
+        $this->resetAfterTest(true);
+        $user = $this->create_student();
+        $courseurl = 'https://www.example.com/moodle/course/view.php?id=5';
+
+        $result = payload_anonymizer::anonymize([
+            'instructions' => "Link {$courseurl} for details; {$courseurl}0 is another course.",
+        ], $user, $courseurl);
+
+        $this->assertSame(
+            'Link [COURSE_URL] for details; ' . $courseurl . '0 is another course.',
+            $result['payload']['instructions']
+        );
+        $restored = payload_anonymizer::deanonymize_data(['text' => 'Back to [COURSE_URL]'], $result['replacements']);
+        $this->assertSame('Back to ' . $courseurl, $restored['text']);
+    }
+
+    /**
+     * CDR-PRIV-001-R2: masked identifiers come back in the activity the service writes with them.
+     *
+     * Restoring happens on this site, into an activity only the student is given, so it sends
+     * nothing anywhere. It also undoes a false positive: a short ID number that matched an ordinary
+     * word of the prompt is put back as the teacher wrote it.
+     *
+     * @return void
+     */
+    public function test_masked_identifiers_are_restored_in_the_generated_activity(): void {
+        $this->resetAfterTest(true);
+        $user = $this->getDataGenerator()->create_user([
+            'email' => 'eva.perez@example.com',
+            'username' => 'evaperez',
+            'idnumber' => '7',
+        ]);
+
+        $result = payload_anonymizer::anonymize(['instructions' => 'Chapter 7 for evaperez'], $user);
+        $this->assertSame('Chapter [STUDENT_IDNUMBER] for [STUDENT_USERNAME]', $result['payload']['instructions']);
+
+        $restored = payload_anonymizer::deanonymize_text(
+            'Chapter [STUDENT_IDNUMBER]: [STUDENT_USERNAME] <[STUDENT_EMAIL]>',
+            $result['replacements']
+        );
+        $this->assertSame('Chapter 7: evaperez <eva.perez@example.com>', $restored);
     }
 }

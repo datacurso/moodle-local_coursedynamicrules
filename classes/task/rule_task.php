@@ -17,6 +17,7 @@
 namespace local_coursedynamicrules\task;
 
 use local_coursedynamicrules\core\rule;
+use local_coursedynamicrules\local\provider_dependency;
 use local_coursedynamicrules\local\tenant_context;
 
 /**
@@ -52,13 +53,19 @@ class rule_task extends \core\task\adhoc_task {
      * This function is execute when cron jobs are executed
      *
      * Skipped, without running any rule, while the plugin is disabled in the Datacurso AI provider for the
-     * tenant of the user it was queued for, whichever tenant owns the course. Cron runs as the admin, so
-     * the current user is never consulted.
+     * tenant of the user it was queued for, whichever tenant owns the course, or while the provider is
+     * older than 1.7.0. Cron runs as the admin, so the current user is never consulted.
      *
      * @return void
      */
     public function execute() {
         global $DB;
+
+        // The provider decides per tenant, user by user; only a provider too old to say stops the run.
+        if (!provider_dependency::is_available()) {
+            mtrace(get_string('task_skipped_providerupdaterequired', 'local_coursedynamicrules'));
+            return;
+        }
 
         try {
             $customdata = $this->get_custom_data();

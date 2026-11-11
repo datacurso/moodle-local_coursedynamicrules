@@ -19,6 +19,7 @@ namespace local_coursedynamicrules\task;
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\enrolled_users;
 use local_coursedynamicrules\helper\task_batch;
+use local_coursedynamicrules\local\provider_dependency;
 use local_coursedynamicrules\local\tenant_context;
 
 /**
@@ -48,12 +49,18 @@ class no_complete_activity_task extends \core\task\scheduled_task {
      * A rule acts only for the enrolled users whose tenant has the plugin enabled in the Datacurso AI
      * provider: the users of a tenant that disabled it are skipped in every course, shared or not, and
      * the other users of the same course are processed as usual. The tenant of the course and of the
-     * cron user play no part.
+     * cron user play no part. Skipped, without running any rule, while the provider is older than 1.7.0.
      *
      * @return void
      */
     public function execute() {
         global $DB;
+
+        // The provider decides per tenant, user by user; only a provider too old to say stops the run.
+        if (!provider_dependency::is_available()) {
+            mtrace(get_string('task_skipped_providerupdaterequired', 'local_coursedynamicrules'));
+            return;
+        }
 
         $starttime = microtime(true);
         $batchsize = task_batch::size();

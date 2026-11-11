@@ -25,7 +25,7 @@ use aiprovider_datacurso\httpclient\ai_course_api;
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-final class testable_createaiactivity_action extends createaiactivity_action {
+class testable_createaiactivity_action extends createaiactivity_action {
     /** @var array|null Requirements reported instead of the real ones, when set. */
     public static $requiredplugins = null;
 
