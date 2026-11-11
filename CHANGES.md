@@ -1,3 +1,67 @@
+## 1.8.13-wp
+
+**Compatibility note:** This version is compatible only with **Moodle Workplace 4.5**.
+
+## Changed
+- **The Workplace line carries the code of 1.8.13**
+  The Workplace branch was brought up from 1.8.11-wp to the code of 1.8.13, so the changes listed below in 1.8.13 and 1.8.8 apply to Moodle Workplace as well: the durable remote erasure of the AI activity requests kept by the course service (new table `local_coursedynamicrules_aireq` and hourly task `remote_erasure_task`), the restored gate fingerprints, one AI activity per student and action, the erasure of a deleted user's id from AI-generated activities, the smaller AI request and the guard for a Datacurso AI provider older than 1.7.0. The Moodle 5.3 declaration of 1.8.12 does not apply: `$plugin->supported` stays `[405, 405]`, and the plugin still declares its dependency on Workplace tenancy (`tool_tenant`). The dependency on `aiprovider_datacurso` stays `2026110901` (1.7.0-wp).
+- **The plugin stays switched on or off per tenant, through the provider guard**
+  The per-tenant behaviour of 1.8.11-wp is kept: the tenant of the user decides, never the tenant of the course. `\local_coursedynamicrules\local\tenant_context` now reaches the provider only through `\local_coursedynamicrules\local\provider_dependency`, which passes the tenant on, so a provider older than 1.7.0 counts as disabled for every tenant instead of failing. The pages, the course menu entry and the grade condition form follow the tenant of the current user; the observers and the rule execution adhoc task follow the tenant of the user the rule acts for. The scheduled tasks stop the whole run only when the provider is older than 1.7.0 (with the log line asking to update it); otherwise they skip only the users of a tenant that disabled the plugin. Tests: `tests/plugin_disabled_test.php`, `tests/local/provider_dependency_test.php`
+- **Jenkins runs the standard Workplace 4.5 pipeline**
+  `Jenkinsfile.moodleplugin` is now `moodlePluginCI(moodleBranch: 'MOODLE_405_STABLE')`. The check that Jenkins covers every supported Moodle branch, and nothing outside it, reads both the `moodleBranch:` form and the `version:` entries of a matrix. Tests: `tests/ci/jenkinsfile_supported_branches_test.php`
+
+## Removed
+- **CDR-SEC-007: the Workplace line no longer ships GitHub workflows**
+  The `.github/` folder (the manual `plugin-ci.yml` workflow) is removed, as on the 4.5 line. The automatic check before any change reaches `WORKPLACE_405_STABLE` is the required Jenkins check.
+
+## Fixed
+- **The request table reaches Workplace sites already on 1.8.11-wp**
+  Sites on 1.8.11-wp (version 2026110902) are below the request table upgrade step (2026111000), so the upgrade creates the table, adds its erasure column and records the existing AI requests. The step is the one covered by `tests/upgrade_reaches_1812_sites_test.php`.
+
+---
+
+## 1.8.13
+
+**Released on:** 2026-11-10
+
+**Compatibility note:** This version is compatible only with **Moodle 4.5**.
+
+Response to the MindFree security re-evaluation. Each entry that closes a MindFree finding names its code, and every entry names the tests that back it (the CDR-SEC-007 removal deletes the only test of the removed folder). The entries without a code are not MindFree findings: the 4.5-only line, the guard for an older Datacurso AI provider and the upgrade fix for sites already on 1.8.12.
+
+## Changed
+- **This line supports only Moodle 4.5**
+  The plugin now has one branch per Moodle line: `MOODLE_405_STABLE` for Moodle 4.5 and `MOODLE_503_STABLE` for Moodle 5.0 to 5.3. On this line `$plugin->supported` is `[405, 405]`, the Jenkins check runs only `MOODLE_405_STABLE` (MariaDB and PostgreSQL), and the README lists Moodle 4.5. Tests: `tests/ci/jenkinsfile_supported_branches_test.php`
+
+## Removed
+- **CDR-SEC-007: the plugin no longer ships GitHub workflows**
+  The `.github/` folder (the manual `plugin-ci.yml` workflow) is removed, together with `tests/ci/workflow_security_test.php`, which only tested that folder. The automatic check before any change reaches a stable branch is the Jenkins check required by the branch ruleset, which runs the plugin suite; no workflow in the plugin can run with a token any more
+
+## Fixed
+- **The site keeps working when the Datacurso AI provider is older than 1.7.0**
+  A site that updated this plugin while keeping a Datacurso AI provider older than 1.7.0 (version 2026110400) fell over on every page with `Class "aiprovider_datacurso\local\plugin_settings" not found`, because the plugin asked that class, added in provider 1.7.0, whether it is enabled. Every use of it now goes through one guard, `\local_coursedynamicrules\local\provider_dependency`. With an older provider the plugin counts as not enabled: the course navigation entry is not added, the observers queue nothing, the scheduled and adhoc tasks skip with a log line asking to update the provider, and the plugin pages and the dynamic grade form refuse with a notice. A site administrator is told to update the Datacurso AI provider to 1.7.0 or later, with a link to the plugins overview; anyone else gets a generic notice. With provider 1.7.0 or later nothing changes. Tests: `tests/local/provider_dependency_test.php`, `tests/plugin_disabled_test.php`
+- **CDR-PRIV-002-R1: a restored gate stays reachable by privacy requests after core strips its marker**
+  On restore, core re-encodes a module's whole availability tree when another condition changed (a completion restriction always does) and drops the plugin's ownership marker; the restore then only re-adopted the node, flagged as deduced, so the student's id stayed in the restored course without being exported or erased. AI activities restored on another site were left out too, because their key is keyed with the site identifier. The course backup now records, for every restriction the plugin wrote, the activity, the action and a fingerprint (SHA-256 of the action id and the sorted user ids). The restore marks again, as written by the plugin, the single node of the restored activity that matches it, and rewrites the AI activity key for the restored action on this site. Two identical matching restrictions (a teacher's restriction listing exactly the same students) are attributed to nobody and reported in the restore log. Backups made before this release restore as before. Tests: `tests/privacy/restored_gate_privacy_test.php` (`test_a_restored_gate_whose_marker_core_stripped_is_exported_and_erased`, `test_restore_does_not_claim_a_teachers_identical_restriction`, `test_ai_activity_restored_on_another_site_is_reattributed`)
+- **CDR-PRIV-001-R2: the requests kept by the course service are recorded, exported and their erasure requested**
+  Every AI activity starts with `/activity/init`, and the course service keeps that thread (activity instructions, request configuration and generated activity). The plugin now records each thread against its student, course, action and generated activity in the new table `local_coursedynamicrules_aireq`. The privacy provider puts the course context in the student's context list and exports the recorded requests. A pending erasure is durable: a privacy erasure, an account deletion and a course deletion record on the rows when the erasure was requested (new column `erasurerequested`), and the rows are deleted only once the course service confirms. The new scheduled task `remote_erasure_task` (hourly) sends every pending erasure again on each run until the service confirms, so a request is never given up, unlike an adhoc task, which core abandons after 12 attempts. The service was never told the course of a request, so the plugin asks it to erase by thread, or by user only when every request of the student is to be erased; it never sends a course-scoped request with an empty thread list, and a request without a thread id (recorded by the upgrade) stays pending until every request of the student is to be erased. The requests of a deleted course stay reachable through the student's own context (context list, export and erasure). The export shows when each erasure was requested. The privacy metadata declares the new table and what the course service keeps. The erasure is sent to the course service as described in the next entry. The upgrade records the students of the existing AI activities (found through their key) without a thread id; requests whose activity was never created, was deleted or lost its ID number cannot be recovered, nor can a request whose `/activity/init` answer was lost (no thread id), which only a user-wide erasure reaches. Tests: `tests/privacy/remote_lifecycle_test.php` (`test_init_records_the_thread_for_the_student`, `test_user_with_remote_data_is_in_contextlist`, `test_export_lists_the_remote_requests`, `test_erasure_calls_the_service_scoped_to_this_plugin_and_forgets_rows`, `test_failed_remote_erasure_keeps_rows_pending_for_the_scheduled_task`, `test_user_deleted_marks_requests_pending_without_calling_the_service`, `test_scheduled_task_erases_pending_requests_once_the_service_confirms`, `test_the_production_client_without_a_provider_reports_not_done`, `test_upgrade_backfills_requests_from_keyed_activities`), `tests/privacy/pending_remote_erasure_test.php` (`test_pending_erasure_outlives_the_adhoc_retry_limit_and_is_sent_once_the_service_answers`, `test_scheduled_task_leaves_requests_nobody_asked_to_erase_alone`, `test_a_client_failure_keeps_the_request_pending`, `test_course_scoped_erasure_sends_only_that_courses_threads`, `test_course_scoped_erasure_never_sends_an_empty_thread_list`, `test_course_deletion_marks_its_requests_pending_and_keeps_them_reachable`, `test_production_client_never_lets_a_request_be_forgotten`, `test_scheduled_task_ships_hourly_with_a_defined_name`), `tests/privacy/provider_test.php` (`test_get_metadata_declares_the_remote_requests_and_what_the_service_keeps`)
+- **CDR-PRIV-001-R2: the course service is asked to erase a student's requests**
+  The production remote erasure client now sends `POST /privacy/erase` to the course service, through the Datacurso AI provider's course client (same base URL as `/activity/init`), with the student, the service id `local_coursedynamicrules`, the scope (`threads` or `user`) and the thread ids. The provider's transport pseudonymises the student and adds the site. At most 1000 thread ids go in one call; a longer list is sent in several calls, and the erasure counts as done only when every call answers `{"status": "erased"}`. Anything else (an error, a site without token balance or with an inactive subscription, which the service refuses with 403, any other answer) leaves the requests pending, and the hourly scheduled task sends them again. Nothing about the request is logged. Tests: `tests/local/course_service_remote_erasure_client_test.php` (`test_sends_exactly_the_contract_body`, `test_anything_but_erased_is_not_confirmed`, `test_a_transport_failure_is_not_confirmed`, `test_a_refused_request_is_not_confirmed`, `test_long_thread_lists_are_sent_in_chunks_of_1000`, `test_one_unconfirmed_chunk_leaves_the_erasure_unconfirmed`, `test_exactly_1000_threads_fit_in_one_call`, `test_an_empty_thread_scoped_erasure_is_not_sent`, `test_di_resolves_the_course_service_client`)
+- **The request table reaches sites already on 1.8.12**
+  1.8.12 was released with the version number of the first upgrade step of the request table, so a site already on 1.8.12 would have skipped it. The two steps are merged into one step numbered after the release; it creates the table, adds the erasure column to a table built without it, records the existing requests and is safe to run on a site that already has them. Tests: `tests/upgrade_reaches_1812_sites_test.php`
+
+---
+
+## 1.8.12
+
+**Released on:** 2026-11-09
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.3**.
+
+## Changed
+- **Moodle 5.3 compatibility**
+  Declared compatibility with Moodle 5.3 (`$plugin->supported` is now `[405, 503]`) added `MOODLE_503_STABLE` with MariaDB to the Jenkins CI, and updated the supported versions in the README. A review of the Moodle 5.3 upgrade notes against the APIs the plugin uses (course navigation callback, completion and grade events, `completion_info`, `grade_item`, dynamic forms, scheduled and adhoc tasks, admin settings) found no removed or changed API that affects it, so no code change was needed. The form docblock now points to `\core_external\external_api`, as the global `\external_api` alias is deprecated in Moodle 5.3.
+
+---
+
 ## 1.8.11-wp
 
 **Compatibility note:** This version is compatible only with **Moodle Workplace 4.5**.
@@ -27,6 +91,29 @@
 ## Changed
 - **The course service is told which release of this plugin is calling**
   The AI activity action now sends `X-Plugin-Name: local_coursedynamicrules` and `X-Plugin-Version` (this release) with its calls to the course service, so the service can ask for an update when the release is too old. Requires `aiprovider_datacurso` 1.6.3 or later. Test: `tests/action/createaiactivity/createaiactivity_plugin_identity_test.php`
+
+## 1.8.8
+
+**Compatibility note:** This version is compatible from **Moodle 4.5** to **Moodle 5.2**.
+
+Response to the MindFree security re-evaluation of 1.8.6 (build 2026091700). Each entry names
+the MindFree finding it closes and the tests that back it.
+
+## Fixed
+- **CDR-SEC-003: the release workflow no longer runs the dispatch tag as shell code**
+  `.github/workflows/moodle-release.yml` put the `workflow_dispatch` tag straight into a bash step that held the moodle.org publishing token, so anyone allowed to dispatch it could run commands and read the token. The workflow never published (moodle.org rejected every run) and releases reach the plugins directory another way, so it is removed. A guard test fails if any workflow interpolates untrusted event input into a shell step or references the token. Tests: `tests/ci/workflow_security_test.php`
+- **CDR-SEC-007: every change is checked automatically before it reaches a stable branch**
+  The branch ruleset on `main` and the `MOODLE_*_STABLE` and `WORKPLACE_*_STABLE` branches requires a pull request and the Jenkins check, which runs the plugin suite on Moodle 4.5, 5.0 and 5.2, before any merge, with no bypass. That is the automatic check. `plugin-ci.yml` stays a manual GitHub workflow, now with a read-only token, and a test pins both. Tests: `tests/ci/workflow_security_test.php`
+- **CDR-SEC-006: a rule creates one AI activity per student and action**
+  Each regrade, completion toggle or periodic pass generated another activity, and two cron runs could generate in parallel. The generated activity now carries a key derived from the action and the student (an HMAC, so the user id is not stored in clear) in its ID number. Generation checks the key before calling the service and holds a lock per action and student, and restore rewrites the key for the restored action. Tests: `tests/action/createaiactivity/createaiactivity_action_test.php`, `tests/observer/user_graded_ai_activity_test.php`, `tests/backup_restore_round_trip_test.php`
+- **CDR-PRIV-002: deleting a user erases their id from AI-generated activities**
+  Deleting an account only cleaned enable-activity restrictions, so the user id written into an AI activity's restriction stayed behind, and privacy requests missed AI activities whose marker had been lost. Account deletion now uses the same eraser as the privacy provider. AI activities are found through their key even without the marker, erasure clears the key, and restore marks verified AI restrictions again. Tests: `tests/privacy/granted_user_deletion_test.php`, `tests/privacy/data_provider_test.php`, `tests/backup_restore_round_trip_test.php`
+- **CDR-PRIV-001-R2: the AI request carries less personal data, and a test shows what leaves the site**
+  The student's name was already pseudonymised. The student's email, username and ID number and the course URL are now masked too, and the plugin no longer sets `site_url` itself. A test captures the request body after the shared Datacurso transport adds its defaults, so it records what really leaves the site: `site_id`, `timezone` and `site_url` are added by `aiprovider_datacurso`, and `userid` stays the student's for billing. The privacy metadata now declares the plan approval request, the transport's fields and the generated activity key. Tests: `tests/privacy/outgoing_request_test.php`, `tests/privacy/external_transfer_declaration_test.php`, `tests/local/payload_anonymizer_test.php`
+
+## Changed
+- **Periodic rules create a single AI activity per student**
+  Because of CDR-SEC-006, a rule with a periodic condition (no course access, course inactivity) and the AI action no longer creates a new activity in every period. A teacher who wants it generated again deletes the activity or clears its ID number in the activity settings
 
 ## 1.8.7-wp
 

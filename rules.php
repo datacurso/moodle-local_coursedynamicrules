@@ -24,11 +24,11 @@
 
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\availability_user_status;
-use local_coursedynamicrules\helper\page_gate;
 use local_coursedynamicrules\helper\component_renderer;
+use local_coursedynamicrules\helper\page_gate;
+use local_coursedynamicrules\helper\rule_badge;
 use local_coursedynamicrules\helper\rule_component_loader;
 use local_coursedynamicrules\helper\rule_lock;
-use local_coursedynamicrules\helper\rule_badge;
 use local_coursedynamicrules\local\tenant_context;
 
 require('../../config.php');

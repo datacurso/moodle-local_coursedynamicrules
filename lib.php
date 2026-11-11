@@ -28,7 +28,7 @@ use local_coursedynamicrules\local\tenant_context;
  * Extends the navigation tree with the Smart Rules AI menu item.
  *
  * Nothing is added while the plugin is disabled in the Datacurso AI provider for the tenant of the current
- * user, whichever tenant owns the course.
+ * user, whichever tenant owns the course, or while the provider is older than 1.7.0.
  *
  * @param navigation_node $navigation the navigation tree
  * @param stdClass $course the course

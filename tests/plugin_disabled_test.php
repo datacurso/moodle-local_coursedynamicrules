@@ -604,7 +604,8 @@ final class plugin_disabled_test extends \advanced_testcase {
      * Every page refuses through the provider, for the tenant of the current user, right after the course login check.
      *
      * Page scripts cannot run inside PHPUnit, so the contract is checked on the script itself;
-     * the refusal itself is the provider's require_enabled(), exercised by the dynamic form test above.
+     * the refusal itself is provider_dependency::require_enabled(), reached through tenant_context and
+     * exercised by the dynamic form test above and by tests/local/provider_dependency_test.php.
      *
      * @dataProvider page_provider
      * @param string $page Page script name.

@@ -35,7 +35,7 @@ class course_module_completion_updated {
      * The definition of the event.
      *
      * Queues nothing while the plugin is disabled in the Datacurso AI provider for the tenant of the user
-     * whose completion changed, whichever tenant owns the course.
+     * whose completion changed, whichever tenant owns the course, or while the provider is older than 1.7.0.
      *
      * @param \core\event\course_module_completion_updated $event The event object
      * @return void

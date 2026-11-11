@@ -40,8 +40,8 @@ class user_graded {
      * Trigger when user receive grade
      *
      * Queues nothing while the plugin is disabled in the Datacurso AI provider for the tenant of the graded
-     * user, whichever tenant owns the course. The grader may belong to another tenant, so the current user
-     * is never consulted.
+     * user, whichever tenant owns the course, or while the provider is older than 1.7.0. The grader may
+     * belong to another tenant, so the current user is never consulted.
      *
      * @param \core\event\user_graded $event
      * @return void

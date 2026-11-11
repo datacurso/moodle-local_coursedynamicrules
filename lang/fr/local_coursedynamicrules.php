@@ -191,12 +191,34 @@ $string['plugin_disabled'] = 'Cette action nécessite que le plugin <strong>{$a-
 $string['plugin_missing'] = 'Cette action nécessite que le plugin <strong>{$a->pluginname}</strong> soit installé et activé. Veuillez le télécharger depuis <a href="{$a->downloadurl}" target="_blank">{$a->downloadurl}</a> et l’installer.';
 $string['pluginname'] = 'Smart Rules AI';
 $string['pluginnotavailable'] = 'Ce plugin n’est pas disponible, car la licence du produit a expiré ou n’est pas valide. Veuillez vous rendre sur <a href="https://shop.datacurso.com/clientarea.php" target="_blank">Shop Datacurso</a> pour la renouveler ou en acheter une nouvelle.';
+$string['privacy:export:activitykey'] = 'Le numéro d’identification d’une activité qu’une règle d’IA a générée pour vous. C’est un code calculé à partir de l’action de la règle et de votre identifiant d’utilisateur : votre identifiant ne peut pas en être retrouvé, mais ce code désigne l’activité comme celle générée pour vous ; il fait donc partie de vos données. Il est effacé lorsque vos données sont effacées.';
+$string['privacy:export:airequests'] = 'Demandes d\'activités IA conservées par le service de cours (Smart Rules AI)';
+$string['privacy:export:airequestsexplained'] = 'Chaque entrée est une demande que ce site a envoyée au service de cours Datacurso pour générer une activité IA pour vous. Pour chaque fil, le service conserve les instructions de l\'activité, la configuration de la demande et l\'activité générée. Un identifiant de fil vide signifie que la demande a été faite avant que le plugin n\'enregistre les identifiants de fil. Lorsque vos données sont effacées, le plugin demande au service d\'effacer ces fils et ne les oublie ici qu\'une fois que le service l\'a confirmé. Une date sous erasurerequested signifie que son effacement a été demandé et que le service de cours ne l\'a pas encore confirmé ; les demandes d\'un cours supprimé figurent dans votre propre contexte.';
+$string['privacy:metadata:course_modules:idnumber'] = 'Le numéro d’identification d’une activité générée par une règle d’IA. Le plugin y place une clé calculée à partir de l’action de la règle et de l’identifiant d’utilisateur de l’étudiant (un hachage à clé commençant par cdrai_), afin que la même activité ne soit jamais générée deux fois pour le même étudiant. L’identifiant ne peut pas être retrouvé à partir de la clé, mais la clé en est dérivée ; elle est donc traitée comme une donnée de l’étudiant : elle est exportée avec ses données et effacée lorsque ces données sont effacées.';
+$string['privacy:metadata:datacurso_ai:site_id'] = 'Un identifiant aléatoire et permanent de ce site Moodle. Ce plugin ne le définit pas : la connexion Datacurso partagée (aiprovider_datacurso) l’ajoute à chaque requête qu’elle envoie, y compris la demande d’activité et l’approbation de son plan.';
+$string['privacy:metadata:datacurso_ai:timezone'] = 'Le fuseau horaire du compte sous lequel la requête s’exécute. Ce plugin ne le définit pas : la connexion Datacurso partagée (aiprovider_datacurso) l’ajoute à chaque requête qu’elle envoie. Les règles s’exécutent depuis des tâches planifiées ; c’est donc normalement le fuseau horaire du compte qui exécute la tâche (en général l’administrateur) ou celui du site, et non celui de l’étudiant.';
+$string['privacy:metadata:datacurso_course_service'] = 'Le service de cours Datacurso conserve, pour chaque demande d\'activité IA, un fil avec ce qu\'il a reçu et ce qu\'il a produit. L\'effacement de ces fils est demandé au service de cours ; tant que le service ne l\'a pas confirmé, les demandes restent enregistrées sur ce site et l\'effacement est retenté.';
+$string['privacy:metadata:datacurso_course_service:generated_activity'] = 'L\'activité que le service a générée pour l\'étudiant.';
+$string['privacy:metadata:datacurso_course_service:instructions'] = 'Les instructions de l\'activité que le service a reçues pour l\'étudiant.';
+$string['privacy:metadata:datacurso_course_service:request_config'] = 'La configuration de la demande : langue, génération d\'images et approbation.';
+$string['privacy:metadata:datacurso_course_service:userid'] = 'L\'identifiant de l\'étudiant pour qui la demande a été faite.';
+$string['privacy:metadata:local_coursedynamicrules_aireq'] = 'Les demandes d\'activités IA que le plugin a envoyées au service de cours pour chaque étudiant, afin de pouvoir les exporter et en demander l\'effacement.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:actionid'] = 'L\'action de la règle qui a fait la demande.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:cmid'] = 'L\'activité générée par la demande, une fois qu\'elle existe.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:courseid'] = 'Le cours dans lequel la demande a été faite.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'Quand l\'effacement de la demande a été demandé. La demande reste enregistrée jusqu\'à ce que le service de cours confirme l\'effacement.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'L\'identifiant de fil que le service de cours a donné à la demande.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Quand la demande a été faite.';
+$string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'L\'étudiant pour qui la demande a été faite.';
 $string['provider_not_enabled_warning'] = 'Activez les notifications avec <strong>Datacurso Message Hub</strong> pour que cette action envoie des notifications via WhatsApp et SMS avec des fournisseurs comme Twilio.
 Vous pouvez l’activer depuis <a href="{$a}" target="_blank">Paramètres des notifications</a> en recherchant <strong>Smart Rules AI notification</strong>.
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Voir la documentation pour plus d’informations.</a>';
+$string['providerupdaterequired'] = 'Smart Rules AI n’est pas disponible pour le moment. Veuillez contacter l’administrateur du site.';
+$string['providerupdaterequired_admin'] = 'Smart Rules AI nécessite le fournisseur d’IA Datacurso (aiprovider_datacurso) 1.7.0 ou ultérieur. La version installée est plus ancienne, Smart Rules AI est donc en pause : aucune règle ne s’exécute et ses pages restent fermées. Mettez à jour le fournisseur d’IA Datacurso vers la version 1.7.0 ou ultérieure pour l’utiliser à nouveau.';
 $string['recurringinterval'] = 'Intervalle récurrent';
 $string['recurringinterval_help'] = 'Saisissez une valeur numérique représentant un intervalle récurrent d’inactivité (par ex. « 7 » pour tous les 7 jours d’inactivité).';
+$string['remote_erasure_task'] = 'Envoyer au service de cours les effacements en attente des demandes d\'activités IA';
 $string['rolestonotify'] = 'Rôles à notifier';
 $string['rolestonotify_help'] = 'Sélectionnez les rôles que l’utilisateur doit avoir pour recevoir la notification. Vous devez en sélectionner au moins un.';
 $string['ruleactive'] = 'Active';
@@ -212,5 +234,6 @@ $string['selectanactivity'] = 'Sélectionner une activité';
 $string['sendnotification'] = 'Envoyer une notification';
 $string['sendnotification_description'] = 'Envoyer la notification « {$a} » aux utilisateurs';
 $string['task_skipped_plugindisabled'] = 'Le plugin est désactivé dans le fournisseur d’IA Datacurso ; exécution ignorée.';
+$string['task_skipped_providerupdaterequired'] = 'Le fournisseur d’IA Datacurso est antérieur à 1.7.0 ; exécution ignorée. Mettez à jour le fournisseur d’IA Datacurso vers la version 1.7.0 ou ultérieure.';
 $string['typemissing'] = 'Valeur « type » manquante';
 $string['weeks'] = 'Semaines';

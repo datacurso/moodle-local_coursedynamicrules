@@ -16,8 +16,6 @@
 
 namespace local_coursedynamicrules\local;
 
-use aiprovider_datacurso\local\plugin_settings;
-
 /**
  * Asks the Datacurso AI provider whether this plugin is enabled for the Moodle Workplace tenant of a user.
  *
@@ -35,6 +33,9 @@ use aiprovider_datacurso\local\plugin_settings;
  *
  * On a site without tool_tenant every user belongs to the implicit tenant 0, so the provider's site
  * default applies. The tool_tenant classes are only referenced after is_tenancy_available().
+ *
+ * The provider itself is only reached through provider_dependency, so a provider older than 1.7.0
+ * counts as not enabled for every tenant instead of failing.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Datacurso
@@ -86,7 +87,7 @@ class tenant_context {
      * @return bool
      */
     public static function is_enabled_for_user(int $userid): bool {
-        return plugin_settings::is_enabled(self::COMPONENT, self::get_tenant_id_for_user($userid));
+        return provider_dependency::is_enabled(self::get_tenant_id_for_user($userid));
     }
 
     /**
@@ -95,17 +96,18 @@ class tenant_context {
      * @return bool
      */
     public static function is_enabled_for_current_user(): bool {
-        return plugin_settings::is_enabled(self::COMPONENT);
+        return provider_dependency::is_enabled();
     }
 
     /**
      * Stop an interactive request when the plugin is disabled for the tenant of the current user.
      *
      * @return void
-     * @throws \moodle_exception plugindisabled or plugindisabled_admin when the plugin is disabled.
+     * @throws \moodle_exception plugindisabled or plugindisabled_admin when the plugin is disabled;
+     *     providerupdaterequired or providerupdaterequired_admin when the provider is older than 1.7.0.
      */
     public static function require_enabled_for_current_user(): void {
-        plugin_settings::require_enabled(self::COMPONENT);
+        provider_dependency::require_enabled();
     }
 
     /**
@@ -119,7 +121,7 @@ class tenant_context {
      */
     public function is_enabled_for_user_cached(int $userid): bool {
         $tenantid = self::get_tenant_id_for_user($userid);
-        $this->enabledbytenant[$tenantid] ??= plugin_settings::is_enabled(self::COMPONENT, $tenantid);
+        $this->enabledbytenant[$tenantid] ??= provider_dependency::is_enabled($tenantid);
         return $this->enabledbytenant[$tenantid];
     }
 
