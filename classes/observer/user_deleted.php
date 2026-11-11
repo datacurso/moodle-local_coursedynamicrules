@@ -18,6 +18,7 @@ namespace local_coursedynamicrules\observer;
 
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 use local_coursedynamicrules\local\owned_gate_eraser;
+use local_coursedynamicrules\local\remote_erasure;
 
 /**
  * Scrubs a deleted user's id from the access restrictions this plugin wrote.
@@ -87,5 +88,11 @@ class user_deleted {
         foreach ($courseids as $courseid) {
             rebuild_course_cache($courseid, true);
         }
+
+        // The course service keeps a thread for every AI request made for this user. Its erasure is
+        // a remote call, so it is only recorded here, on the rows, rather than made inside the
+        // deletion; the scheduled remote_erasure_task sends it until the service confirms, and the
+        // local rows stay until then (CDR-PRIV-001-R2).
+        remote_erasure::request_erasure($userid);
     }
 }

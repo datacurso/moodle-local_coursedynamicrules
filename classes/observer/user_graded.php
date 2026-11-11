@@ -16,6 +16,7 @@
 
 namespace local_coursedynamicrules\observer;
 
+use local_coursedynamicrules\local\provider_dependency;
 use local_coursedynamicrules\task\rule_task;
 
 /**
@@ -37,9 +38,16 @@ class user_graded {
 
     /**
      * Trigger when user receive grade
+     *
+     * Queues nothing while the plugin is disabled in the Datacurso AI provider or the provider is older than 2.2.0.
+     *
      * @param \core\event\user_graded $event
+     * @return void
      */
     public static function observe(\core\event\user_graded $event) {
+        if (!provider_dependency::is_enabled()) {
+            return;
+        }
         $eventdata = $event->get_data();
 
         $grade = $event->get_grade();

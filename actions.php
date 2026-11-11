@@ -25,8 +25,9 @@
 use local_coursedynamicrules\core\rule;
 use local_coursedynamicrules\helper\availability_user_status;
 use local_coursedynamicrules\helper\page_gate;
-use local_coursedynamicrules\helper\rule_lock;
 use local_coursedynamicrules\helper\rule_component_loader;
+use local_coursedynamicrules\helper\rule_lock;
+use local_coursedynamicrules\local\provider_dependency;
 
 require('../../config.php');
 
@@ -38,6 +39,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+provider_dependency::require_enabled();
 // The listing pair, decided in page_gate - the one door. A page script cannot be loaded from a
 // unit test, so the decision lives where real roles can be thrown at it (page_gate_test.php), and
 // the wiring test there pins that this page still makes the call.

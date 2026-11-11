@@ -22,6 +22,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use local_coursedynamicrules\local\provider_dependency;
+
 require('../../config.php');
 
 $ruleid = optional_param('id', 0, PARAM_INT);
@@ -31,6 +33,7 @@ $course = $DB->get_record('course', ['id' => $courseid], '*', MUST_EXIST);
 $context = context_course::instance($courseid);
 
 require_login($course);
+provider_dependency::require_enabled();
 
 // A first, fast refusal based on the URL id - which form gets RENDERED. It is not the
 // authoritative check: the id that gets WRITTEN is the form's hidden field, decided separately in

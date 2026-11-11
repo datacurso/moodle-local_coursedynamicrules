@@ -22,12 +22,17 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use local_coursedynamicrules\local\provider_dependency;
+
 /**
  * Extends the navigation tree with the Smart Rules AI menu item.
+ *
+ * Nothing is added while the plugin is disabled in the Datacurso AI provider or the provider is older than 2.2.0.
  *
  * @param navigation_node $navigation the navigation tree
  * @param stdClass $course the course
  * @param stdClass $context the context
+ * @return void
  */
 function local_coursedynamicrules_extend_navigation_course($navigation, $course, $context) {
     // The same PAIR rules.php enforces at its door: offering the entry on managerule alone put a
@@ -35,7 +40,8 @@ function local_coursedynamicrules_extend_navigation_course($navigation, $course,
     // custom-role seam the changelog warns administrators about, reproduced in the plugin's own
     // menu. Never offer what would be refused.
     if (
-        has_capability('local/coursedynamicrules:managerule', $context)
+        provider_dependency::is_enabled()
+            && has_capability('local/coursedynamicrules:managerule', $context)
             && has_capability('local/coursedynamicrules:viewrule', $context)
     ) {
         $url = new moodle_url('/local/coursedynamicrules/rules.php', ['courseid' => $course->id]);

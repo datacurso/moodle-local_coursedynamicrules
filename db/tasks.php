@@ -65,4 +65,16 @@ $tasks = [
         'month' => '*',
         'disabled' => 0,
     ],
+    // Sends the pending erasures of AI requests to the course service until it confirms them. It
+    // runs whatever happened before, so a requested erasure is never given up.
+    [
+        'classname' => 'local_coursedynamicrules\task\remote_erasure_task',
+        'blocking' => 0,
+        'minute' => 'R',
+        'hour' => '*',
+        'day' => '*',
+        'dayofweek' => '*',
+        'month' => '*',
+        'disabled' => 0,
+    ],
 ];

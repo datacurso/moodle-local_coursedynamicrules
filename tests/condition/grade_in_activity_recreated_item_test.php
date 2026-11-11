@@ -104,6 +104,7 @@ final class grade_in_activity_recreated_item_test extends \advanced_testcase {
      */
     public function test_evaluation_still_works_after_the_grade_item_id_changed(): void {
         global $DB;
+        $this->require_ai_provider();
         $this->resetAfterTest(true);
         $this->setAdminUser();
 
@@ -131,5 +132,17 @@ final class grade_in_activity_recreated_item_test extends \advanced_testcase {
             $condition->evaluate((object) ['courseid' => (int) $course->id, 'userid' => (int) $failing->id]),
             'A user at 20 must not satisfy "grade >= 50".'
         );
+    }
+
+    /**
+     * Skip when the Datacurso AI provider is absent: the code under test asks it whether this plugin is enabled.
+     *
+     * @return void
+     */
+    private function require_ai_provider(): void {
+        // The CI pipeline does not install declared dependencies; without the Datacurso AI provider this test cannot run.
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed.');
+        }
     }
 }

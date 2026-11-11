@@ -24,6 +24,7 @@ use core_grades\component_gradeitems;
 use grade_item;
 use local_coursedynamicrules\helper\grade_condition_thresholds;
 use local_coursedynamicrules\helper\page_gate;
+use local_coursedynamicrules\local\provider_dependency;
 use moodle_url;
 use MoodleQuickForm;
 
@@ -267,7 +268,7 @@ class dynamic_grade_in_activity_form extends dynamic_form {
     /**
      * Returns context where this form is used
      *
-     * This context is validated in {@see \external_api::validate_context()}
+     * This context is validated in {@see \core_external\external_api::validate_context()}
      *
      * If context depends on the form data, it is available in $this->_ajaxformdata or
      * by calling $this->optional_param()
@@ -292,8 +293,16 @@ class dynamic_grade_in_activity_form extends dynamic_form {
      *
      * Example:
      *     require_capability('dosomething', $this->get_context_for_dynamic_submission());
+     *
+     * Refuses first while the plugin is disabled in the Datacurso AI provider or the provider is older than 2.2.0.
+     *
+     * @return void
+     * @throws \moodle_exception plugindisabled or plugindisabled_admin when the plugin is disabled,
+     *     providerupdaterequired or providerupdaterequired_admin when the provider is older than 2.2.0.
+     * @throws \required_capability_exception When the user cannot manage conditions.
      */
     protected function check_access_for_dynamic_submission(): void {
+        provider_dependency::require_enabled();
         // The same pair every condition screen demands, through the same helper. Asking for manage
         // alone let a role the pages refuse - manage allowed, view prevented - reach this form over
         // the web service and read back every grade-tracked activity of the course with each grade

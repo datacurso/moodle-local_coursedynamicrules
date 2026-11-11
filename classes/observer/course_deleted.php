@@ -17,7 +17,8 @@
 namespace local_coursedynamicrules\observer;
 
 /**
- * Removes a course's rules (and their conditions and actions) when the course is deleted.
+ * Removes a course's rules (and their conditions and actions) when the course is deleted, and requests
+ * the erasure of its AI requests on the course service.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -44,6 +45,12 @@ class course_deleted {
             $DB->delete_records_select('local_coursedynamicrules_action', "ruleid $insql", $params);
         }
         $DB->delete_records('local_coursedynamicrules_rule', ['courseid' => $courseid]);
+
+        // The course service keeps the threads of the AI requests made in this course, and nothing
+        // will ask for them again once the course is gone: their erasure is recorded on the rows, and
+        // the scheduled remote_erasure_task sends it. Until the service confirms, the rows stay and the
+        // privacy provider reaches them through each student's own context (CDR-PRIV-001-R2).
+        \local_coursedynamicrules\local\remote_erasure::request_course_erasure((int) $courseid);
 
         // Reported AFTER the rows are gone, so nothing is announced that a later failure could
         // leave standing. The context comes from the event and never from

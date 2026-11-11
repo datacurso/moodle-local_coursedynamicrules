@@ -248,8 +248,10 @@ final class outgoing_request_test extends \advanced_testcase {
         [$client, $student] = $this->run_action(true);
 
         $this->assertNotEquals((int) $student->id, (int) $USER->id, 'Sanity: the action must run as someone else.');
+        // The provider's 5.x line sends the Moodle user id as it is (it does not pseudonymise it).
+        $expected = (string) $student->id;
         foreach (['/activity/init', '/activity/feedback'] as $path) {
-            $this->assertSame((string) $student->id, (string) $client->wire_to($path)[0]['body']['userid'], $path);
+            $this->assertSame($expected, (string) $client->wire_to($path)[0]['body']['userid'], $path);
         }
     }
 }
