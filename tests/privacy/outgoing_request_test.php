@@ -248,8 +248,10 @@ final class outgoing_request_test extends \advanced_testcase {
         [$client, $student] = $this->run_action(true);
 
         $this->assertNotEquals((int) $student->id, (int) $USER->id, 'Sanity: the action must run as someone else.');
+        // The transport replaces the raw id with the site-scoped pseudonym of the student.
+        $expected = \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id);
         foreach (['/activity/init', '/activity/feedback'] as $path) {
-            $this->assertSame((string) $student->id, (string) $client->wire_to($path)[0]['body']['userid'], $path);
+            $this->assertSame($expected, (string) $client->wire_to($path)[0]['body']['userid'], $path);
         }
     }
 }
