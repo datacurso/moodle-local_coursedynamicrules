@@ -53,10 +53,59 @@ final class jenkinsfile_supported_branches_test extends \basic_testcase {
     private function jenkins_versions(): array {
         $jenkinsfile = file_get_contents(__DIR__ . '/../../Jenkinsfile.moodleplugin');
         $this->assertNotFalse($jenkinsfile, 'the plugin must ship Jenkinsfile.moodleplugin');
+        return self::parse_jenkins_versions($jenkinsfile);
+    }
+
+    /**
+     * The Moodle versions a Jenkinsfile runs, from its MOODLE_XYZ_STABLE branch names.
+     *
+     * Two forms of the shared library call name a branch: the standard single-branch
+     * `moodlePluginCI(moodleBranch: 'MOODLE_405_STABLE')` and the matrix
+     * `moodlePluginCI(moodleVersions: [[version: 'MOODLE_405_STABLE', ...]])`.
+     *
+     * @param string $jenkinsfile Contents of a Jenkinsfile.
+     * @return int[]
+     */
+    private static function parse_jenkins_versions(string $jenkinsfile): array {
         // Comments are dropped first, so a branch named only in a comment does not count.
         $code = preg_replace('~^\s*//.*$~m', '', $jenkinsfile);
-        preg_match_all("~version:\s*'MOODLE_(\d{3})_STABLE'~", $code, $matches);
+        preg_match_all("~\b(?:version|moodleBranch):\s*'MOODLE_(\d{3})_STABLE'~", $code, $matches);
         return array_map('intval', $matches[1]);
+    }
+
+    /**
+     * Jenkinsfiles in both forms of the shared library call, with the versions they run.
+     *
+     * @return array<string, array{0: string, 1: int[]}>
+     */
+    public static function jenkinsfile_provider(): array {
+        return [
+            'standard single branch' => [
+                "@Library('moodle-ci') _\nmoodlePluginCI(moodleBranch: 'MOODLE_405_STABLE')\n",
+                [405],
+            ],
+            'matrix of versions' => [
+                "@Library('moodle-ci') _\nmoodlePluginCI(moodleVersions: [\n"
+                    . "  [version: 'MOODLE_405_STABLE', dbs: ['mariadb', 'pgsql']],\n"
+                    . "  [version: 'MOODLE_500_STABLE', dbs: ['mariadb']],\n])\n",
+                [405, 500],
+            ],
+            'branch named only in a comment' => [
+                "@Library('moodle-ci') _\n// moodleBranch: 'MOODLE_500_STABLE'\nmoodlePluginCI(moodleBranch: 'MOODLE_405_STABLE')\n",
+                [405],
+            ],
+        ];
+    }
+
+    /**
+     * Both forms of the shared library call are read, so neither can hide a branch from the checks below.
+     *
+     * @dataProvider jenkinsfile_provider
+     * @param string $jenkinsfile Contents of a Jenkinsfile.
+     * @param int[] $expected Versions it runs.
+     */
+    public function test_both_forms_of_the_jenkinsfile_are_read(string $jenkinsfile, array $expected): void {
+        $this->assertSame($expected, self::parse_jenkins_versions($jenkinsfile));
     }
 
     /**
