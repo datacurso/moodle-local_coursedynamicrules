@@ -19,11 +19,11 @@ namespace local_coursedynamicrules\local;
 /**
  * The one place that talks to the Datacurso AI provider's plugin state.
  *
- * The provider class `\aiprovider_datacurso\local\plugin_settings` exists only from provider 1.7.0
- * (version 2026110400). A site that updated this plugin while keeping an older provider must keep
- * working: without the class the plugin counts as not enabled, so the navigation entry, the
- * observers and the tasks skip, and the pages refuse with a notice telling an administrator to
- * update the provider. No other plugin code names the provider class.
+ * The provider class `\aiprovider_datacurso\local\plugin_settings` exists on the provider's 5.x
+ * line only from 2.2.0 (version 2026110900). A site that updated this plugin while keeping an older
+ * provider must keep working: without the class the plugin counts as not enabled, so the
+ * navigation entry, the observers and the tasks skip, and the pages refuse with a notice telling
+ * an administrator to update the provider. No other plugin code names the provider class.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -33,14 +33,14 @@ final class provider_dependency {
     /** @var string This plugin's component, the key of its state in the provider. */
     private const COMPONENT = 'local_coursedynamicrules';
 
-    /** @var string Provider class introduced in aiprovider_datacurso 1.7.0. */
+    /** @var string Provider class introduced in aiprovider_datacurso 2.2.0. */
     private const SETTINGS_CLASS = '\\aiprovider_datacurso\\local\\plugin_settings';
 
     /** @var bool|null Forced availability for unit tests; null detects the real provider. */
     private static ?bool $availableoverride = null;
 
     /**
-     * Whether the installed provider has the plugin state API (provider 1.7.0 or later).
+     * Whether the installed provider has the plugin state API (provider 2.2.0 or later).
      *
      * @return bool
      */
@@ -105,7 +105,7 @@ final class provider_dependency {
     }
 
     /**
-     * Force the provider availability in unit tests, to simulate a provider older than 1.7.0.
+     * Force the provider availability in unit tests, to simulate a provider older than 2.2.0.
      *
      * @param bool|null $available Forced value, or null to detect the real provider again.
      * @return void

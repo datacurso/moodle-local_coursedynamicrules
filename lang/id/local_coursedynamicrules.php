@@ -215,7 +215,7 @@ Anda dapat mengaktifkannya dari <a href="{$a}" target="_blank">Pengaturan notifi
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Lihat dokumentasi untuk informasi lebih lanjut.</a>';
 $string['providerupdaterequired'] = 'Smart Rules AI tidak tersedia saat ini. Silakan hubungi administrator situs.';
-$string['providerupdaterequired_admin'] = 'Smart Rules AI memerlukan penyedia AI Datacurso (aiprovider_datacurso) 1.7.0 atau lebih baru. Versi yang terpasang lebih lama, sehingga Smart Rules AI dijeda: tidak ada aturan yang dijalankan dan halamannya tetap tertutup. Perbarui penyedia AI Datacurso ke 1.7.0 atau lebih baru untuk menggunakannya lagi.';
+$string['providerupdaterequired_admin'] = 'Smart Rules AI memerlukan penyedia AI Datacurso (aiprovider_datacurso) 2.2.0 atau lebih baru. Versi yang terpasang lebih lama, sehingga Smart Rules AI dijeda: tidak ada aturan yang dijalankan dan halamannya tetap tertutup. Perbarui penyedia AI Datacurso ke 2.2.0 atau lebih baru untuk menggunakannya lagi.';
 $string['recurringinterval'] = 'Interval berulang';
 $string['recurringinterval_help'] = 'Masukkan nilai numerik yang mewakili interval ketidakaktifan berulang (mis., "7" untuk setiap 7 hari ketidakaktifan).';
 $string['remote_erasure_task'] = 'Kirim penghapusan permintaan aktivitas AI yang tertunda ke layanan kursus';
@@ -234,6 +234,6 @@ $string['selectanactivity'] = 'Pilih aktivitas';
 $string['sendnotification'] = 'Kirim notifikasi';
 $string['sendnotification_description'] = 'Kirim notifikasi "{$a}" kepada pengguna';
 $string['task_skipped_plugindisabled'] = 'Plugin dinonaktifkan di penyedia AI Datacurso; eksekusi dilewati.';
-$string['task_skipped_providerupdaterequired'] = 'Penyedia AI Datacurso lebih lama dari 1.7.0; eksekusi dilewati. Perbarui penyedia AI Datacurso ke 1.7.0 atau lebih baru.';
+$string['task_skipped_providerupdaterequired'] = 'Penyedia AI Datacurso lebih lama dari 2.2.0; eksekusi dilewati. Perbarui penyedia AI Datacurso ke 2.2.0 atau lebih baru.';
 $string['typemissing'] = 'Nilai "type" hilang';
 $string['weeks'] = 'Minggu';

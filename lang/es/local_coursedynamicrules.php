@@ -272,7 +272,7 @@ Puede habilitarlo desde <a href="{$a}" target="_blank">Configuración de notific
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Consulte la documentación para más información.</a>';
 $string['providerupdaterequired'] = 'Smart Rules AI no está disponible en este momento. Contacta al administrador del sitio.';
-$string['providerupdaterequired_admin'] = 'Smart Rules AI necesita el proveedor de IA de Datacurso (aiprovider_datacurso) 1.7.0 o posterior. La versión instalada es anterior, así que Smart Rules AI está en pausa: no se ejecuta ninguna regla y sus páginas permanecen cerradas. Actualiza el proveedor de IA de Datacurso a la versión 1.7.0 o posterior para volver a usarlo.';
+$string['providerupdaterequired_admin'] = 'Smart Rules AI necesita el proveedor de IA de Datacurso (aiprovider_datacurso) 2.2.0 o posterior. La versión instalada es anterior, así que Smart Rules AI está en pausa: no se ejecuta ninguna regla y sus páginas permanecen cerradas. Actualiza el proveedor de IA de Datacurso a la versión 2.2.0 o posterior para volver a usarlo.';
 $string['recurringinterval'] = 'Intervalo recurrente';
 $string['recurringinterval_help'] = 'Ingrese un número entero mayor que 0 que represente un intervalo recurrente de inactividad (p. ej., "7" para cada 7 días de inactividad).';
 $string['remote_erasure_task'] = 'Enviar al servicio de cursos los borrados pendientes de solicitudes de actividades con IA';
@@ -308,7 +308,7 @@ $string['sendnotification'] = 'Enviar notificación';
 $string['sendnotification_description'] = 'Enviar notificación "{$a}" a los usuarios';
 $string['sendnotification_description_details'] = 'Destinatarios: {$a->primaryroles}. Con copia a: {$a->copyroles}. Mensaje: "{$a->body}"';
 $string['task_skipped_plugindisabled'] = 'El plugin está deshabilitado en el proveedor de IA de Datacurso; se omite la ejecución.';
-$string['task_skipped_providerupdaterequired'] = 'El proveedor de IA de Datacurso es anterior a la 1.7.0; se omite la ejecución. Actualiza el proveedor de IA de Datacurso a la versión 1.7.0 o posterior.';
+$string['task_skipped_providerupdaterequired'] = 'El proveedor de IA de Datacurso es anterior a la 2.2.0; se omite la ejecución. Actualiza el proveedor de IA de Datacurso a la versión 2.2.0 o posterior.';
 $string['taskbatchsize'] = 'Usuarios por lote';
 $string['taskbatchsize_desc'] = 'Cuántos usuarios matriculados toma cada tarea programada por vez mientras recorre un curso. Las tareas nunca retienen más de esa cantidad a la vez, así que un valor menor cuesta menos memoria por corrida y más consultas; uno mayor, al revés. Los cursos que superan este valor se informan en el registro de la tarea. Por omisión: 500.';
 $string['typemissing'] = 'Falta el valor "type"';

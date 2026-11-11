@@ -52,7 +52,7 @@ class rule_task extends \core\task\adhoc_task {
      * This function is execute when cron jobs are executed
      *
      * Skipped, without running any rule, while the plugin is disabled in the Datacurso AI provider
-     * or the provider is older than 1.7.0.
+     * or the provider is older than 2.2.0.
      *
      * @return void
      */

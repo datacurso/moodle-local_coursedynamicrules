@@ -39,7 +39,7 @@ class user_graded {
     /**
      * Trigger when user receive grade
      *
-     * Queues nothing while the plugin is disabled in the Datacurso AI provider or the provider is older than 1.7.0.
+     * Queues nothing while the plugin is disabled in the Datacurso AI provider or the provider is older than 2.2.0.
      *
      * @param \core\event\user_graded $event
      * @return void

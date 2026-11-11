@@ -34,7 +34,7 @@ class course_module_completion_updated {
     /**
      * The definition of the event.
      *
-     * Queues nothing while the plugin is disabled in the Datacurso AI provider or the provider is older than 1.7.0.
+     * Queues nothing while the plugin is disabled in the Datacurso AI provider or the provider is older than 2.2.0.
      *
      * @param \core\event\course_module_completion_updated $event The event object
      * @return void

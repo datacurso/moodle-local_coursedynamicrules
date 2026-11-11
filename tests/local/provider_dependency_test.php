@@ -20,9 +20,9 @@ use local_coursedynamicrules\form\conditions\dynamic_grade_in_activity_form;
 use local_coursedynamicrules\task\rule_task;
 
 /**
- * The plugin keeps the site working when the Datacurso AI provider is older than 1.7.0.
+ * The plugin keeps the site working when the Datacurso AI provider is older than 2.2.0.
  *
- * Provider 1.7.0 introduced `\aiprovider_datacurso\local\plugin_settings`. A site that updated this
+ * Provider 2.2.0 introduced `\aiprovider_datacurso\local\plugin_settings`. A site that updated this
  * plugin while keeping an older provider fell over on every page ("Class not found"). Every use of
  * that class now goes through provider_dependency: with an older provider the navigation entry,
  * observers and tasks skip quietly and the pages and the dynamic form refuse with a notice that
@@ -57,7 +57,7 @@ final class provider_dependency_test extends \advanced_testcase {
     }
 
     /**
-     * Simulate a provider older than 1.7.0, which has no plugin_settings class.
+     * Simulate a provider older than 2.2.0, which has no plugin_settings class.
      *
      * @return void
      */
@@ -66,7 +66,7 @@ final class provider_dependency_test extends \advanced_testcase {
     }
 
     /**
-     * Skip when the Datacurso AI provider 1.7.0 or later is not installed.
+     * Skip when the Datacurso AI provider 2.2.0 or later is not installed.
      *
      * @return void
      */
@@ -105,7 +105,7 @@ final class provider_dependency_test extends \advanced_testcase {
         } catch (\moodle_exception $e) {
             $this->assertSame('providerupdaterequired_admin', $e->errorcode);
             $this->assertSame('local_coursedynamicrules', $e->module);
-            $this->assertStringContainsString('1.7.0', $e->getMessage());
+            $this->assertStringContainsString('2.2.0', $e->getMessage());
         }
     }
 
@@ -124,7 +124,7 @@ final class provider_dependency_test extends \advanced_testcase {
             $this->fail('require_enabled() must refuse with an older provider');
         } catch (\moodle_exception $e) {
             $this->assertSame('providerupdaterequired', $e->errorcode);
-            $this->assertStringNotContainsString('1.7.0', $e->getMessage());
+            $this->assertStringNotContainsString('2.2.0', $e->getMessage());
         }
     }
 
@@ -310,7 +310,7 @@ final class provider_dependency_test extends \advanced_testcase {
     }
 
     /**
-     * No plugin code outside the guard names the provider class introduced in 1.7.0.
+     * No plugin code outside the guard names the provider class introduced in 2.2.0.
      *
      * One reference left outside the guard is enough to bring every page down again on a site
      * with an older provider, which the seam above cannot see.

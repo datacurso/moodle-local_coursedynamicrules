@@ -215,7 +215,7 @@ Vous pouvez l’activer depuis <a href="{$a}" target="_blank">Paramètres des no
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Voir la documentation pour plus d’informations.</a>';
 $string['providerupdaterequired'] = 'Smart Rules AI n’est pas disponible pour le moment. Veuillez contacter l’administrateur du site.';
-$string['providerupdaterequired_admin'] = 'Smart Rules AI nécessite le fournisseur d’IA Datacurso (aiprovider_datacurso) 1.7.0 ou ultérieur. La version installée est plus ancienne, Smart Rules AI est donc en pause : aucune règle ne s’exécute et ses pages restent fermées. Mettez à jour le fournisseur d’IA Datacurso vers la version 1.7.0 ou ultérieure pour l’utiliser à nouveau.';
+$string['providerupdaterequired_admin'] = 'Smart Rules AI nécessite le fournisseur d’IA Datacurso (aiprovider_datacurso) 2.2.0 ou ultérieur. La version installée est plus ancienne, Smart Rules AI est donc en pause : aucune règle ne s’exécute et ses pages restent fermées. Mettez à jour le fournisseur d’IA Datacurso vers la version 2.2.0 ou ultérieure pour l’utiliser à nouveau.';
 $string['recurringinterval'] = 'Intervalle récurrent';
 $string['recurringinterval_help'] = 'Saisissez une valeur numérique représentant un intervalle récurrent d’inactivité (par ex. « 7 » pour tous les 7 jours d’inactivité).';
 $string['remote_erasure_task'] = 'Envoyer au service de cours les effacements en attente des demandes d\'activités IA';
@@ -234,6 +234,6 @@ $string['selectanactivity'] = 'Sélectionner une activité';
 $string['sendnotification'] = 'Envoyer une notification';
 $string['sendnotification_description'] = 'Envoyer la notification « {$a} » aux utilisateurs';
 $string['task_skipped_plugindisabled'] = 'Le plugin est désactivé dans le fournisseur d’IA Datacurso ; exécution ignorée.';
-$string['task_skipped_providerupdaterequired'] = 'Le fournisseur d’IA Datacurso est antérieur à 1.7.0 ; exécution ignorée. Mettez à jour le fournisseur d’IA Datacurso vers la version 1.7.0 ou ultérieure.';
+$string['task_skipped_providerupdaterequired'] = 'Le fournisseur d’IA Datacurso est antérieur à 2.2.0 ; exécution ignorée. Mettez à jour le fournisseur d’IA Datacurso vers la version 2.2.0 ou ultérieure.';
 $string['typemissing'] = 'Valeur « type » manquante';
 $string['weeks'] = 'Semaines';

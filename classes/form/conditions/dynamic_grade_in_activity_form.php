@@ -294,11 +294,11 @@ class dynamic_grade_in_activity_form extends dynamic_form {
      * Example:
      *     require_capability('dosomething', $this->get_context_for_dynamic_submission());
      *
-     * Refuses first while the plugin is disabled in the Datacurso AI provider or the provider is older than 1.7.0.
+     * Refuses first while the plugin is disabled in the Datacurso AI provider or the provider is older than 2.2.0.
      *
      * @return void
      * @throws \moodle_exception plugindisabled or plugindisabled_admin when the plugin is disabled,
-     *     providerupdaterequired or providerupdaterequired_admin when the provider is older than 1.7.0.
+     *     providerupdaterequired or providerupdaterequired_admin when the provider is older than 2.2.0.
      * @throws \required_capability_exception When the user cannot manage conditions.
      */
     protected function check_access_for_dynamic_submission(): void {

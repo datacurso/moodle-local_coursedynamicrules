@@ -46,7 +46,7 @@ class no_course_access_task extends \core\task\scheduled_task {
      * Execute the task.
      *
      * Skipped, without running any rule, while the plugin is disabled in the Datacurso AI provider
-     * or the provider is older than 1.7.0.
+     * or the provider is older than 2.2.0.
      *
      * @return void
      */

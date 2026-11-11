@@ -215,7 +215,7 @@ Sie können dies unter <a href="{$a}" target="_blank">Benachrichtigungseinstellu
 <br>
 <a href="https://docs.datacurso.com/index.php?title=Message_Hub" target="_blank">Weitere Informationen finden Sie in der Dokumentation.</a>';
 $string['providerupdaterequired'] = 'Smart Rules AI ist derzeit nicht verfügbar. Bitte wenden Sie sich an die Administration der Website.';
-$string['providerupdaterequired_admin'] = 'Smart Rules AI benötigt den Datacurso-KI-Anbieter (aiprovider_datacurso) 1.7.0 oder neuer. Die installierte Version ist älter, daher ist Smart Rules AI pausiert: Es werden keine Regeln ausgeführt und die Seiten bleiben geschlossen. Aktualisieren Sie den Datacurso-KI-Anbieter auf 1.7.0 oder neuer, um es wieder zu nutzen.';
+$string['providerupdaterequired_admin'] = 'Smart Rules AI benötigt den Datacurso-KI-Anbieter (aiprovider_datacurso) 2.2.0 oder neuer. Die installierte Version ist älter, daher ist Smart Rules AI pausiert: Es werden keine Regeln ausgeführt und die Seiten bleiben geschlossen. Aktualisieren Sie den Datacurso-KI-Anbieter auf 2.2.0 oder neuer, um es wieder zu nutzen.';
 $string['recurringinterval'] = 'Wiederkehrendes Intervall';
 $string['recurringinterval_help'] = 'Geben Sie einen numerischen Wert für ein wiederkehrendes Inaktivitätsintervall ein (z. B. "7" für alle 7 Tage Inaktivität).';
 $string['remote_erasure_task'] = 'Ausstehende Löschungen von KI-Aktivitätsanfragen an den Kursdienst senden';
@@ -234,6 +234,6 @@ $string['selectanactivity'] = 'Aktivität auswählen';
 $string['sendnotification'] = 'Benachrichtigung senden';
 $string['sendnotification_description'] = 'Benachrichtigung "{$a}" an Nutzer senden';
 $string['task_skipped_plugindisabled'] = 'Das Plugin ist im Datacurso-KI-Anbieter deaktiviert; die Ausführung wird übersprungen.';
-$string['task_skipped_providerupdaterequired'] = 'Der Datacurso-KI-Anbieter ist älter als 1.7.0; die Ausführung wird übersprungen. Aktualisieren Sie den Datacurso-KI-Anbieter auf 1.7.0 oder neuer.';
+$string['task_skipped_providerupdaterequired'] = 'Der Datacurso-KI-Anbieter ist älter als 2.2.0; die Ausführung wird übersprungen. Aktualisieren Sie den Datacurso-KI-Anbieter auf 2.2.0 oder neuer.';
 $string['typemissing'] = 'Fehlender Wert "type"';
 $string['weeks'] = 'Wochen';
