@@ -88,14 +88,12 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
             'thread_ids' => $threadids,
         ], $handed[0]['body']);
 
-        // On the wire the transport pseudonymises the student and adds the site.
+        // On the wire the transport adds the site. The provider's 5.x line sends the Moodle user id
+        // as it is (its README: "this version does not pseudonymise it").
         $sent = $wire->wire_to(self::PATH);
         $this->assertCount(1, $sent);
         $this->assertSame(wire_capturing_ai_course_api::BASE_URL . self::PATH, $sent[0]['url']);
-        $this->assertSame(
-            \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id),
-            (string) $sent[0]['body']['userid']
-        );
+        $this->assertSame((string) $student->id, (string) $sent[0]['body']['userid']);
         $this->assertSame($threadids, $sent[0]['body']['thread_ids']);
         $this->assertArrayHasKey('site_id', $sent[0]['body']);
     }
@@ -140,13 +138,26 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
 
     /**
      * A transport failure is reported as not done, never thrown: the rows stay pending.
+     *
+     * On Moodle 5.x the course client refuses to be built while no enabled Datacurso provider
+     * instance exists (instance_disabled), so nothing can leave the site.
      */
     public function test_a_transport_failure_is_not_confirmed(): void {
-        [$erasure, $wire] = $this->client();
-        \core\plugininfo\aiprovider::enable_plugin('datacurso', 0);
+        global $DB;
+        wire_capturing_ai_course_api::seed_provider();
+        $manager = new \core_ai\manager($DB);
+        foreach ($manager->get_provider_instances(['provider' => \aiprovider_datacurso\provider::class]) as $instance) {
+            $manager->disable_provider_instance($instance);
+        }
+        $built = [];
+        $erasure = new course_service_remote_erasure_client(function () use (&$built) {
+            $wire = wire_capturing_ai_course_api::create();
+            $built[] = $wire;
+            return $wire;
+        });
 
         $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_USER, []));
-        $this->assertSame([], $wire->wire_to(self::PATH), 'nothing left the site');
+        $this->assertSame([], $built, 'no course client could be built, so nothing left the site');
     }
 
     /**

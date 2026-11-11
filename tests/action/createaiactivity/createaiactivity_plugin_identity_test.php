@@ -30,12 +30,20 @@ final class createaiactivity_plugin_identity_test extends \advanced_testcase {
      * The client the action builds identifies as this plugin and reports its release.
      */
     public function test_the_client_identifies_as_this_plugin_with_its_release(): void {
+        global $DB;
         $this->resetAfterTest();
         if (!class_exists(\aiprovider_datacurso\httpclient\plugin_identity::class)) {
             $this->markTestSkipped('The installed aiprovider_datacurso does not send plugin headers.');
         }
         // The real client reads the license and asks the shop for its region: give it both, offline.
+        // On Moodle 5.x the license lives in an enabled provider instance, which the client requires.
         set_config('licensekey', 'test-license-key', 'aiprovider_datacurso');
+        (new \core_ai\manager($DB))->create_provider_instance(
+            classname: \aiprovider_datacurso\provider::class,
+            name: 'plugin identity',
+            enabled: true,
+            config: ['licensekey' => 'test-license-key'],
+        );
         \curl::mock_response('{"is_for_eu": false}');
         $manager = \core_plugin_manager::instance();
         $plugin = $manager->get_plugin_info('local_coursedynamicrules');

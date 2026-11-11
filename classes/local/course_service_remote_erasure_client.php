@@ -22,8 +22,8 @@ use aiprovider_datacurso\httpclient\ai_course_api;
  * The production remote erasure client: asks the Datacurso course service to erase (CDR-PRIV-001-R2).
  *
  * It sends POST /privacy/erase through aiprovider_datacurso's course client, the same client and base
- * URL as /activity/init, so the transport pseudonymises the user id and adds site_id and site_url as
- * it does for every request. The contract is described in remote_erasure_client.
+ * URL as /activity/init, so the transport adds site_id and site_url as it does for every request (the
+ * provider's 5.x line sends the Moodle user id as it is). The contract is described in remote_erasure_client.
  *
  * The service takes at most MAX_THREADS thread ids per call, so a longer list is sent in several calls
  * in the same scope, and the erasure is confirmed only when every call answers {"status": "erased"}.

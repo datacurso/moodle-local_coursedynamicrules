@@ -25,11 +25,11 @@ namespace local_coursedynamicrules\local;
  * THE CONTRACT. POST /privacy/erase on the course service, relative to the same base URL as
  * /activity/init and sent through aiprovider_datacurso's course client, with the body
  * {"userid": <Moodle user id>, "service_id": <calling plugin>, "scope": "threads"|"user",
- * "thread_ids": [...]}. The transport pseudonymises the user id and adds site_id and site_url, so the
- * service erases only this site's data of that student, and only for that service id: the activity
- * instructions, the request configuration and the generated activity kept for those threads. The
- * service accepts at most 1000 thread ids per call, each 1 to 255 characters, and refuses a
- * "threads" request with an empty list (422). It confirms with HTTP 200 and
+ * "thread_ids": [...]}. The transport adds site_id and site_url (the provider's 5.x line sends the
+ * Moodle user id as it is), so the service erases only this site's data of that student, and only
+ * for that service id: the activity instructions, the request configuration and the generated
+ * activity kept for those threads. The service accepts at most 1000 thread ids per call, each 1 to
+ * 255 characters, and refuses a "threads" request with an empty list (422). It confirms with HTTP 200 and
  * {"status": "erased", "requests": n, "threads": m}. Anything else is not a confirmation, including
  * the 403 a site without token balance or with an inactive subscription receives.
  *
