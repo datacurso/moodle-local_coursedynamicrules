@@ -24,9 +24,9 @@ use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
 use core_privacy\local\request\transform;
 use local_coursedynamicrules\local\owned_gate_eraser;
-use local_coursedynamicrules\local\provider_dependency;
 use local_coursedynamicrules\local\remote_erasure;
 use local_coursedynamicrules\local\remote_export_client;
+use local_coursedynamicrules\local\tenant_context;
 
 /**
  * Privacy provider for local_coursedynamicrules.
@@ -749,7 +749,7 @@ class provider implements
      * Only the thread ids recorded on this site for the user in that context are sent; requests
      * recorded without one have nothing to ask for. The answer is written with plain keys, the request
      * settings stripped of secrets and identifiers (readable_settings()). When the plugin is not
-     * enabled in the provider, or the service cannot be asked or does not answer, the export is not
+     * enabled in the provider for the student's tenant, or the service cannot be asked or does not answer, the export is not
      * failed: a note saying the data could not be retrieved is written instead. Nothing is logged.
      *
      * @param \context $context The course context, or the user's own context for deleted courses.
@@ -769,7 +769,9 @@ class provider implements
         }
 
         $data = null;
-        if (provider_dependency::is_enabled()) {
+        // On Workplace the provider keeps the state per tenant: the student's tenant decides, never the
+        // tenant of whoever runs the export (an administrator or the cron user).
+        if (tenant_context::is_enabled_for_user($userid)) {
             try {
                 $data = \core\di::get(remote_export_client::class)
                     ->export(remote_erasure::SERVICE_ID, $userid, array_values($threadids));

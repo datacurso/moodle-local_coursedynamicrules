@@ -22,6 +22,7 @@ use local_coursedynamicrules\local\fake_remote_export_client;
 use local_coursedynamicrules\local\provider_dependency;
 use local_coursedynamicrules\local\remote_erasure;
 use local_coursedynamicrules\local\remote_export_client;
+use local_coursedynamicrules\local\tenant_context;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -283,7 +284,11 @@ final class remote_export_test extends \core_privacy\tests\provider_testcase {
             if (!provider_dependency::is_available()) {
                 $this->markTestSkipped('The installed provider has no plugin state API.');
             }
-            \aiprovider_datacurso\local\plugin_settings::set_enabled('local_coursedynamicrules', false);
+            \aiprovider_datacurso\local\plugin_settings::set_enabled(
+                'local_coursedynamicrules',
+                false,
+                tenant_context::get_tenant_id_for_user((int) $student->id)
+            );
         }
 
         $coursecontext = \context_course::instance($course->id);
@@ -304,6 +309,44 @@ final class remote_export_test extends \core_privacy\tests\provider_testcase {
             'disabled' => ['disabled'],
             'too old' => ['too old'],
         ];
+    }
+
+    /**
+     * Workplace: the student's tenant decides, not the tenant of whoever runs the export.
+     */
+    public function test_the_students_tenant_decides_whether_the_service_is_asked(): void {
+        if (!class_exists(\tool_tenant\tenancy::class)) {
+            $this->markTestSkipped('tool_tenant is not installed.');
+        }
+        if (!provider_dependency::is_available()) {
+            $this->markTestSkipped('The installed provider has no plugin state API.');
+        }
+        $generator = $this->getDataGenerator();
+        $tenantgenerator = $generator->get_plugin_generator('tool_tenant');
+        $studentcategory = $generator->create_category(['name' => 'Student tenant category']);
+        $studenttenant = $tenantgenerator->create_tenant(['name' => 'Student tenant', 'categoryid' => $studentcategory->id]);
+        $othercategory = $generator->create_category(['name' => 'Other tenant category']);
+        $othertenant = $tenantgenerator->create_tenant(['name' => 'Other tenant', 'categoryid' => $othercategory->id]);
+        $course = $generator->create_course(['category' => $studentcategory->id]);
+        $student = $tenantgenerator->create_user(['tenantid' => $studenttenant->id]);
+        $generator->enrol_user($student->id, $course->id, 'student');
+        remote_erasure::record_request($this->ai_action((int) $course->id), (int) $course->id, (int) $student->id, 'thread-1');
+        $coursecontext = \context_course::instance($course->id);
+
+        // Disabled for another tenant only: the student's data is still asked for.
+        \aiprovider_datacurso\local\plugin_settings::set_enabled('local_coursedynamicrules', false, (int) $othertenant->id);
+        $fake = $this->use_client(new fake_remote_export_client($this->remote_data(['thread-1'])));
+        $this->export($student, [$coursecontext]);
+        $this->assertCount(1, $fake->calls);
+
+        // Disabled for the student's tenant: nothing is asked and the note is written.
+        \aiprovider_datacurso\local\plugin_settings::set_enabled('local_coursedynamicrules', false, (int) $studenttenant->id);
+        $fake = $this->use_client(new fake_remote_export_client($this->remote_data(['thread-1'])));
+        writer::reset();
+        $this->export($student, [$coursecontext]);
+        $this->assertSame([], $fake->calls);
+        $data = writer::with_context($coursecontext)->get_data($this->subcontext());
+        $this->assertSame(get_string('privacy:remotedataunavailable', 'local_coursedynamicrules'), $data->note);
     }
 
     /**
