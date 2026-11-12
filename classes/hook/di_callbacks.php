@@ -17,7 +17,9 @@
 namespace local_coursedynamicrules\hook;
 
 use local_coursedynamicrules\local\course_service_remote_erasure_client;
+use local_coursedynamicrules\local\course_service_remote_export_client;
 use local_coursedynamicrules\local\remote_erasure_client;
+use local_coursedynamicrules\local\remote_export_client;
 
 /**
  * Dependency injection definitions of this plugin.
@@ -28,7 +30,7 @@ use local_coursedynamicrules\local\remote_erasure_client;
  */
 class di_callbacks {
     /**
-     * Register the production remote erasure client.
+     * Register the production remote erasure and export clients.
      *
      * @param \core\hook\di_configuration $hook The DI configuration hook.
      * @return void
@@ -37,6 +39,10 @@ class di_callbacks {
         $hook->add_definition(
             remote_erasure_client::class,
             static fn(): remote_erasure_client => new course_service_remote_erasure_client()
+        );
+        $hook->add_definition(
+            remote_export_client::class,
+            static fn(): remote_export_client => new course_service_remote_export_client()
         );
     }
 }
