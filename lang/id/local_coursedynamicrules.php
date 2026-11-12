@@ -210,6 +210,9 @@ $string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'K
 $string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'ID utas yang diberikan layanan kursus untuk permintaan.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Kapan permintaan dibuat.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'Siswa yang menjadi tujuan permintaan.';
+$string['privacy:remotedata'] = 'Data yang disimpan oleh layanan kursus (Smart Rules AI)';
+$string['privacy:remotedataexplained'] = 'Apa yang disimpan layanan kursus Datacurso tentang Anda untuk aktivitas AI plugin ini, sebagaimana dikembalikan saat ekspor ini dibuat: setiap permintaan (pengaturan dan hasil yang dihasilkan), konsumsi AI setiap permintaan (operasi, model, dan token) dan pesan setiap percakapan. Hanya utas yang tercatat di situs ini untuk Anda yang diminta.';
+$string['privacy:remotedataunavailable'] = 'Data yang disimpan oleh layanan kursus Datacurso tidak dapat diambil saat ekspor ini dibuat (layanan tidak tersedia atau penyedia AI dinonaktifkan). Permintaan yang tercatat di situs ini tercantum di atas; minta administrator situs mengulangi ekspor untuk menyertakannya.';
 $string['provider_not_enabled_warning'] = 'Aktifkan notifikasi dengan <strong>Datacurso Message Hub</strong> agar tindakan ini dapat mengirim notifikasi melalui WhatsApp dan SMS menggunakan penyedia seperti Twilio.
 Anda dapat mengaktifkannya dari <a href="{$a}" target="_blank">Pengaturan notifikasi</a> dengan mencari <strong>Smart Rules AI notification</strong>.
 <br>

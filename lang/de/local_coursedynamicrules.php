@@ -210,6 +210,9 @@ $string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'W
 $string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'Die Thread-ID, die der Kursdienst der Anfrage gegeben hat.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Wann die Anfrage gestellt wurde.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'Die/der Teilnehmer/in, für die/den die Anfrage gestellt wurde.';
+$string['privacy:remotedata'] = 'Vom Kursdienst gespeicherte Daten (Smart Rules AI)';
+$string['privacy:remotedataexplained'] = 'Was der Datacurso-Kursdienst für die KI-Aktivitäten dieses Plugins über Sie speichert, so wie er es bei diesem Export zurückgegeben hat: jede Anfrage (ihre Einstellungen und das erzeugte Ergebnis), der KI-Verbrauch jeder Anfrage (Vorgang, Modell und Tokens) und die Nachrichten jeder Unterhaltung. Angefragt werden nur die Threads, die auf dieser Website für Sie gespeichert sind.';
+$string['privacy:remotedataunavailable'] = 'Die vom Datacurso-Kursdienst gespeicherten Daten konnten bei diesem Export nicht abgerufen werden (der Dienst war nicht erreichbar oder der KI-Anbieter ist deaktiviert). Die auf dieser Website gespeicherten Anfragen sind oben aufgeführt; bitten Sie die Administration, den Export zu wiederholen, um sie einzuschließen.';
 $string['provider_not_enabled_warning'] = 'Aktivieren Sie Benachrichtigungen mit <strong>Datacurso Message Hub</strong>, damit diese Aktion Benachrichtigungen über WhatsApp und SMS mit Anbietern wie Twilio sendet.
 Sie können dies unter <a href="{$a}" target="_blank">Benachrichtigungseinstellungen</a> aktivieren, indem Sie nach <strong>Smart Rules AI notification</strong> suchen.
 <br>
