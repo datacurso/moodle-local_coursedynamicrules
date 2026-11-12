@@ -48,6 +48,35 @@ final class remote_export_test extends \core_privacy\tests\provider_testcase {
     protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest(true);
+        $this->enable_plugin_in_provider();
+    }
+
+    /**
+     * Enable the Datacurso AI provider and this plugin in it, whatever the site was installed with.
+     *
+     * The export asks the course service only while provider_dependency says the plugin is enabled,
+     * so every test starts from that state explicitly instead of inheriting it from the site: an
+     * enabled provider plugin, and the plugin's own state in the provider set to enabled.
+     * The disabled and outdated cases are tested on purpose in
+     * test_an_unavailable_provider_writes_a_note_without_calling().
+     *
+     * @return void
+     */
+    private function enable_plugin_in_provider(): void {
+        if (!\core_plugin_manager::instance()->get_plugin_info('aiprovider_datacurso')) {
+            $this->markTestSkipped('aiprovider_datacurso is not installed; the remote export requires it.');
+        }
+        provider_dependency::set_available_for_testing(null);
+        \core\plugininfo\aiprovider::enable_plugin('datacurso', 1);
+        set_config(
+            \aiprovider_datacurso\local\plugin_settings::CONFIG_PREFIX . 'local_coursedynamicrules',
+            '1',
+            'aiprovider_datacurso'
+        );
+        $this->assertTrue(
+            provider_dependency::is_enabled(),
+            'local_coursedynamicrules must be enabled in the Datacurso AI provider for the remote export tests.'
+        );
     }
 
     public function tearDown(): void {
@@ -289,6 +318,7 @@ final class remote_export_test extends \core_privacy\tests\provider_testcase {
                 false,
                 tenant_context::get_tenant_id_for_user((int) $student->id)
             );
+            $this->assertFalse(tenant_context::is_enabled_for_user((int) $student->id));
         }
 
         $coursecontext = \context_course::instance($course->id);
