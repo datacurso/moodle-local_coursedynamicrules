@@ -200,6 +200,9 @@ $string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = 'Q
 $string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'O id de fio que o serviço de cursos deu à solicitação.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Quando a solicitação foi feita.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'O estudante para quem a solicitação foi feita.';
+$string['privacy:remotedata'] = 'Dados guardados pelo serviço de cursos (Smart Rules AI)';
+$string['privacy:remotedataexplained'] = 'O que o serviço de cursos da Datacurso guarda sobre si para as atividades com IA deste plugin, tal como o devolveu ao fazer esta exportação: cada solicitação (a sua configuração e o resultado gerado), o consumo de IA de cada solicitação (operação, modelo e tokens) e as mensagens de cada conversa. Só são pedidos os fios registados neste site para si.';
+$string['privacy:remotedataunavailable'] = 'Não foi possível obter os dados guardados pelo serviço de cursos da Datacurso ao fazer esta exportação (o serviço não estava disponível ou o fornecedor de IA está desativado). As solicitações registadas neste site estão listadas acima; peça ao administrador do site que repita a exportação para os incluir.';
 $string['provider_not_enabled_warning'] = 'Ative as notificações com o <strong>Datacurso Message Hub</strong> para que esta ação envie notificações via WhatsApp e SMS usando provedores como Twilio.
 Você pode habilitar em <a href="{$a}" target="_blank">Configurações de notificação</a> pesquisando por <strong>Smart Rules AI notification</strong>.
 <br>

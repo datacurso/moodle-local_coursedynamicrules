@@ -1,3 +1,15 @@
+## 2.0.1
+
+**Released on:** 2026-11-12
+
+**Compatibility note:** This version is compatible from **Moodle 5.0** to **Moodle 5.3**.
+
+## Added
+- **The privacy export includes what the course service keeps about the student (CDR-PRIV-001-R2 follow-up, team request)**
+  When Moodle exports a user's data, the plugin now also asks the Datacurso course service for what it keeps about that student and writes it next to the local export, under "Data kept by the course service (Smart Rules AI)", in the same context: the course of the requests, or the student's own context for the requests of a deleted course. The new remote export client (`course_service_remote_export_client`, resolved through dependency injection like the erasure client) sends `POST /privacy/export` through the Datacurso AI provider's course client, with the student, the service id `local_coursedynamicrules`, the scope `threads` and only the thread ids recorded on this site for that student in that context, at most 1000 per call. The provider's transport adds the site (the provider's 5.x line pseudonymises the student from 2.2.2 on and sends the Moodle user id as it is before), and the service returns only data created with the same licence. The answer is written with plain keys: each request (type, status, settings, generated result, dates), the AI consumption (operation, step, model, tokens, date) and the messages of each conversation (author and content). Licence keys, keys, tokens, secrets, the site id and the pseudonymised user id are removed from the request settings, and no internal id but the thread id is written. When the plugin is disabled in the Datacurso AI provider, the provider is older than 2.2.0, the service refuses (403, 422), fails or does not answer, the export still completes, with a short note saying the remote data could not be retrieved; nothing about the request or the student's content is logged. On this line the course client cannot be built while no Datacurso provider instance is enabled, so the transport failure test disables the provider instances, and the wire test expects the pseudonymised id only when the installed provider pseudonymises it. Tests: `tests/local/course_service_remote_export_client_test.php` (`test_sends_exactly_the_contract_body`, `test_long_thread_lists_are_sent_in_chunks_of_1000_and_merged`, `test_exactly_1000_threads_fit_in_one_call`, `test_no_thread_sends_nothing`, `test_anything_but_exported_is_null`, `test_one_failed_chunk_makes_the_export_unavailable`, `test_a_transport_failure_is_null`, `test_a_refused_request_is_null`, `test_di_resolves_the_course_service_client`), `tests/privacy/remote_export_test.php` (`test_export_includes_the_remote_data_in_the_course_context`, `test_only_the_users_thread_ids_of_the_context_are_sent`, `test_requests_without_thread_ids_ask_nothing`, `test_a_failed_remote_export_writes_a_note_and_completes`, `test_an_unavailable_provider_writes_a_note_without_calling`, `test_threads_of_a_deleted_course_are_exported_in_the_user_context`)
+
+---
+
 ## 2.0.0
 
 **Released on:** 2026-11-10
