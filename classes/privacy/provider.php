@@ -24,7 +24,9 @@ use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
 use core_privacy\local\request\transform;
 use local_coursedynamicrules\local\owned_gate_eraser;
+use local_coursedynamicrules\local\provider_dependency;
 use local_coursedynamicrules\local\remote_erasure;
+use local_coursedynamicrules\local\remote_export_client;
 
 /**
  * Privacy provider for local_coursedynamicrules.
@@ -160,6 +162,11 @@ use local_coursedynamicrules\local\remote_erasure;
  * POST /privacy/erase to the course service; while the service does not confirm, the data subject is
  * told the request completed, because that is tool_dataprivacy's behaviour, while the remote part
  * stays pending and visible in the rows. What is sent for which rows is described in remote_erasure_client.
+ *
+ * The export asks the course service too (course_service_remote_export_client, POST /privacy/export):
+ * for the threads recorded for the student in each exported context, the requests, the AI consumption
+ * and the conversation messages the service keeps are written next to the recorded requests. When the
+ * service cannot be asked or does not answer, the export still completes with a note saying so.
  *
  * WHAT AN ERASURE DOES TO ACCESS, WHICH IS NOT ALWAYS WHAT A READER EXPECTS
  *
@@ -441,6 +448,10 @@ class provider implements
      * For an AI activity generated for the user, the key in its ID number is exported too, as
      * stored, because it is derived from the user's id (aiactivity_key).
      *
+     * In a course context, and in the user's own context for the requests of deleted courses, the
+     * data the course service keeps for the threads recorded there is asked for and written next to
+     * the recorded requests (export_remote_data()).
+     *
      * The rules are counted and de-duplicated by ACTION id rather than by name. Two rules of one
      * course can share a name - a course copy makes that ordinary - and de-duplicating on the name
      * collapsed two distinct restrictions into one line, leaving the reader unable to tell one from
@@ -455,12 +466,16 @@ class provider implements
 
         foreach ($contextlist->get_contexts() as $context) {
             if ((int) $context->contextlevel === CONTEXT_COURSE) {
-                self::export_remote_requests($context, remote_erasure::requests_of($userid, (int) $context->instanceid));
+                $rows = remote_erasure::requests_of($userid, (int) $context->instanceid);
+                self::export_remote_requests($context, $rows);
+                self::export_remote_data($context, $userid, $rows);
                 continue;
             }
             if ((int) $context->contextlevel === CONTEXT_USER) {
                 if ((int) $context->instanceid === $userid) {
-                    self::export_remote_requests($context, remote_erasure::orphaned_requests_of($userid));
+                    $rows = remote_erasure::orphaned_requests_of($userid);
+                    self::export_remote_requests($context, $rows);
+                    self::export_remote_data($context, $userid, $rows);
                 }
                 continue;
             }
@@ -726,6 +741,133 @@ class provider implements
                 'whatthismeans' => get_string('privacy:export:airequestsexplained', 'local_coursedynamicrules'),
             ]
         );
+    }
+
+    /**
+     * Ask the course service for what it keeps about the user's threads in a context, and write it there.
+     *
+     * Only the thread ids recorded on this site for the user in that context are sent; requests
+     * recorded without one have nothing to ask for. The answer is written with plain keys, the request
+     * settings stripped of secrets and identifiers (readable_settings()). When the plugin is not
+     * enabled in the provider, or the service cannot be asked or does not answer, the export is not
+     * failed: a note saying the data could not be retrieved is written instead. Nothing is logged.
+     *
+     * @param \context $context The course context, or the user's own context for deleted courses.
+     * @param int $userid The user.
+     * @param \stdClass[] $rows The requests recorded for the user in that context.
+     * @return void
+     */
+    private static function export_remote_data(\context $context, int $userid, array $rows): void {
+        $threadids = [];
+        foreach ($rows as $row) {
+            if ($row->threadid !== null && $row->threadid !== '') {
+                $threadids[(string) $row->threadid] = (string) $row->threadid;
+            }
+        }
+        if ($threadids === []) {
+            return;
+        }
+
+        $data = null;
+        if (provider_dependency::is_enabled()) {
+            try {
+                $data = \core\di::get(remote_export_client::class)
+                    ->export(remote_erasure::SERVICE_ID, $userid, array_values($threadids));
+            } catch (\Throwable $e) {
+                $data = null;
+            }
+        }
+
+        $subcontext = [get_string('privacy:remotedata', 'local_coursedynamicrules')];
+        if ($data === null) {
+            writer::with_context($context)->export_data($subcontext, (object) [
+                'note' => get_string('privacy:remotedataunavailable', 'local_coursedynamicrules'),
+            ]);
+            return;
+        }
+
+        writer::with_context($context)->export_data($subcontext, (object) [
+            'requests' => array_map(fn($item): array => [
+                'threadid' => (string) ($item['thread_id'] ?? ''),
+                'type' => $item['request_type'] ?? null,
+                'status' => $item['status'] ?? null,
+                'settings' => self::readable_settings($item['request_config'] ?? []),
+                'result' => $item['final_result'] ?? null,
+                'timecreated' => $item['created_at'] ?? null,
+                'timemodified' => $item['updated_at'] ?? null,
+            ], self::items($data['requests'] ?? [])),
+            'consumption' => array_map(fn($item): array => [
+                'threadid' => (string) ($item['thread_id'] ?? ''),
+                'operation' => $item['action'] ?? null,
+                'step' => $item['step'] ?? null,
+                'model' => $item['model_name'] ?? null,
+                'inputtokens' => $item['input_tokens'] ?? null,
+                'outputtokens' => $item['output_tokens'] ?? null,
+                'reasoningtokens' => $item['thoughts_token_count'] ?? null,
+                'cachedtokens' => $item['cached_content_token_count'] ?? null,
+                'totaltokens' => $item['total_tokens'] ?? null,
+                'timecreated' => $item['created_at'] ?? null,
+            ], self::items($data['token_usage'] ?? [])),
+            'conversations' => array_map(fn($item): array => [
+                'threadid' => (string) ($item['thread_id'] ?? ''),
+                'messages' => array_map(fn($message): array => [
+                    'author' => $message['type'] ?? null,
+                    'content' => $message['content'] ?? null,
+                ], self::items($item['messages'] ?? [])),
+            ], self::items($data['threads'] ?? [])),
+            'whatthismeans' => get_string('privacy:remotedataexplained', 'local_coursedynamicrules'),
+        ]);
+    }
+
+    /**
+     * The array entries of a list the service answered, anything else dropped.
+     *
+     * @param mixed $list The list.
+     * @return array[] Its entries that are arrays, in order.
+     */
+    private static function items($list): array {
+        if (!is_array($list)) {
+            return [];
+        }
+        return array_values(array_filter($list, 'is_array'));
+    }
+
+    /**
+     * The request settings the service kept, without secrets or identifiers, for the export.
+     *
+     * The service already removes the licence key; this removes, at every level, any key naming a
+     * licence, key, token, secret or password, and the site id and pseudonymised user id the
+     * transport added, so the export carries nothing but what the request asked for.
+     *
+     * @param mixed $settings The stored request configuration.
+     * @return mixed The configuration without those keys.
+     */
+    private static function readable_settings($settings) {
+        if (!is_array($settings)) {
+            return $settings;
+        }
+        $readable = [];
+        foreach ($settings as $key => $value) {
+            if (is_string($key) && self::is_hidden_setting($key)) {
+                continue;
+            }
+            $readable[$key] = self::readable_settings($value);
+        }
+        return $readable;
+    }
+
+    /**
+     * Whether a request setting must stay out of the export.
+     *
+     * @param string $key The setting name.
+     * @return bool
+     */
+    private static function is_hidden_setting(string $key): bool {
+        $key = strtolower($key);
+        if (in_array($key, ['site_id', 'siteid', 'userid', 'user_id', 'id'], true)) {
+            return true;
+        }
+        return preg_match('/licen[cs]e|key|token|secret|password/', $key) === 1;
     }
 
     /**
