@@ -210,6 +210,9 @@ $string['privacy:metadata:local_coursedynamicrules_aireq:erasurerequested'] = '�
 $string['privacy:metadata:local_coursedynamicrules_aireq:threadid'] = 'Идентификатор ветки, который сервис курсов присвоил запросу.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:timecreated'] = 'Когда был сделан запрос.';
 $string['privacy:metadata:local_coursedynamicrules_aireq:userid'] = 'Студент, для которого сделан запрос.';
+$string['privacy:remotedata'] = 'Данные, хранящиеся в сервисе курсов (Smart Rules AI)';
+$string['privacy:remotedataexplained'] = 'Что сервис курсов Datacurso хранит о вас для ИИ-активностей этого плагина, в том виде, в каком он вернул это при создании экспорта: каждый запрос (его настройки и созданный результат), расход ИИ по каждому запросу (операция, модель и токены) и сообщения каждого диалога. Запрашиваются только ветки, записанные на этом сайте для вас.';
+$string['privacy:remotedataunavailable'] = 'Не удалось получить данные, хранящиеся в сервисе курсов Datacurso, при создании этого экспорта (сервис был недоступен или ИИ-провайдер отключён). Запросы, записанные на этом сайте, перечислены выше; попросите администратора сайта повторить экспорт, чтобы включить их.';
 $string['provider_not_enabled_warning'] = 'Включите уведомления с помощью <strong>Datacurso Message Hub</strong>, чтобы это действие могло отправлять уведомления через WhatsApp и SMS с использованием провайдеров вроде Twilio.
 Вы можете включить это в <a href="{$a}" target="_blank">Настройках уведомлений</a>, найдя <strong>Smart Rules AI notification</strong>.
 <br>
