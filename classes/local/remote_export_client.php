@@ -25,9 +25,10 @@ namespace local_coursedynamicrules\local;
  * THE CONTRACT. POST /privacy/export on the course service, relative to the same base URL as
  * /activity/init and sent through aiprovider_datacurso's course client, with the same body as
  * /privacy/erase: {"userid": <Moodle user id>, "service_id": <calling plugin>, "scope": "threads",
- * "thread_ids": [...]} (at most 1000 thread ids per call). The transport pseudonymises the user id
- * and adds site_id and site_url. The service answers HTTP 200 with {"status": "exported", "data":
- * {"requests": [...], "token_usage": [...], "threads": [...]}}, returning only data of that site,
+ * "thread_ids": [...]} (at most 1000 thread ids per call). The transport adds site_id and site_url
+ * (the provider's 5.x line pseudonymises the user id from 2.2.2 on and sends it as it is before).
+ * The service answers HTTP 200 with {"status": "exported", "data": {"requests": [...],
+ * "token_usage": [...], "threads": [...]}}, returning only data of that site,
  * student and service id created with the same licence. Anything else - including the 403 of a site
  * without token balance or subscription, or the 422 of a body it refuses - is not an export.
  *

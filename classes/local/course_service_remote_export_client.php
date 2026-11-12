@@ -22,8 +22,9 @@ use aiprovider_datacurso\httpclient\ai_course_api;
  * The production remote export client: asks the Datacurso course service for a student's data.
  *
  * It sends POST /privacy/export through aiprovider_datacurso's course client, the same client and base
- * URL as /activity/init and /privacy/erase, so the transport pseudonymises the user id and adds
- * site_id and site_url. The contract is described in remote_export_client.
+ * URL as /activity/init and /privacy/erase, so the transport adds site_id and site_url as it does for
+ * every request (the provider's 5.x line pseudonymises the user id from 2.2.2 on). The contract is
+ * described in remote_export_client.
  *
  * The service takes at most MAX_THREADS thread ids per call, so a longer list is sent in several calls
  * and their answers are merged in order. The export is returned only when every call answers

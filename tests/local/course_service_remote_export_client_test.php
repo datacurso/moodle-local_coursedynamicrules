@@ -122,14 +122,15 @@ final class course_service_remote_export_client_test extends \advanced_testcase 
             'thread_ids' => ['thread-1', 'thread-2'],
         ], $handed[0]['body']);
 
-        // On the wire the transport pseudonymises the student and adds the site.
+        // On the wire the transport adds the site. The provider's 5.x line pseudonymises the student
+        // from 2.2.2 on; an older 5.x provider (2.2.0 or later is required) sends the Moodle user id as it is.
         $sent = $wire->wire_to(self::PATH);
         $this->assertCount(1, $sent);
         $this->assertSame(wire_capturing_ai_course_api::BASE_URL . self::PATH, $sent[0]['url']);
-        $this->assertSame(
-            \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id),
-            (string) $sent[0]['body']['userid']
-        );
+        $expected = class_exists(\aiprovider_datacurso\local\outbound_privacy::class)
+            ? \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id)
+            : (string) $student->id;
+        $this->assertSame($expected, (string) $sent[0]['body']['userid']);
         $this->assertArrayHasKey('site_id', $sent[0]['body']);
     }
 
@@ -214,13 +215,26 @@ final class course_service_remote_export_client_test extends \advanced_testcase 
 
     /**
      * A transport failure (the provider disabled) is reported as null, never thrown.
+     *
+     * On Moodle 5.x the course client refuses to be built while no enabled Datacurso provider
+     * instance exists (instance_disabled), so nothing can leave the site.
      */
     public function test_a_transport_failure_is_null(): void {
-        [$export, $wire] = $this->client();
-        \core\plugininfo\aiprovider::enable_plugin('datacurso', 0);
+        global $DB;
+        wire_capturing_ai_course_api::seed_provider();
+        $manager = new \core_ai\manager($DB);
+        foreach ($manager->get_provider_instances(['provider' => \aiprovider_datacurso\provider::class]) as $instance) {
+            $manager->disable_provider_instance($instance);
+        }
+        $built = [];
+        $export = new course_service_remote_export_client(function () use (&$built) {
+            $wire = wire_capturing_ai_course_api::create();
+            $built[] = $wire;
+            return $wire;
+        });
 
         $this->assertNull($export->export('local_coursedynamicrules', 2, ['thread-1']));
-        $this->assertSame([], $wire->wire_to(self::PATH), 'nothing left the site');
+        $this->assertSame([], $built, 'no course client could be built, so nothing left the site');
     }
 
     /**
