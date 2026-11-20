@@ -582,7 +582,8 @@ class remote_erasure {
      * Whether an export of the erased threads and keys returns nothing of them any more.
      *
      * Rows with neither a thread id nor a key (recorded by the upgrade) cannot be named in an export;
-     * when only such rows were erased there is nothing to verify, and the "erased" answer stands.
+     * when only such rows were erased there is nothing to verify, and the "erased" answer stands. An
+     * export that cannot be retrieved, or that lacks the requests or threads list, verifies nothing.
      *
      * @param int $userid The student.
      * @param string[] $threadids The erased threads.
@@ -598,11 +599,13 @@ class remote_erasure {
         } catch (\Throwable $e) {
             $data = null;
         }
-        if (!is_array($data)) {
+        // Only an answer carrying both lists can show that nothing is left (internal security review,
+        // 2026-11-20): one missing either list verifies nothing.
+        if (!is_array($data) || !is_array($data['requests'] ?? null) || !is_array($data['threads'] ?? null)) {
             return false;
         }
 
-        return empty($data['requests']) && empty($data['threads']);
+        return $data['requests'] === [] && $data['threads'] === [];
     }
 
     /**
