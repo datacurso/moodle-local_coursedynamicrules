@@ -406,6 +406,90 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
     }
 
     /**
+     * An erasure verified while the generation still uses the thread leaves it pending erasure.
+     *
+     * @return void
+     */
+    public function test_an_erasure_during_generation_leaves_the_thread_pending_erasure(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = $this->ai_action((int) $course->id);
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true, true));
+        $this->use_export_with_nothing_left();
+
+        $erased = false;
+        testable_createaiactivity_action::$client = $this->ai_client(
+            function (string $method, string $path) use ($student, &$erased): ?array {
+                if ($path === '/activity/init') {
+                    return ['thread_id' => 'thread-99', 'status' => 'pending'];
+                }
+                if (strpos($path, '/activity/result/') === 0) {
+                    // A privacy erasure of the student runs now, while the generation still uses the thread.
+                    $erased = remote_erasure::erase((int) $student->id);
+                    return $this->page_result();
+                }
+                return null;
+            }
+        );
+        // The stream ends without a result, so the action asks GET /activity/result after attach_thread().
+        testable_createaiactivity_action::$streamevent = ['type' => 'completed'];
+
+        $this->execute_action($actionid, $course, $student);
+
+        $this->assertTrue($erased, 'The erasure during the generation was not confirmed and verified.');
+        $rows = array_values($DB->get_records(remote_erasure::TABLE, ['userid' => $student->id]));
+        $this->assertCount(1, $rows, 'The thread used after the erasure has no row left in Moodle.');
+        $this->assertSame('thread-99', $rows[0]->threadid);
+        $this->assertNotEmpty($rows[0]->clientrequestid);
+        $this->assertNotEmpty($rows[0]->cmid, 'The re-recorded request does not name the generated module.');
+        $this->assertNotNull($rows[0]->erasurerequested, 'The re-recorded thread is not pending erasure.');
+    }
+
+    /**
+     * A generation that fails after an erasure removed its row still leaves the thread pending erasure.
+     *
+     * @return void
+     */
+    public function test_a_generation_failing_after_an_erasure_leaves_the_thread_pending_erasure(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = $this->ai_action((int) $course->id);
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true, true));
+        $this->use_export_with_nothing_left();
+
+        testable_createaiactivity_action::$client = $this->ai_client(
+            function (string $method, string $path) use ($student): ?array {
+                if ($path === '/activity/init') {
+                    return ['thread_id' => 'thread-98', 'status' => 'pending'];
+                }
+                if (strpos($path, '/activity/result/') === 0) {
+                    remote_erasure::erase((int) $student->id);
+                    throw new \moodle_exception('error_unexpected_airesponse', 'local_coursedynamicrules');
+                }
+                return null;
+            }
+        );
+        testable_createaiactivity_action::$streamevent = ['type' => 'completed'];
+
+        ob_start();
+        $this->execute_action($actionid, $course, $student);
+        ob_end_clean();
+        $this->assertDebuggingCalled();
+
+        $rows = array_values($DB->get_records(remote_erasure::TABLE, ['userid' => $student->id]));
+        $this->assertCount(1, $rows, 'The thread used after the erasure has no row left in Moodle.');
+        $this->assertSame('thread-98', $rows[0]->threadid);
+        $this->assertNotEmpty($rows[0]->clientrequestid);
+        $this->assertNotNull($rows[0]->erasurerequested, 'The re-recorded thread is not pending erasure.');
+    }
+
+    /**
      * A lost /activity/init answer still leaves a row, and an erasure of that course reaches it by key.
      *
      * @return void

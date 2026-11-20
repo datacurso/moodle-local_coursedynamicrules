@@ -136,22 +136,133 @@ class remote_erasure {
             return $requestid;
         }
 
-        $id = self::record_request($actionid, $courseid, $userid, $threadid, null, $clientrequestid);
-        $DB->set_field(self::TABLE, 'erasurerequested', self::now(), ['id' => $id]);
-
-        return $id;
+        return self::record_pending_erasure($actionid, $courseid, $userid, $threadid, null, $clientrequestid);
     }
 
     /**
-     * Link a recorded request to the module it generated.
+     * Link a recorded request to the module it generated, once the generation is over.
+     *
+     * After attach_thread() the generation keeps using the thread for minutes (the stream, the plan
+     * approval, the result), and the service may write to it all along. An erasure verified in that
+     * window deletes the row while the thread is still in use. When the row is gone, or an erasure of
+     * the student is in flight right now (it may delete a row it stamped), the request is recorded
+     * again with its thread, key and module, already pending erasure, so the next erasure run removes
+     * what the generation wrote after it. A row stamped but not being sent stays pending and gets the
+     * module (internal security review, 2026-11-20).
+     *
+     * @param int $requestid The row carrying the thread.
+     * @param int $cmid The generated module.
+     * @param string $threadid The thread id.
+     * @param int $actionid The createaiactivity action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string|null $clientrequestid The client request id the row was recorded under.
+     * @return int The id of the row that now carries the module: $requestid, or the re-recorded row.
+     */
+    public static function attach_module(
+        int $requestid,
+        int $cmid,
+        string $threadid,
+        int $actionid,
+        int $courseid,
+        int $userid,
+        ?string $clientrequestid
+    ): int {
+        if (self::settle_row($requestid, $userid, $cmid)) {
+            return $requestid;
+        }
+
+        return self::record_pending_erasure($actionid, $courseid, $userid, $threadid, $cmid, $clientrequestid);
+    }
+
+    /**
+     * Keep a thread erasable when its generation failed after the service opened it.
+     *
+     * The same window as attach_module(): an erasure may have removed the row while the failed
+     * generation was still using the thread. The request is then recorded again with its thread and
+     * key, already pending erasure (internal security review, 2026-11-20). A row still there is left
+     * as it is.
+     *
+     * @param int $requestid The row carrying the thread.
+     * @param string $threadid The thread id.
+     * @param int $actionid The createaiactivity action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string|null $clientrequestid The client request id the row was recorded under.
+     * @return int The id of the row that now carries the thread: $requestid, or the re-recorded row.
+     */
+    public static function release_thread(
+        int $requestid,
+        string $threadid,
+        int $actionid,
+        int $courseid,
+        int $userid,
+        ?string $clientrequestid
+    ): int {
+        if (self::settle_row($requestid, $userid, null)) {
+            return $requestid;
+        }
+
+        return self::record_pending_erasure($actionid, $courseid, $userid, $threadid, null, $clientrequestid);
+    }
+
+    /**
+     * Whether a request row still stands for its thread once the generation is over, linking its module.
+     *
+     * Checked under the student's erasure lock, so no erasure can delete the row between the check
+     * and the end of the generation. When that lock is busy an erasure is being sent and may delete
+     * the row once verified: the row then does not count.
      *
      * @param int $requestid The row.
-     * @param int $cmid The generated module.
-     * @return void
+     * @param int $userid The student.
+     * @param int|null $cmid The generated module to link, or null.
+     * @return bool False when the row is gone or an erasure of the student is in flight.
      */
-    public static function attach_module(int $requestid, int $cmid): void {
+    private static function settle_row(int $requestid, int $userid, ?int $cmid): bool {
         global $DB;
-        $DB->set_field(self::TABLE, 'cmid', $cmid, ['id' => $requestid]);
+        $lock = \core\lock\lock_config::get_lock_factory('local_coursedynamicrules')
+            ->get_lock('remote_erasure_' . $userid, 5);
+        if (!$lock) {
+            return false;
+        }
+        try {
+            if (!$DB->record_exists(self::TABLE, ['id' => $requestid])) {
+                return false;
+            }
+            if ($cmid !== null) {
+                $DB->set_field(self::TABLE, 'cmid', $cmid, ['id' => $requestid]);
+            }
+
+            return true;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Record a request again, already pending erasure.
+     *
+     * @param int $actionid The createaiactivity action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string $threadid The thread id.
+     * @param int|null $cmid The generated module, when it exists.
+     * @param string|null $clientrequestid The client request id.
+     * @return int The new row id.
+     */
+    private static function record_pending_erasure(
+        int $actionid,
+        int $courseid,
+        int $userid,
+        string $threadid,
+        ?int $cmid,
+        ?string $clientrequestid
+    ): int {
+        global $DB;
+        $id = self::record_request($actionid, $courseid, $userid, $threadid, $cmid, $clientrequestid);
+        $DB->set_field(self::TABLE, 'erasurerequested', self::now(), ['id' => $id]);
+
+        return $id;
     }
 
     /**
