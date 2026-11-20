@@ -23,8 +23,10 @@ use local_coursedynamicrules\action\createaiactivity\testable_createaiactivity_a
 use local_coursedynamicrules\action\enableactivity\enableactivity_action;
 use local_coursedynamicrules\local\aiactivity_key;
 use local_coursedynamicrules\local\fake_remote_erasure_client;
+use local_coursedynamicrules\local\fake_remote_export_client;
 use local_coursedynamicrules\local\remote_erasure;
 use local_coursedynamicrules\local\remote_erasure_client;
+use local_coursedynamicrules\local\remote_export_client;
 use local_coursedynamicrules\task\remote_erasure_task;
 
 defined('MOODLE_INTERNAL') || die();
@@ -32,6 +34,7 @@ defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
 require_once(__DIR__ . '/../fixtures/fake_remote_erasure_client.php');
+require_once(__DIR__ . '/../fixtures/fake_remote_export_client.php');
 require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
 
 /**
@@ -52,6 +55,7 @@ require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
  * @covers     \local_coursedynamicrules\privacy\provider
  * @covers     \local_coursedynamicrules\task\remote_erasure_task
  * @covers     \local_coursedynamicrules\observer\user_deleted
+ * @covers     \local_coursedynamicrules\action\createaiactivity\createaiactivity_action
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -166,6 +170,7 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
         global $DB;
         $fake = new fake_remote_erasure_client(true);
         \core\di::set(remote_erasure_client::class, $fake);
+        $this->use_export_with_nothing_left();
 
         $course = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
@@ -184,6 +189,7 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
                 'userid' => (int) $student->id,
                 'scope' => remote_erasure_client::SCOPE_USER,
                 'threadids' => ['thread-a1', 'thread-a2'],
+                'clientrequestids' => [],
             ]],
             $fake->calls
         );
@@ -260,10 +266,11 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
 
         $fake = new fake_remote_erasure_client(true);
         \core\di::set(remote_erasure_client::class, $fake);
+        $this->use_export_with_nothing_left();
         $this->run_scheduled_task();
         $this->assertSame(
             [['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
-                'scope' => remote_erasure_client::SCOPE_USER, 'threadids' => ['thread-1']]],
+                'scope' => remote_erasure_client::SCOPE_USER, 'threadids' => ['thread-1'], 'clientrequestids' => []]],
             $fake->calls
         );
         $this->assertSame(0, $DB->count_records(remote_erasure::TABLE, ['userid' => $student->id]));
@@ -281,7 +288,7 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
                 2,
                 remote_erasure_client::SCOPE_THREADS,
                 ['thread-1']
-            )
+            )->confirmed
         );
     }
 
@@ -316,6 +323,185 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
         $this->assertSame((int) $student->id, (int) $rows[0]->userid);
         $this->assertSame((int) $generated->cmid, (int) $rows[0]->cmid);
         $this->assertSame($actionid, (int) $rows[0]->actionid);
+    }
+
+    /**
+     * The row, with a fresh client request id, is recorded before /activity/init, which carries that id.
+     *
+     * CDR-PRIV-001-R2. The course service stores client_request_id before any run, so the request is
+     * reachable by that key even if its answer never arrives. The thread id is filled in from the answer.
+     *
+     * @return void
+     */
+    public function test_init_records_the_request_with_its_key_before_the_call_and_sends_the_key(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = $this->ai_action((int) $course->id);
+
+        $seen = [];
+        $client = $this->ai_client(function (string $method, string $path, array $body = []) use (&$seen, $DB): ?array {
+            if ($path === '/activity/init') {
+                $seen = ['body' => $body, 'rows' => array_values($DB->get_records(remote_erasure::TABLE))];
+                return ['thread_id' => 'thread-77', 'status' => 'pending'];
+            }
+            return null;
+        });
+        testable_createaiactivity_action::$client = $client;
+        testable_createaiactivity_action::$streamevent = ['type' => 'completed', 'result' => $this->page_result()];
+
+        $this->execute_action($actionid, $course, $student);
+
+        $this->assertNotEmpty($seen, '/activity/init was never called.');
+        $key = $seen['body']['client_request_id'] ?? null;
+        $this->assertIsString($key, '/activity/init carries no client_request_id.');
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $key);
+        $this->assertCount(1, $seen['rows'], 'The request was not recorded before /activity/init.');
+        $this->assertSame($key, $seen['rows'][0]->clientrequestid);
+        $this->assertNull($seen['rows'][0]->threadid);
+        $rows = array_values($DB->get_records(remote_erasure::TABLE));
+        $this->assertCount(1, $rows);
+        $this->assertSame($key, $rows[0]->clientrequestid);
+        $this->assertSame('thread-77', $rows[0]->threadid, 'The thread id of the answer was not recorded.');
+    }
+
+    /**
+     * An erasure that runs while /activity/init is in flight does not lose the thread it opens.
+     *
+     * Internal security review (2026-11-20). Generation and erasure take different locks, so the erasure can delete the row
+     * between its recording and the answer. The thread id is then recorded again, already pending
+     * erasure, so the next erasure run removes it from the service.
+     *
+     * @return void
+     */
+    public function test_an_erasure_during_init_leaves_the_new_thread_pending_erasure(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = $this->ai_action((int) $course->id);
+
+        testable_createaiactivity_action::$client = $this->ai_client(
+            function (string $method, string $path) use ($DB, $student): ?array {
+                if ($path === '/activity/init') {
+                    // The erasure ran and its verified rows were deleted meanwhile.
+                    $DB->delete_records(remote_erasure::TABLE, ['userid' => $student->id]);
+                    return ['thread_id' => 'thread-77', 'status' => 'pending'];
+                }
+                return null;
+            }
+        );
+        testable_createaiactivity_action::$streamevent = ['type' => 'completed', 'result' => $this->page_result()];
+
+        $this->execute_action($actionid, $course, $student);
+
+        $rows = array_values($DB->get_records(remote_erasure::TABLE, ['userid' => $student->id]));
+        $this->assertCount(1, $rows, 'The thread opened during the erasure has no row left in Moodle.');
+        $this->assertSame('thread-77', $rows[0]->threadid);
+        $this->assertNotEmpty($rows[0]->clientrequestid);
+        $this->assertNotNull($rows[0]->erasurerequested, 'The re-recorded thread is not pending erasure.');
+    }
+
+    /**
+     * A lost /activity/init answer still leaves a row, and an erasure of that course reaches it by key.
+     *
+     * @return void
+     */
+    public function test_a_lost_init_answer_leaves_a_row_erasable_by_key(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $other = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = $this->ai_action((int) $course->id);
+        remote_erasure::record_request($actionid, (int) $other->id, (int) $student->id, 'thread-other');
+
+        testable_createaiactivity_action::$client = $this->ai_client(function (string $method, string $path): ?array {
+            throw new \moodle_exception('error_unexpected_airesponse', 'local_coursedynamicrules');
+        });
+        ob_start();
+        $this->execute_action($actionid, $course, $student);
+        ob_end_clean();
+        $this->assertDebuggingCalled();
+
+        $row = $DB->get_record(remote_erasure::TABLE, ['courseid' => $course->id], '*', MUST_EXIST);
+        $this->assertNull($row->threadid);
+        $this->assertNotEmpty($row->clientrequestid, 'A request whose answer was lost has nothing to erase it by.');
+
+        $fake = new fake_remote_erasure_client(true);
+        \core\di::set(remote_erasure_client::class, $fake);
+        $this->use_export_with_nothing_left();
+        $this->assertTrue(remote_erasure::erase((int) $student->id, (int) $course->id));
+
+        $this->assertSame(
+            [['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
+                'scope' => remote_erasure_client::SCOPE_THREADS, 'threadids' => [],
+                'clientrequestids' => [$row->clientrequestid]]],
+            $fake->calls,
+            'The course-scoped erasure did not name the request by its key.'
+        );
+        $this->assertFalse($DB->record_exists(remote_erasure::TABLE, ['id' => $row->id]));
+        $this->assertTrue($DB->record_exists(remote_erasure::TABLE, ['threadid' => 'thread-other']));
+    }
+
+    /**
+     * Skip when the external AI stack is absent.
+     *
+     * @return void
+     */
+    private function require_ai_stack(): void {
+        foreach (['aiprovider_datacurso', 'local_coursegen'] as $component) {
+            if (!\core_plugin_manager::instance()->get_plugin_info($component)) {
+                $this->markTestSkipped($component . ' is not installed; the AI activity action requires it.');
+            }
+        }
+    }
+
+    /**
+     * A course client double answering every request through a callback.
+     *
+     * @param callable $answer Receives (method, path, body) and returns the answer.
+     * @return \aiprovider_datacurso\httpclient\ai_course_api
+     */
+    private function ai_client(callable $answer): \aiprovider_datacurso\httpclient\ai_course_api {
+        $client = $this->getMockBuilder(\aiprovider_datacurso\httpclient\ai_course_api::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['request', 'get_base_url'])
+            ->getMock();
+        $client->method('request')->willReturnCallback($answer);
+        $client->method('get_base_url')->willReturn('https://ai.example.test/api/v1/');
+        return $client;
+    }
+
+    /**
+     * Run the AI action of the course for a student.
+     *
+     * @param int $actionid The action.
+     * @param \stdClass $course The course.
+     * @param \stdClass $student The student.
+     * @return void
+     */
+    private function execute_action(int $actionid, \stdClass $course, \stdClass $student): void {
+        global $DB;
+        $record = $DB->get_record('local_coursedynamicrules_action', ['id' => $actionid], '*', MUST_EXIST);
+        $action = new testable_createaiactivity_action($record, (int) $course->id);
+        $action->execute((object) ['courseid' => $course->id, 'userid' => (int) $student->id]);
+    }
+
+    /**
+     * Answer the verifying export with nothing left of the erased threads and keys.
+     *
+     * @return void
+     */
+    private function use_export_with_nothing_left(): void {
+        \core\di::set(
+            remote_export_client::class,
+            new fake_remote_export_client(['requests' => [], 'token_usage' => [], 'threads' => []])
+        );
     }
 
     /**

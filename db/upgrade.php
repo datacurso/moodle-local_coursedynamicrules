@@ -325,6 +325,24 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026111000, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026112000) {
+        // CDR-PRIV-001-R2: the client request id each request is recorded under before /activity/init,
+        // and the count and time of the failed or unverified erasure attempts.
+        $table = new xmldb_table('local_coursedynamicrules_aireq');
+        $fields = [
+            new xmldb_field('clientrequestid', XMLDB_TYPE_CHAR, '36', null, null, null, null, 'threadid'),
+            new xmldb_field('erasureattempts', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'erasurerequested'),
+            new xmldb_field('erasurefailedat', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'erasureattempts'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+
+        upgrade_plugin_savepoint(true, 2026112000, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 

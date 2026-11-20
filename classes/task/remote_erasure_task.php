@@ -23,14 +23,17 @@ use local_coursedynamicrules\local\remote_erasure;
  *
  * A privacy request, an account deletion and a course deletion stamp the rows of
  * local_coursedynamicrules_aireq whose erasure was asked for (remote_erasure). This task sends, on
- * every run, what is stamped and not yet confirmed, and the rows go only once the service confirmed.
+ * every run, what is stamped and not yet erased, and the rows go only once the service confirmed and
+ * an export of the same threads and keys returned nothing for them (remote_erasure::send_pending()).
  * The stamp is the only memory of the request, so it is never given up: a scheduled task runs again
  * whatever happened before, where an adhoc task stops after core's attempt limit (about 34 hours)
  * and is purged four weeks later.
  *
- * It never fails because the service did not confirm (unreachable, a site without token balance or
- * subscription, any other answer): the pending rows say so, both here and in the privacy export, and
- * the next run sends them again.
+ * It never fails because the service did not confirm or the export contradicted it (unreachable,
+ * refused, any other answer): the pending rows say so, both here and in the privacy export, each
+ * failed attempt is counted on them (the third consecutive one fires remote_erasure_failed), the
+ * settings page lists those pending longer than remoteerasurependingdays, and the next run sends
+ * them again.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -62,6 +65,7 @@ class remote_erasure_task extends \core\task\scheduled_task {
                 $confirmed++;
             }
         }
-        mtrace("local_coursedynamicrules remote erasure: {$sent} sent, {$confirmed} confirmed by the course service.");
+        mtrace("local_coursedynamicrules remote erasure: {$sent} sent, {$confirmed} confirmed by the course service "
+            . "and verified by its export.");
     }
 }

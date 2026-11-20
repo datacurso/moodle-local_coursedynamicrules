@@ -59,9 +59,11 @@ final class external_transfer_declaration_test extends \advanced_testcase {
     /**
      * @var string[] Contractual /activity/init keys handed to the AI client at the seam.
      *
-     * site_url is not one of them since CDR-PRIV-001-R2: the transport adds it anyway.
+     * site_url is not one of them since CDR-PRIV-001-R2: the transport adds it anyway. client_request_id
+     * is, since 1.8.15 (CDR-PRIV-001-R2): the random key the request is recorded under before the call.
      */
     private const PAYLOAD_CONTRACT_KEYS = [
+        'client_request_id',
         'instructions',
         'lang',
         'with_images',
