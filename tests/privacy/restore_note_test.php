@@ -201,7 +201,8 @@ final class restore_note_test extends \core_privacy\tests\provider_testcase {
      *
      * The source course has one enable-activity action listing two pages. The first carries only the
      * plugin's gate beside a completion condition; the second carries the plugin's gate and a
-     * teacher's restriction in the same shape, listing the same student and another one.
+     * teacher's restriction in the same shape, listing the same student and another one. Both
+     * students are enrolled in the restored course.
      *
      * @return array [student, other user, unique cmid, ambiguous cmid, restored action id]
      */
@@ -241,6 +242,10 @@ final class restore_note_test extends \core_privacy\tests\provider_testcase {
         $backupid = $this->backup_course($course);
         $this->strip_gates($backupid);
         $newcourseid = $this->restore_course($backupid);
+        // The students follow the course, as a restore with its users brings them: the reconciliation
+        // attributes only a restriction that lists active students of the course.
+        $generator->enrol_user((int) $student->id, $newcourseid, 'student');
+        $generator->enrol_user((int) $other->id, $newcourseid, 'student');
 
         $rule = $DB->get_record('local_coursedynamicrules_rule', ['courseid' => $newcourseid], '*', MUST_EXIST);
         $action = $DB->get_record('local_coursedynamicrules_action', ['ruleid' => $rule->id], '*', MUST_EXIST);
