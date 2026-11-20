@@ -52,6 +52,9 @@ class course_deleted {
         // privacy provider reaches them through each student's own context (CDR-PRIV-001-R2).
         \local_coursedynamicrules\local\remote_erasure::request_course_erasure((int) $courseid);
 
+        // The notes of restrictions a restore could not attribute go with the course (CDR-PRIV-002-R2).
+        \local_coursedynamicrules\local\restore_note::forget_course((int) $courseid);
+
         // Reported AFTER the rows are gone, so nothing is announced that a later failure could
         // leave standing. The context comes from the event and never from
         // context_course::instance(): core captures the course context, deletes the context row and
