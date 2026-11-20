@@ -176,6 +176,32 @@ final class course_service_remote_export_client_test extends \advanced_testcase 
     }
 
     /**
+     * Client request ids go out as client_request_ids, alone or next to the thread ids.
+     *
+     * CDR-PRIV-001-R2. A request whose /activity/init answer was lost is known here only by its key.
+     */
+    public function test_client_request_ids_are_sent_alone_or_next_to_the_thread_ids(): void {
+        [$export, $wire] = $this->client();
+        $key = '6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f';
+
+        $this->assertNotNull($export->export('local_coursedynamicrules', 2, [], [$key]));
+        $this->assertNotNull($export->export('local_coursedynamicrules', 2, ['thread-1'], [$key]));
+
+        $handed = $wire->handed_to(self::PATH);
+        $this->assertCount(2, $handed);
+        $this->assertSame([
+            'userid' => 2,
+            'service_id' => 'local_coursedynamicrules',
+            'scope' => 'threads',
+            'thread_ids' => [],
+            'client_request_ids' => [$key],
+        ], $handed[0]['body']);
+        $this->assertSame(['thread-1'], $handed[1]['body']['thread_ids']);
+        $this->assertSame([$key], $handed[1]['body']['client_request_ids']);
+        $this->assertSame([$key], $wire->wire_to(self::PATH)[0]['body']['client_request_ids']);
+    }
+
+    /**
      * Anything but {"status": "exported"} with a data object is not an export.
      *
      * @dataProvider unexported_provider
