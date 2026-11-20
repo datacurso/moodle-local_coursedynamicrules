@@ -710,6 +710,10 @@ class provider implements
         if ($notes === []) {
             return;
         }
+        // The writer shortens a folder name longer than 100 characters with filelib.php functions, which
+        // the tool_dataprivacy export task does not load: a long translation must not break the export.
+        global $CFG;
+        require_once($CFG->libdir . '/filelib.php');
         writer::with_context($context)->export_data(
             [get_string('privacy:export:restorenote', 'local_coursedynamicrules')],
             (object) [
