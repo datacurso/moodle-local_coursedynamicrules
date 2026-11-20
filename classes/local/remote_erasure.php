@@ -144,8 +144,8 @@ class remote_erasure {
      *
      * After attach_thread() the generation keeps using the thread for minutes (the stream, the plan
      * approval, the result), and the service may write to it all along. An erasure verified in that
-     * window deletes the row while the thread is still in use. When the row is gone, or an erasure of
-     * the student is in flight right now (it may delete a row it stamped), the request is recorded
+     * window deletes the row while the thread is still in use. When the row is gone, or it is stamped
+     * while an erasure of the student is in flight (which may delete it), the request is recorded
      * again with its thread, key and module, already pending erasure, so the next erasure run removes
      * what the generation wrote after it. A row stamped but not being sent stays pending and gets the
      * module (internal security review, 2026-11-20).
@@ -243,23 +243,24 @@ class remote_erasure {
      * Whether a request row still stands for its thread once the generation is over, linking its module.
      *
      * Checked under the student's erasure lock, so no erasure can delete the row between the check
-     * and the end of the generation. When that lock is busy an erasure is being sent and may delete
-     * the row once verified: the row then does not count.
+     * and the end of the generation. When that lock is busy an erasure of the student is being sent,
+     * possibly of other requests only. A send deletes only rows stamped for erasure, so a row that is
+     * there and not stamped still counts and gets its module; only a row gone or stamped does not,
+     * since the send may delete it once verified. A busy lock alone never marks a request for erasure
+     * (internal security review, 2026-11-20).
      *
      * @param int $requestid The row.
      * @param int $userid The student.
      * @param int|null $cmid The generated module to link, or null.
-     * @return bool False when the row is gone or an erasure of the student is in flight.
+     * @return bool False when the row is gone, or stamped while an erasure of the student is in flight.
      */
     private static function settle_row(int $requestid, int $userid, ?int $cmid): bool {
         global $DB;
         $lock = \core\lock\lock_config::get_lock_factory('local_coursedynamicrules')
             ->get_lock('remote_erasure_' . $userid, 5);
-        if (!$lock) {
-            return false;
-        }
         try {
-            if (!$DB->record_exists(self::TABLE, ['id' => $requestid])) {
+            $stamp = $DB->get_field(self::TABLE, 'erasurerequested', ['id' => $requestid]);
+            if ($stamp === false || (!$lock && $stamp !== null)) {
                 return false;
             }
             if ($cmid !== null) {
@@ -268,7 +269,9 @@ class remote_erasure {
 
             return true;
         } finally {
-            $lock->release();
+            if ($lock) {
+                $lock->release();
+            }
         }
     }
 
