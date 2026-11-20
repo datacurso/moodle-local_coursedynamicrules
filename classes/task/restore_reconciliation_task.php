@@ -51,28 +51,6 @@ class restore_reconciliation_task extends \core\task\adhoc_task {
     }
 
     /**
-     * Queue the reconciliation of every course with a marker a restore only deduced.
-     *
-     * The JSON substring only narrows the scan; the reconciliation decides on the decoded tree.
-     *
-     * @return void
-     */
-    public static function queue_for_adopted_courses(): void {
-        global $DB;
-
-        $like = $DB->sql_like('availability', ':adopted');
-        $courseids = $DB->get_fieldset_select(
-            'course_modules',
-            'DISTINCT course',
-            $like,
-            ['adopted' => '%' . $DB->sql_like_escape('"sourceadopted"') . '%']
-        );
-        foreach ($courseids as $courseid) {
-            self::queue((int) $courseid);
-        }
-    }
-
-    /**
      * Run the reconciliation.
      *
      * @return void

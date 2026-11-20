@@ -361,7 +361,19 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         if (!$dbman->table_exists($table)) {
             $dbman->create_table($table);
         }
-        \local_coursedynamicrules\task\restore_reconciliation_task::queue_for_adopted_courses();
+        // Inlined so this step stays what it was when it shipped: the JSON substring only narrows the
+        // scan, the reconciliation decides on the decoded tree.
+        $courseids = $DB->get_fieldset_select(
+            'course_modules',
+            'DISTINCT course',
+            $DB->sql_like('availability', ':adopted'),
+            ['adopted' => '%' . $DB->sql_like_escape('"sourceadopted"') . '%']
+        );
+        foreach ($courseids as $courseid) {
+            $task = new \local_coursedynamicrules\task\restore_reconciliation_task();
+            $task->set_custom_data(['courseid' => (int) $courseid, 'actionids' => null]);
+            \core\task\manager::queue_adhoc_task($task, true);
+        }
 
         upgrade_plugin_savepoint(true, 2026112001, 'local', 'coursedynamicrules');
     }

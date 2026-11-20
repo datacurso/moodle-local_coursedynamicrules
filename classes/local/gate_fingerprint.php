@@ -39,6 +39,12 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * other objects. Backups carry both versions, so older plugin versions keep reading the first one,
  * and the restore still accepts backups that carry only the first one.
  *
+ * Both fingerprints are plain SHA-256 digests, not keyed to the site: that is what lets them verify
+ * on any site. They prove the backup was not edited by mistake, not who made it. Anyone who can
+ * restore a course can craft a backup whose fingerprint makes the restore attribute a node of their
+ * choosing to the plugin. That grants nothing new: restoring a course already lets that person write
+ * the activity restrictions themselves (internal security review, 2026-11-20).
+ *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -57,7 +63,7 @@ class gate_fingerprint {
      *
      * @param int $actionid The action that wrote the node.
      * @param int[] $userids The user ids the node lists, in any order.
-     * @return string A SHA-256 hex digest.
+     * @return string A SHA-256 hex digest, unkeyed (see the class comment).
      */
     public static function of(int $actionid, array $userids): string {
         $userids = array_values(array_unique(array_map('intval', $userids)));
@@ -72,7 +78,7 @@ class gate_fingerprint {
      * @param int $actionid The action that wrote the node.
      * @param int[] $userids The user ids the node lists, in any order.
      * @param string $position The node's position, as positions() describes it.
-     * @return string A SHA-256 hex digest.
+     * @return string A SHA-256 hex digest, unkeyed (see the class comment).
      */
     public static function of_v2(int $actionid, array $userids, string $position): string {
         $userids = array_values(array_unique(array_map('intval', $userids)));

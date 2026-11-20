@@ -136,22 +136,166 @@ class remote_erasure {
             return $requestid;
         }
 
-        $id = self::record_request($actionid, $courseid, $userid, $threadid, null, $clientrequestid);
-        $DB->set_field(self::TABLE, 'erasurerequested', self::now(), ['id' => $id]);
-
-        return $id;
+        return self::record_pending_erasure($actionid, $courseid, $userid, $threadid, null, $clientrequestid);
     }
 
     /**
-     * Link a recorded request to the module it generated.
+     * Link a recorded request to the module it generated, once the generation is over.
      *
-     * @param int $requestid The row.
+     * After attach_thread() the generation keeps using the thread for minutes (the stream, the plan
+     * approval, the result), and the service may write to it all along. An erasure verified in that
+     * window deletes the row while the thread is still in use. When the row is gone, or an erasure of
+     * the student is in flight right now (it may delete a row it stamped), the request is recorded
+     * again with its thread, key and module, already pending erasure, so the next erasure run removes
+     * what the generation wrote after it. A row stamped but not being sent stays pending and gets the
+     * module (internal security review, 2026-11-20).
+     *
+     * @param int $requestid The row carrying the thread.
      * @param int $cmid The generated module.
+     * @param string $threadid The thread id.
+     * @param int $actionid The createaiactivity action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string|null $clientrequestid The client request id the row was recorded under.
+     * @return int The id of the row that now carries the module: $requestid, or the re-recorded row.
+     */
+    public static function attach_module(
+        int $requestid,
+        int $cmid,
+        string $threadid,
+        int $actionid,
+        int $courseid,
+        int $userid,
+        ?string $clientrequestid
+    ): int {
+        if (self::settle_row($requestid, $userid, $cmid)) {
+            return $requestid;
+        }
+
+        return self::record_pending_erasure($actionid, $courseid, $userid, $threadid, $cmid, $clientrequestid);
+    }
+
+    /**
+     * Keep a thread erasable when its generation failed after the service opened it.
+     *
+     * The same window as attach_module(): an erasure may have removed the row while the failed
+     * generation was still using the thread. The request is then recorded again with its thread and
+     * key, already pending erasure (internal security review, 2026-11-20). A row still there is left
+     * as it is.
+     *
+     * @param int $requestid The row carrying the thread.
+     * @param string $threadid The thread id.
+     * @param int $actionid The createaiactivity action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string|null $clientrequestid The client request id the row was recorded under.
+     * @return int The id of the row that now carries the thread: $requestid, or the re-recorded row.
+     */
+    public static function release_thread(
+        int $requestid,
+        string $threadid,
+        int $actionid,
+        int $courseid,
+        int $userid,
+        ?string $clientrequestid
+    ): int {
+        if (self::settle_row($requestid, $userid, null)) {
+            return $requestid;
+        }
+
+        return self::record_pending_erasure($actionid, $courseid, $userid, $threadid, null, $clientrequestid);
+    }
+
+    /**
+     * Forget a request the AI provider refused before anything left the site.
+     *
+     * The row is recorded before /activity/init because the service may keep the request even when
+     * its answer is lost. When the provider refuses the call before opening a connection (see
+     * is_refused_before_sending()) the service never saw the request or its key, so the row names
+     * nothing and is deleted; a row that carries a thread id is kept. Any other failure keeps the row:
+     * the key may already be stored on the service (internal security review, 2026-11-20).
+     *
+     * @param int $requestid The row recorded before the call.
      * @return void
      */
-    public static function attach_module(int $requestid, int $cmid): void {
+    public static function forget_unsent(int $requestid): void {
         global $DB;
-        $DB->set_field(self::TABLE, 'cmid', $cmid, ['id' => $requestid]);
+        $DB->delete_records_select(self::TABLE, 'id = :id AND threadid IS NULL', ['id' => $requestid]);
+    }
+
+    /**
+     * Whether a failed call was refused by the AI provider before it opened a connection.
+     *
+     * Only the provider's local refusals qualify (disabled provider, no licence key, insecure URL),
+     * raised before any byte is sent; a timeout, a transport error or an HTTP error does not, since
+     * the request may have reached the service.
+     *
+     * @param \Throwable $error The failure.
+     * @return bool
+     */
+    public static function is_refused_before_sending(\Throwable $error): bool {
+        return $error instanceof \moodle_exception
+            && $error->module === 'aiprovider_datacurso'
+            && in_array($error->errorcode, ['providerdisabled', 'invalidlicensekey', 'insecuretransport'], true);
+    }
+
+    /**
+     * Whether a request row still stands for its thread once the generation is over, linking its module.
+     *
+     * Checked under the student's erasure lock, so no erasure can delete the row between the check
+     * and the end of the generation. When that lock is busy an erasure is being sent and may delete
+     * the row once verified: the row then does not count.
+     *
+     * @param int $requestid The row.
+     * @param int $userid The student.
+     * @param int|null $cmid The generated module to link, or null.
+     * @return bool False when the row is gone or an erasure of the student is in flight.
+     */
+    private static function settle_row(int $requestid, int $userid, ?int $cmid): bool {
+        global $DB;
+        $lock = \core\lock\lock_config::get_lock_factory('local_coursedynamicrules')
+            ->get_lock('remote_erasure_' . $userid, 5);
+        if (!$lock) {
+            return false;
+        }
+        try {
+            if (!$DB->record_exists(self::TABLE, ['id' => $requestid])) {
+                return false;
+            }
+            if ($cmid !== null) {
+                $DB->set_field(self::TABLE, 'cmid', $cmid, ['id' => $requestid]);
+            }
+
+            return true;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Record a request again, already pending erasure.
+     *
+     * @param int $actionid The createaiactivity action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string $threadid The thread id.
+     * @param int|null $cmid The generated module, when it exists.
+     * @param string|null $clientrequestid The client request id.
+     * @return int The new row id.
+     */
+    private static function record_pending_erasure(
+        int $actionid,
+        int $courseid,
+        int $userid,
+        string $threadid,
+        ?int $cmid,
+        ?string $clientrequestid
+    ): int {
+        global $DB;
+        $id = self::record_request($actionid, $courseid, $userid, $threadid, $cmid, $clientrequestid);
+        $DB->set_field(self::TABLE, 'erasurerequested', self::now(), ['id' => $id]);
+
+        return $id;
     }
 
     /**
@@ -471,7 +615,8 @@ class remote_erasure {
      * Whether an export of the erased threads and keys returns nothing of them any more.
      *
      * Rows with neither a thread id nor a key (recorded by the upgrade) cannot be named in an export;
-     * when only such rows were erased there is nothing to verify, and the "erased" answer stands.
+     * when only such rows were erased there is nothing to verify, and the "erased" answer stands. An
+     * export that cannot be retrieved, or that lacks the requests or threads list, verifies nothing.
      *
      * @param int $userid The student.
      * @param string[] $threadids The erased threads.
@@ -487,18 +632,22 @@ class remote_erasure {
         } catch (\Throwable $e) {
             $data = null;
         }
-        if (!is_array($data)) {
+        // Only an answer carrying both lists can show that nothing is left (internal security review,
+        // 2026-11-20): one missing either list verifies nothing.
+        if (!is_array($data) || !is_array($data['requests'] ?? null) || !is_array($data['threads'] ?? null)) {
             return false;
         }
 
-        return empty($data['requests']) && empty($data['threads']);
+        return $data['requests'] === [] && $data['threads'] === [];
     }
 
     /**
      * Count a failed or unverified attempt on the rows, and report the crossing of FAILURE_THRESHOLD.
      *
      * The event is fired only by the attempt that brings a row to the threshold, so a student whose
-     * erasure keeps failing produces one event, not one per run.
+     * erasure keeps failing produces one event, not one per run. It is fired once per batch in which
+     * some row reaches exactly the threshold: rows stamped later start their own count, so when they
+     * fail three times too the same student gets another event (internal security review, 2026-11-20).
      *
      * @param int $userid The student.
      * @param \stdClass[] $rows The rows that were sent.
