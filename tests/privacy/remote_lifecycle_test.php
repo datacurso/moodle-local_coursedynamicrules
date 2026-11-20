@@ -35,6 +35,7 @@ global $CFG;
 require_once(__DIR__ . '/../fixtures/testable_createaiactivity_action.php');
 require_once(__DIR__ . '/../fixtures/fake_remote_erasure_client.php');
 require_once(__DIR__ . '/../fixtures/fake_remote_export_client.php');
+require_once(__DIR__ . '/../fixtures/busy_erasure_lock_factory.php');
 require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
 
 /**
@@ -446,6 +447,40 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
         $this->assertNotEmpty($rows[0]->clientrequestid);
         $this->assertNotEmpty($rows[0]->cmid, 'The re-recorded request does not name the generated module.');
         $this->assertNotNull($rows[0]->erasurerequested, 'The re-recorded thread is not pending erasure.');
+    }
+
+    /**
+     * A busy erasure lock alone never marks a live request for erasure: its row just gets the module.
+     *
+     * The lock may be held by an erasure of the student's other requests.
+     *
+     * @return void
+     */
+    public function test_a_busy_erasure_lock_does_not_mark_a_live_request_for_erasure(): void {
+        global $CFG, $DB;
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        $page = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $key = remote_erasure::new_client_request_id();
+        $requestid = remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-A', null, $key);
+        $CFG->lock_factory = '\\local_coursedynamicrules\\local\\busy_erasure_lock_factory';
+
+        $id = remote_erasure::attach_module(
+            $requestid,
+            (int) $page->cmid,
+            'thread-A',
+            9001,
+            (int) $course->id,
+            (int) $student->id,
+            $key
+        );
+        remote_erasure::release_thread($requestid, 'thread-A', 9001, (int) $course->id, (int) $student->id, $key);
+
+        $rows = array_values($DB->get_records(remote_erasure::TABLE, ['threadid' => 'thread-A']));
+        $this->assertCount(1, $rows, 'A busy erasure lock added a second row for the thread.');
+        $this->assertSame($requestid, $id);
+        $this->assertNull($rows[0]->erasurerequested, 'A busy erasure lock marked the request for erasure.');
+        $this->assertSame((int) $page->cmid, (int) $rows[0]->cmid);
     }
 
     /**
