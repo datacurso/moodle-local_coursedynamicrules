@@ -108,6 +108,29 @@ final class restore_reconciliation_test extends \advanced_testcase {
     }
 
     /**
+     * A deduced node listing someone the rule cannot act for (not an active student of the course) is not promoted.
+     *
+     * @return void
+     */
+    public function test_a_deduced_node_listing_someone_outside_the_course_is_not_promoted(): void {
+        global $DB;
+        [$course, $cmid, $s1, , $actionid] = $this->course_with_action(1);
+        $outsider = $this->getDataGenerator()->create_user();
+        $tree = ['op' => '&', 'c' => [['type' => 'user', 'userids' => [(int) $s1->id, (int) $outsider->id]]], 'showc' => [false]];
+        $adopted = enableactivity_action::adopt_stripped_marker(json_encode($tree), $actionid);
+        $DB->set_field('course_modules', 'availability', $adopted, ['id' => $cmid]);
+
+        $this->assertSame(0, restore_reconciliation::run((int) $course->id, null));
+
+        $root = json_decode((string) $DB->get_field('course_modules', 'availability', ['id' => $cmid]));
+        $this->assertSame([], enableactivity_action::owned_user_nodes($root), 'A node listing an outsider was promoted.');
+        $this->assertTrue(
+            $DB->record_exists(restore_note::TABLE, ['cmid' => $cmid, 'userid' => $outsider->id, 'reason' => 'ambiguous']),
+            'The unattributed restriction left no note for the user it lists.'
+        );
+    }
+
+    /**
      * The single deduced node of the pending action, in the action's shape, is promoted, and only its
      * inferred notes go: an ambiguous note of the module stays.
      *
