@@ -94,5 +94,9 @@ class user_deleted {
         // deletion; the scheduled remote_erasure_task sends it until the service confirms, and the
         // local rows stay until then (CDR-PRIV-001-R2).
         remote_erasure::request_erasure($userid);
+
+        // The notes of restrictions a restore could not attribute name this user, and nothing else
+        // needs them once the account is gone (CDR-PRIV-002-R2).
+        \local_coursedynamicrules\local\restore_note::forget_user($userid);
     }
 }

@@ -328,6 +328,19 @@ class enableactivity_action extends action {
     }
 
     /**
+     * Whether a node's marker was deduced by a restore rather than written by this plugin.
+     *
+     * The read half of the MARKER_ADOPTED_KEY stamp, for the restore's notes and reconciliation
+     * (CDR-PRIV-002-R2), which must not learn the property name either.
+     *
+     * @param \stdClass $node A decoded availability node.
+     * @return bool
+     */
+    public static function is_adopted(\stdClass $node): bool {
+        return !empty($node->{self::MARKER_ADOPTED_KEY});
+    }
+
+    /**
      * The prefix every ownership marker this plugin writes starts with.
      *
      * Exposed so a caller can narrow a database scan to the rows that could possibly carry one,
