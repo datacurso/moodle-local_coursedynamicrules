@@ -225,6 +225,10 @@ final class course_service_remote_export_client_test extends \advanced_testcase 
             'failed' => [['status' => 'failed', 'data' => []]],
             'no data' => [['status' => 'exported']],
             'data not an object' => [['status' => 'exported', 'data' => 'x']],
+            'no requests list' => [['status' => 'exported', 'data' => ['token_usage' => [], 'threads' => []]]],
+            'no threads list' => [['status' => 'exported', 'data' => ['requests' => [], 'token_usage' => []]]],
+            'requests not a list' => [['status' => 'exported', 'data' => ['requests' => 'x', 'threads' => []]]],
+            'threads not a list' => [['status' => 'exported', 'data' => ['requests' => [], 'threads' => null]]],
         ];
     }
 

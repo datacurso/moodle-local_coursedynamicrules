@@ -349,6 +349,26 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
     }
 
     /**
+     * An "exported" answer without the requests and threads lists does not verify the erasure.
+     *
+     * @return void
+     */
+    public function test_an_export_answer_without_its_lists_keeps_the_seal(): void {
+        global $DB;
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true));
+        $this->use_export(['token_usage' => []]);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1');
+
+        $this->assertFalse(remote_erasure::erase((int) $student->id));
+
+        $row = $DB->get_record(remote_erasure::TABLE, ['threadid' => 'thread-1'], '*', MUST_EXIST);
+        $this->assertNotNull($row->erasurerequested, 'An incomplete export answer verified the erasure.');
+        $this->assertSame(1, (int) $row->erasureattempts);
+    }
+
+    /**
      * An old service (no erased_thread_ids) never proves a row known only by its key, even with an empty export.
      *
      * CDR-PRIV-001-R2. A service that predates client_request_id ignores the key, so its "erased" and its
