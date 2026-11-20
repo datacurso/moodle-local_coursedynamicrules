@@ -343,24 +343,50 @@ class createaiactivity_action extends action {
                 get_string('error_unexpected_creating_aiactivity', 'local_coursedynamicrules', $e->getMessage()),
                 DEBUG_DEVELOPER
             );
-            if ($requestid !== null && is_string($threadid) && $threadid !== '') {
-                // The failed generation may have used the thread after an erasure removed its row.
-                try {
-                    remote_erasure::release_thread(
-                        $requestid,
-                        $threadid,
-                        $actionid,
-                        (int) $courseid,
-                        (int) $userid,
-                        $clientrequestid
-                    );
-                } catch (\Throwable $releaseerror) {
-                    mtrace('local_coursedynamicrules createaiactivity could not keep the thread erasable: '
-                        . $releaseerror->getMessage());
-                }
+            if ($requestid !== null) {
+                self::settle_failed_request($e, $requestid, $threadid, $actionid, (int) $courseid, (int) $userid, $clientrequestid);
             }
         } finally {
             $lock->release();
+        }
+    }
+
+    /**
+     * Leave the request of a failed generation recorded exactly as far as it reached the service.
+     *
+     * Refused by the provider before /activity/init left the site, the request names nothing on the
+     * service and its row is forgotten. Once the service opened a thread, the failed generation may
+     * have used it after an erasure removed its row, so it is kept erasable (remote_erasure::
+     * release_thread()). Any other failure keeps the row, erasable by its key. Never throws: the
+     * caller is already handling a failure.
+     *
+     * @param \Throwable $error Why the generation failed.
+     * @param int $requestid The row recorded before /activity/init.
+     * @param mixed $threadid The thread id the service answered with, or null.
+     * @param int $actionid The action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string|null $clientrequestid The client request id.
+     * @return void
+     */
+    private static function settle_failed_request(
+        \Throwable $error,
+        int $requestid,
+        $threadid,
+        int $actionid,
+        int $courseid,
+        int $userid,
+        ?string $clientrequestid
+    ): void {
+        try {
+            if ($threadid === null && remote_erasure::is_refused_before_sending($error)) {
+                remote_erasure::forget_unsent($requestid);
+            } else if (is_string($threadid) && $threadid !== '') {
+                remote_erasure::release_thread($requestid, $threadid, $actionid, $courseid, $userid, $clientrequestid);
+            }
+        } catch (\Throwable $settleerror) {
+            mtrace('local_coursedynamicrules createaiactivity could not settle the request record: '
+                . $settleerror->getMessage());
         }
     }
 

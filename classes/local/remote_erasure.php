@@ -207,6 +207,39 @@ class remote_erasure {
     }
 
     /**
+     * Forget a request the AI provider refused before anything left the site.
+     *
+     * The row is recorded before /activity/init because the service may keep the request even when
+     * its answer is lost. When the provider refuses the call before opening a connection (see
+     * is_refused_before_sending()) the service never saw the request or its key, so the row names
+     * nothing and is deleted; a row that carries a thread id is kept. Any other failure keeps the row:
+     * the key may already be stored on the service (internal security review, 2026-11-20).
+     *
+     * @param int $requestid The row recorded before the call.
+     * @return void
+     */
+    public static function forget_unsent(int $requestid): void {
+        global $DB;
+        $DB->delete_records_select(self::TABLE, 'id = :id AND threadid IS NULL', ['id' => $requestid]);
+    }
+
+    /**
+     * Whether a failed call was refused by the AI provider before it opened a connection.
+     *
+     * Only the provider's local refusals qualify (disabled provider, no licence key, insecure URL),
+     * raised before any byte is sent; a timeout, a transport error or an HTTP error does not, since
+     * the request may have reached the service.
+     *
+     * @param \Throwable $error The failure.
+     * @return bool
+     */
+    public static function is_refused_before_sending(\Throwable $error): bool {
+        return $error instanceof \moodle_exception
+            && $error->module === 'aiprovider_datacurso'
+            && in_array($error->errorcode, ['providerdisabled', 'invalidlicensekey', 'insecuretransport'], true);
+    }
+
+    /**
      * Whether a request row still stands for its thread once the generation is over, linking its module.
      *
      * Checked under the student's erasure lock, so no erasure can delete the row between the check
@@ -612,7 +645,9 @@ class remote_erasure {
      * Count a failed or unverified attempt on the rows, and report the crossing of FAILURE_THRESHOLD.
      *
      * The event is fired only by the attempt that brings a row to the threshold, so a student whose
-     * erasure keeps failing produces one event, not one per run.
+     * erasure keeps failing produces one event, not one per run. It is fired once per batch in which
+     * some row reaches exactly the threshold: rows stamped later start their own count, so when they
+     * fail three times too the same student gets another event (internal security review, 2026-11-20).
      *
      * @param int $userid The student.
      * @param \stdClass[] $rows The rows that were sent.

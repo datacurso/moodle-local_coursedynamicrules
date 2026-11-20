@@ -490,6 +490,33 @@ final class remote_lifecycle_test extends \core_privacy\tests\provider_testcase 
     }
 
     /**
+     * An /activity/init the provider refused before opening a connection leaves no request recorded.
+     *
+     * @return void
+     */
+    public function test_an_init_refused_before_leaving_the_site_leaves_no_row(): void {
+        global $DB;
+        $this->require_ai_stack();
+        $this->setAdminUser();
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = $this->ai_action((int) $course->id);
+
+        testable_createaiactivity_action::$client = $this->ai_client(function (string $method, string $path): ?array {
+            throw new \moodle_exception('providerdisabled', 'aiprovider_datacurso');
+        });
+        ob_start();
+        $this->execute_action($actionid, $course, $student);
+        ob_end_clean();
+        $this->assertDebuggingCalled();
+
+        $this->assertFalse(
+            $DB->record_exists(remote_erasure::TABLE, ['userid' => $student->id]),
+            'A request that never left the site is still recorded.'
+        );
+    }
+
+    /**
      * A lost /activity/init answer still leaves a row, and an erasure of that course reaches it by key.
      *
      * @return void
