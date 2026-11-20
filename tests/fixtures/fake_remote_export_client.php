@@ -24,7 +24,7 @@ namespace local_coursedynamicrules\local;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class fake_remote_export_client implements remote_export_client {
-    /** @var array[] Every call, as ['serviceid' => string, 'userid' => int, 'threadids' => string[]]. */
+    /** @var array[] Every call, as ['serviceid' => string, 'userid' => int, 'threadids' => string[], 'clientrequestids' => string[]]. */
     public array $calls = [];
 
     /**
@@ -42,8 +42,13 @@ class fake_remote_export_client implements remote_export_client {
     }
 
     #[\Override]
-    public function export(string $serviceid, int $userid, array $threadids): ?array {
-        $this->calls[] = ['serviceid' => $serviceid, 'userid' => $userid, 'threadids' => $threadids];
+    public function export(string $serviceid, int $userid, array $threadids, array $clientrequestids = []): ?array {
+        $this->calls[] = [
+            'serviceid' => $serviceid,
+            'userid' => $userid,
+            'threadids' => $threadids,
+            'clientrequestids' => $clientrequestids,
+        ];
         if ($this->throws) {
             throw new \moodle_exception('error');
         }

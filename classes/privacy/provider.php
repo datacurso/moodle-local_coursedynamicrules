@@ -285,6 +285,7 @@ class provider implements
         $collection->add_external_location_link(
             'datacurso_ai',
             [
+                'client_request_id' => 'privacy:metadata:datacurso_ai:client_request_id',
                 'instructions' => 'privacy:metadata:datacurso_ai:instructions',
                 'lang' => 'privacy:metadata:datacurso_ai:lang',
                 'site_id' => 'privacy:metadata:datacurso_ai:site_id',
@@ -301,8 +302,11 @@ class provider implements
             remote_erasure::TABLE,
             [
                 'actionid' => 'privacy:metadata:local_coursedynamicrules_aireq:actionid',
+                'clientrequestid' => 'privacy:metadata:local_coursedynamicrules_aireq:clientrequestid',
                 'cmid' => 'privacy:metadata:local_coursedynamicrules_aireq:cmid',
                 'courseid' => 'privacy:metadata:local_coursedynamicrules_aireq:courseid',
+                'erasureattempts' => 'privacy:metadata:local_coursedynamicrules_aireq:erasureattempts',
+                'erasurefailedat' => 'privacy:metadata:local_coursedynamicrules_aireq:erasurefailedat',
                 'erasurerequested' => 'privacy:metadata:local_coursedynamicrules_aireq:erasurerequested',
                 'threadid' => 'privacy:metadata:local_coursedynamicrules_aireq:threadid',
                 'timecreated' => 'privacy:metadata:local_coursedynamicrules_aireq:timecreated',
@@ -710,9 +714,11 @@ class provider implements
      * Export the AI requests the course service keeps for the user, in a course or in their own context.
      *
      * What is recorded on this site, as stored: the thread id the service gave each request (empty
-     * for a request recorded by the upgrade, whose thread was never stored), the course, the rule behind
-     * it, the activity it generated, when it was made and when its erasure was requested (empty when
-     * it was not). The rule of a deleted course is gone with it and reads as unknown.
+     * for a request recorded by the upgrade, whose thread was never stored, or one whose answer was
+     * lost), the client request id sent with it (empty before 1.8.15), the course, the rule behind it,
+     * the activity it generated, when it was made, when its erasure was requested (empty when it was
+     * not) and, while it is pending, how many attempts failed and when the last one did. The rule of a
+     * deleted course is gone with it and reads as unknown.
      *
      * @param \context $context The course context, or the user's own context for deleted courses.
      * @param \stdClass[] $rows The requests to export.
@@ -723,11 +729,14 @@ class provider implements
         foreach ($rows as $row) {
             $requests[] = [
                 'threadid' => $row->threadid === null ? '' : (string) $row->threadid,
+                'clientrequestid' => (string) ($row->clientrequestid ?? ''),
                 'course' => (int) $row->courseid,
                 'rule' => self::rule_name_behind((int) $row->actionid, (int) $row->courseid),
                 'activity' => $row->cmid === null ? null : (int) $row->cmid,
                 'timecreated' => transform::datetime((int) $row->timecreated),
                 'erasurerequested' => $row->erasurerequested === null ? '' : transform::datetime((int) $row->erasurerequested),
+                'erasureattempts' => (int) ($row->erasureattempts ?? 0),
+                'erasurefailedat' => empty($row->erasurefailedat) ? '' : transform::datetime((int) $row->erasurefailedat),
             ];
         }
         if ($requests === []) {
@@ -746,8 +755,8 @@ class provider implements
     /**
      * Ask the course service for what it keeps about the user's threads in a context, and write it there.
      *
-     * Only the thread ids recorded on this site for the user in that context are sent; requests
-     * recorded without one have nothing to ask for. The answer is written with plain keys, the request
+     * Only the thread ids and client request ids recorded on this site for the user in that context
+     * are sent; requests recorded with neither have nothing to ask for. The answer is written with plain keys, the request
      * settings stripped of secrets and identifiers (readable_settings()). When the plugin is not
      * enabled in the provider for the student's tenant, or the service cannot be asked or does not answer, the export is not
      * failed: a note saying the data could not be retrieved is written instead. Nothing is logged.
@@ -759,12 +768,16 @@ class provider implements
      */
     private static function export_remote_data(\context $context, int $userid, array $rows): void {
         $threadids = [];
+        $keys = [];
         foreach ($rows as $row) {
             if ($row->threadid !== null && $row->threadid !== '') {
                 $threadids[(string) $row->threadid] = (string) $row->threadid;
             }
+            if (!empty($row->clientrequestid)) {
+                $keys[(string) $row->clientrequestid] = (string) $row->clientrequestid;
+            }
         }
-        if ($threadids === []) {
+        if ($threadids === [] && $keys === []) {
             return;
         }
 
@@ -774,7 +787,7 @@ class provider implements
         if (tenant_context::is_enabled_for_user($userid)) {
             try {
                 $data = \core\di::get(remote_export_client::class)
-                    ->export(remote_erasure::SERVICE_ID, $userid, array_values($threadids));
+                    ->export(remote_erasure::SERVICE_ID, $userid, array_values($threadids), array_values($keys));
             } catch (\Throwable $e) {
                 $data = null;
             }
