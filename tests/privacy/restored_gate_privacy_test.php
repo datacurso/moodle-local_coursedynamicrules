@@ -102,12 +102,13 @@ final class restored_gate_privacy_test extends \core_privacy\tests\provider_test
     }
 
     /**
-     * A teacher's restriction identical to the plugin's gate is never claimed by the restore.
+     * Of two identical restrictions, the restore claims only the plugin's and leaves the teacher's alone.
      *
-     * Both nodes list the same student, so both match the fingerprint once core strips the marker:
-     * nothing says which one the plugin wrote, and the restore claims neither.
+     * Both nodes list the same student, so the version 1 fingerprint (action and ids) matched both and
+     * the restore claimed neither. The version 2 fingerprint also records where the node sits in the
+     * tree and the conditions beside it, so it tells the plugin's gate from the teacher's copy.
      *
-     * CDR-PRIV-002-R1.
+     * CDR-PRIV-002-R2.
      *
      * @return void
      */
@@ -123,28 +124,144 @@ final class restored_gate_privacy_test extends \core_privacy\tests\provider_test
 
         $newcourseid = $this->restore_course($this->backup_course($course));
         $newcmid = $this->restored_module_of_action($newcourseid);
+        $newactionid = $this->restored_action_id($newcourseid);
         $context = \context_module::instance($newcmid);
 
+        $root = json_decode((string) $DB->get_field('course_modules', 'availability', ['id' => $newcmid]));
+        $owned = enableactivity_action::owned_user_nodes($root);
+        $this->assertCount(1, $owned, 'Exactly the plugin\'s gate is attributed after the restore.');
+        $this->assertSame($root->c[0], $owned[0], 'The node attributed is not the plugin\'s gate.');
+        $this->assertSame($newactionid, enableactivity_action::action_id_of($owned[0]));
+        $this->assertNull(enableactivity_action::action_id_of($root->c[1]), 'The teacher\'s restriction was marked.');
+
         $contextids = array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids());
-        $this->assertNotContains(
-            (int) $context->id,
-            $contextids,
-            'Two identical nodes match the fingerprint; claiming either could claim the teacher\'s.'
+        $this->assertContains((int) $context->id, $contextids);
+        $approved = new approved_contextlist($student, 'local_coursedynamicrules', $contextids);
+        provider::export_user_data($approved);
+        $exported = writer::with_context($context)->get_data(
+            [get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]
+        );
+        $this->assertSame(1, $exported->restrictions ?? null, 'Only the plugin\'s gate may be exported.');
+
+        provider::delete_data_for_user($approved);
+
+        $root = json_decode((string) $DB->get_field('course_modules', 'availability', ['id' => $newcmid]));
+        $this->assertSame([], array_map('intval', (array) $root->c[0]->userids), 'The plugin\'s gate still lists the student.');
+        $this->assertSame(
+            [(int) $student->id],
+            array_map('intval', (array) $root->c[1]->userids),
+            'An erasure approved for this plugin removed the student from the teacher\'s restriction.'
+        );
+    }
+
+    /**
+     * A backup that carries only the version 1 fingerprint restores as 1.8.13 and 1.8.14 did.
+     *
+     * Two identical restrictions both match the version 1 fingerprint, so neither is attributed; the
+     * restore now also leaves a durable note for the student that the restriction could not be
+     * attributed.
+     *
+     * CDR-PRIV-002-R2.
+     *
+     * @return void
+     */
+    public function test_a_version_1_backup_leaves_identical_restrictions_unattributed(): void {
+        global $DB;
+
+        [$course, $cmid, $actionid] = $this->course_with_rule('enableactivity', true);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $other = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $gate = enableactivity_action::mark_node((object) ['type' => 'user', 'userids' => [(int) $student->id]], $actionid);
+        $teachers = (object) ['type' => 'user', 'userids' => [(int) $student->id]];
+        $this->set_tree($cmid, [$gate, $teachers, $this->completion_on((int) $other->cmid)]);
+
+        $backupid = $this->backup_course($course);
+        $this->strip_from_course_xml($backupid, '#\s*<fingerprint2>[^<]*</fingerprint2>#');
+        $newcourseid = $this->restore_course($backupid);
+        $newcmid = $this->restored_module_of_action($newcourseid);
+        $availability = (string) $DB->get_field('course_modules', 'availability', ['id' => $newcmid]);
+        $this->assertSame(
+            [],
+            enableactivity_action::owned_user_nodes(json_decode($availability)),
+            'A version 1 backup marked one of two identical nodes as written by the plugin.'
         );
 
-        provider::delete_data_for_user(new approved_contextlist($student, 'local_coursedynamicrules', $contextids));
+        $this->assertTrue(
+            $DB->record_exists('local_coursedynamicrules_restnote', [
+                'cmid' => $newcmid,
+                'userid' => (int) $student->id,
+                'reason' => 'ambiguous',
+            ]),
+            'The ambiguous restriction left no durable note for the student.'
+        );
 
+        $contextids = array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids());
+        provider::delete_data_for_user(new approved_contextlist($student, 'local_coursedynamicrules', $contextids));
         $availability = (string) $DB->get_field('course_modules', 'availability', ['id' => $newcmid]);
         $this->assertSame(
             [(int) $student->id, (int) $student->id],
             $this->ids_in($availability),
             'An erasure approved for this plugin removed the student from a restriction it cannot prove it wrote.'
         );
-        $this->assertSame(
-            [],
-            enableactivity_action::owned_user_nodes(json_decode($availability)),
-            'The restore marked one of two identical nodes as written by the plugin.'
+    }
+
+    /**
+     * A fingerprint2 that is not a SHA-256 hex digest is ignored, and the gate is matched on version 1.
+     *
+     * Internal security review, 2026-11-20.
+     *
+     * @return void
+     */
+    public function test_a_malformed_version_2_fingerprint_falls_back_to_version_1(): void {
+        global $DB;
+
+        [$course, $cmid, $actionid] = $this->course_with_rule('enableactivity', true);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $other = $this->getDataGenerator()->create_module('page', ['course' => $course->id]);
+        $gate = enableactivity_action::mark_node((object) ['type' => 'user', 'userids' => [(int) $student->id]], $actionid);
+        $this->set_tree($cmid, [$gate, $this->completion_on((int) $other->cmid)]);
+
+        $backupid = $this->backup_course($course);
+        $this->replace_in_course_xml(
+            $backupid,
+            '#<fingerprint2>[^<]*</fingerprint2>#',
+            '<fingerprint2>not-a-digest</fingerprint2>'
         );
+        $newcourseid = $this->restore_course($backupid);
+        $newcmid = $this->restored_module_of_action($newcourseid);
+
+        $root = json_decode((string) $DB->get_field('course_modules', 'availability', ['id' => $newcmid]));
+        $owned = enableactivity_action::owned_user_nodes($root);
+        $this->assertCount(1, $owned, 'A malformed version 2 fingerprint must fall back to version 1.');
+        $this->assertSame($this->restored_action_id($newcourseid), enableactivity_action::action_id_of($owned[0]));
+    }
+
+    /**
+     * A restore without groups drops the group condition beside the gate, and then nothing is claimed.
+     *
+     * Core removes a group condition when groups are not restored (core_availability\tree::update_after_restore),
+     * which moves the gate and changes its siblings: the version 2 fingerprint no longer matches, and the
+     * gate is only deduced, never attributed.
+     *
+     * Internal security review, 2026-11-20.
+     *
+     * @return void
+     */
+    public function test_a_restore_without_groups_claims_nothing(): void {
+        global $DB;
+
+        [$course, $cmid, $actionid] = $this->course_with_rule('enableactivity', true);
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $group = $this->getDataGenerator()->create_group(['courseid' => $course->id]);
+        $gate = enableactivity_action::mark_node((object) ['type' => 'user', 'userids' => [(int) $student->id]], $actionid);
+        $this->set_tree($cmid, [(object) ['type' => 'group', 'id' => (int) $group->id], $gate]);
+
+        $newcourseid = $this->restore_course($this->backup_course($course), ['groups' => false]);
+        $newcmid = $this->restored_module_of_action($newcourseid);
+
+        $root = json_decode((string) $DB->get_field('course_modules', 'availability', ['id' => $newcmid]));
+        $this->assertCount(1, $root->c, 'Sanity: core must have dropped the group condition.');
+        $this->assertSame([], enableactivity_action::owned_user_nodes($root), 'A gate whose position changed was claimed.');
     }
 
     /**
@@ -275,6 +392,52 @@ final class restored_gate_privacy_test extends \core_privacy\tests\provider_test
     }
 
     /**
+     * The restored enable-activity action.
+     *
+     * @param int $courseid The restored course.
+     * @return int The action id.
+     */
+    private function restored_action_id(int $courseid): int {
+        global $DB;
+        $rule = $DB->get_record('local_coursedynamicrules_rule', ['courseid' => $courseid], '*', MUST_EXIST);
+
+        return (int) $DB->get_field('local_coursedynamicrules_action', 'id', ['ruleid' => $rule->id], MUST_EXIST);
+    }
+
+    /**
+     * Replace what a pattern matches in the backup's course.xml.
+     *
+     * @param string $backupid The backup id.
+     * @param string $pattern The regular expression.
+     * @param string $replacement The replacement.
+     * @return void
+     */
+    private function replace_in_course_xml(string $backupid, string $pattern, string $replacement): void {
+        global $CFG;
+        $path = $CFG->tempdir . '/backup/' . $backupid . '/course/course.xml';
+        $xml = (string) file_get_contents($path);
+        $replaced = preg_replace($pattern, $replacement, $xml, -1, $count);
+        $this->assertGreaterThan(0, $count, 'The backup carried nothing to replace: the fixture means nothing.');
+        file_put_contents($path, $replaced);
+    }
+
+    /**
+     * Remove what a pattern matches from the backup's course.xml, to rebuild an older backup's shape.
+     *
+     * @param string $backupid The backup id.
+     * @param string $pattern The regular expression to remove.
+     * @return void
+     */
+    private function strip_from_course_xml(string $backupid, string $pattern): void {
+        global $CFG;
+        $path = $CFG->tempdir . '/backup/' . $backupid . '/course/course.xml';
+        $xml = (string) file_get_contents($path);
+        $stripped = preg_replace($pattern, '', $xml, -1, $count);
+        $this->assertGreaterThan(0, $count, 'The backup carried nothing to strip: the fixture means nothing.');
+        file_put_contents($path, $stripped);
+    }
+
+    /**
      * Every user id an availability tree lists, in tree order.
      *
      * @param string $availability The stored JSON.
@@ -329,9 +492,10 @@ final class restored_gate_privacy_test extends \core_privacy\tests\provider_test
      * Restore a backup into a brand-new course.
      *
      * @param string $backupid The backup id.
+     * @param array $settings Restore plan settings to set, name => value.
      * @return int The new course id.
      */
-    private function restore_course(string $backupid): int {
+    private function restore_course(string $backupid, array $settings = []): int {
         global $CFG, $DB, $USER;
 
         $CFG->backup_file_logger_level = \backup::LOG_NONE;
@@ -345,6 +509,9 @@ final class restored_gate_privacy_test extends \core_privacy\tests\provider_test
             $USER->id,
             \backup::TARGET_NEW_COURSE
         );
+        foreach ($settings as $name => $value) {
+            $rc->get_plan()->get_setting($name)->set_value($value);
+        }
         if (!$rc->execute_precheck()) {
             $results = $rc->get_precheck_results();
             if (!empty($results['errors'])) {

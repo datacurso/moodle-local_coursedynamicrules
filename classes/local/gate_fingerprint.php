@@ -31,11 +31,27 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * the restored action's own. Exactly one match is the node the plugin wrote; two or more identical
  * nodes - a teacher's restriction listing the same students - are ambiguous and claimed by nobody.
  *
+ * The version 2 fingerprint (CDR-PRIV-002-R2) closes most of that ambiguity: it also covers the node's
+ * position in the tree (the operator and child index of every level down to it, and its own show flag)
+ * and a summary of the conditions beside it (their types and the parameters a restore does not
+ * rewrite, sorted). A teacher's copy listing the same students sits elsewhere in the tree, so it no
+ * longer matches. Nothing personal enters the summary: no user ids, no profile values, no ids of
+ * other objects. Backups carry both versions, so older plugin versions keep reading the first one,
+ * and the restore still accepts backups that carry only the first one.
+ *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class gate_fingerprint {
+    /**
+     * The most nodes a tree may have for any of its nodes to be matched (internal security review,
+     * 2026-11-20). The restriction editor builds trees of a handful of conditions; a tree beyond this
+     * is not one the plugin wrote into, and walking it would only cost time. Beyond it nothing is
+     * fingerprinted by the backup and nothing is matched or reconciled by the restore.
+     */
+    public const MAX_TREE_NODES = 500;
+
     /**
      * The fingerprint of a node listing the given users, written by the given action.
      *
@@ -51,13 +67,160 @@ class gate_fingerprint {
     }
 
     /**
+     * The version 2 fingerprint of a node: the action, the ids it lists and where it sits in its tree.
+     *
+     * @param int $actionid The action that wrote the node.
+     * @param int[] $userids The user ids the node lists, in any order.
+     * @param string $position The node's position, as positions() describes it.
+     * @return string A SHA-256 hex digest.
+     */
+    public static function of_v2(int $actionid, array $userids, string $position): string {
+        $userids = array_values(array_unique(array_map('intval', $userids)));
+        sort($userids);
+
+        return hash('sha256', 'v2:' . $actionid . ':' . implode(',', $userids) . ':' . $position);
+    }
+
+    /**
+     * Every user node of a tree with its position, in tree order.
+     *
+     * The position is the path down to the node - each level's operator and the node's child index
+     * in it, and its own show flag - followed by the sorted summaries of its siblings. A restore keeps
+     * all of that in the ordinary case: core re-encodes the tree in order and rewrites only ids and
+     * dates. It does not keep it when it drops a condition: a group or grouping condition is removed
+     * when groups are not restored (core_availability\tree::update_after_restore()), which shifts the
+     * indexes and changes the siblings. Then the version 2 fingerprint simply does not match, and the
+     * restore claims nothing - it never claims a different node.
+     *
+     * A tree with more than MAX_TREE_NODES nodes yields no position at all, so no fingerprint matches in
+     * it and nothing is claimed there.
+     *
+     * @param object $root A decoded availability tree.
+     * @return array List of ['node' => \stdClass, 'position' => string].
+     */
+    public static function positions(object $root): array {
+        $budget = self::MAX_TREE_NODES;
+        if (!self::within_cap($root, $budget)) {
+            return [];
+        }
+
+        return self::positions_below($root, '');
+    }
+
+    /**
+     * Whether a tree has at most the remaining budget of nodes; the budget is spent as nodes are counted.
+     *
+     * @param object $node A decoded node or subtree.
+     * @param int $budget Nodes still allowed.
+     * @return bool
+     */
+    private static function within_cap(object $node, int &$budget): bool {
+        if (--$budget < 0) {
+            return false;
+        }
+        if (isset($node->type)) {
+            return true;
+        }
+        foreach ((array) ($node->c ?? []) as $child) {
+            if (is_object($child) && !self::within_cap($child, $budget)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The positions of the user nodes below one level of a tree.
+     *
+     * The sibling summary of every user node of a level is the same - all the level's summaries but one
+     * 'user' - so it is computed once per level.
+     *
+     * @param object $root The level.
+     * @param string $path The path down to it.
+     * @return array List of ['node' => \stdClass, 'position' => string].
+     */
+    private static function positions_below(object $root, string $path): array {
+        if (isset($root->type)) {
+            return [];
+        }
+        $op = (string) ($root->op ?? '&');
+        $children = array_values((array) ($root->c ?? []));
+        $showc = is_array($root->showc ?? null) ? array_values($root->showc) : [];
+
+        $summaries = [];
+        foreach ($children as $child) {
+            if (is_object($child)) {
+                $summaries[] = self::summary_of($child);
+            }
+        }
+        sort($summaries);
+        $own = array_search('user', $summaries, true);
+        if ($own !== false) {
+            unset($summaries[$own]);
+        }
+        $siblings = implode(',', $summaries);
+
+        $found = [];
+        foreach ($children as $index => $child) {
+            if (!is_object($child)) {
+                continue;
+            }
+            $step = $path . '/' . $op . $index;
+            if (!isset($child->type)) {
+                $found = array_merge($found, self::positions_below($child, $step));
+                continue;
+            }
+            if ($child->type !== 'user') {
+                continue;
+            }
+            $shown = array_key_exists($index, $showc) ? (int) (bool) $showc[$index] : (int) !empty($root->show);
+            $found[] = ['node' => $child, 'position' => $step . ':h' . $shown . '|' . $siblings];
+        }
+
+        return $found;
+    }
+
+    /**
+     * A summary of a condition that names nobody and survives a restore.
+     *
+     * Only what a restore leaves as it is enters it: the type, and for the core conditions the
+     * parameters that are not ids or dates. User ids, profile values and the ids of other objects
+     * stay out.
+     *
+     * @param \stdClass $condition A decoded condition, or a nested subtree.
+     * @return string
+     */
+    private static function summary_of(\stdClass $condition): string {
+        if (!isset($condition->type)) {
+            return 'tree:' . (string) ($condition->op ?? '&') . ':' . count((array) ($condition->c ?? []));
+        }
+        $type = (string) $condition->type;
+        switch ($type) {
+            case 'completion':
+                return 'completion:e=' . (int) ($condition->e ?? 0);
+            case 'date':
+                return 'date:d=' . (string) ($condition->d ?? '');
+            case 'grade':
+                return 'grade:min=' . (isset($condition->min) ? (float) $condition->min : '')
+                    . ':max=' . (isset($condition->max) ? (float) $condition->max : '');
+            case 'profile':
+                return 'profile:' . (string) ($condition->sf ?? '') . ':' . (string) ($condition->cf ?? '')
+                    . ':' . (string) ($condition->op ?? '');
+            default:
+                return $type;
+        }
+    }
+
+    /**
      * The gates this plugin wrote on the modules of a course, as the backup records them.
      *
      * Only nodes owned_user_nodes() accepts (marked, not adopted) and only markers naming an action of
      * this course's rules are recorded: anything else the restore could not map anyway.
      *
      * @param int $courseid The course being backed up.
-     * @return array List of ['id' => int, 'cmid' => int, 'actionid' => int, 'fingerprint' => string].
+     * @return array List of ['id' => int, 'cmid' => int, 'actionid' => int, 'fingerprint' => string,
+     *               'fingerprint2' => string].
      */
     public static function gates_of_course(int $courseid): array {
         global $DB;
@@ -86,16 +249,20 @@ class gate_fingerprint {
             if (!$root instanceof \stdClass) {
                 continue;
             }
-            foreach (enableactivity_action::owned_user_nodes($root) as $node) {
+            $owned = enableactivity_action::owned_user_nodes($root);
+            foreach (self::positions($root) as $located) {
+                $node = $located['node'];
                 $actionid = enableactivity_action::action_id_of($node);
-                if ($actionid === null || !isset($actionids[$actionid])) {
+                if ($actionid === null || !isset($actionids[$actionid]) || !in_array($node, $owned, true)) {
                     continue;
                 }
+                $userids = owned_gate_eraser::userids_of($node);
                 $rows[] = [
                     'id' => count($rows) + 1,
                     'cmid' => (int) $module->id,
                     'actionid' => $actionid,
-                    'fingerprint' => self::of($actionid, owned_gate_eraser::userids_of($node)),
+                    'fingerprint' => self::of($actionid, $userids),
+                    'fingerprint2' => self::of_v2($actionid, $userids, $located['position']),
                 ];
             }
         }
@@ -114,41 +281,37 @@ class gate_fingerprint {
      * @param \stdClass $root The decoded restored tree.
      * @param int $sourceactionid The action id the backup recorded, which the fingerprint was made with.
      * @param int $restoredactionid The id that action was restored under.
-     * @param string $fingerprint The fingerprint the backup recorded.
+     * @param string $fingerprint The version 1 fingerprint the backup recorded.
+     * @param string $fingerprint2 The version 2 fingerprint, empty when the backup carries none; when
+     *        present it is the one compared.
      * @return \stdClass[] The matching nodes, by reference into $root, in tree order.
      */
-    public static function matching_nodes(\stdClass $root, int $sourceactionid, int $restoredactionid, string $fingerprint): array {
+    public static function matching_nodes(
+        \stdClass $root,
+        int $sourceactionid,
+        int $restoredactionid,
+        string $fingerprint,
+        string $fingerprint2 = ''
+    ): array {
         $owned = enableactivity_action::owned_user_nodes($root);
 
         $matches = [];
-        foreach (self::user_nodes($root) as $node) {
+        foreach (self::positions($root) as $located) {
+            $node = $located['node'];
             $actionid = enableactivity_action::action_id_of($node);
             $candidate = $actionid === null || ($actionid === $restoredactionid && in_array($node, $owned, true));
-            if ($candidate && hash_equals($fingerprint, self::of($sourceactionid, owned_gate_eraser::userids_of($node)))) {
+            if (!$candidate) {
+                continue;
+            }
+            $userids = owned_gate_eraser::userids_of($node);
+            $matched = $fingerprint2 !== ''
+                ? hash_equals($fingerprint2, self::of_v2($sourceactionid, $userids, $located['position']))
+                : hash_equals($fingerprint, self::of($sourceactionid, $userids));
+            if ($matched) {
                 $matches[] = $node;
             }
         }
 
         return $matches;
-    }
-
-    /**
-     * Every user node of a tree, at any depth, in tree order.
-     *
-     * @param object $root A decoded availability tree (the root, or any subtree).
-     * @return \stdClass[]
-     */
-    private static function user_nodes(object $root): array {
-        if (isset($root->type)) {
-            return $root->type === 'user' ? [$root] : [];
-        }
-        $found = [];
-        foreach ((array) ($root->c ?? []) as $child) {
-            if (is_object($child)) {
-                $found = array_merge($found, self::user_nodes($child));
-            }
-        }
-
-        return $found;
     }
 }
