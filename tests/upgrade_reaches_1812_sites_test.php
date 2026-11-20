@@ -140,8 +140,8 @@ final class upgrade_reaches_1812_sites_test extends \advanced_testcase {
         $this->assertTrue($dbman->table_exists($table), 'the upgrade has to CREATE the table on a 1.8.12 site');
         $this->assertTrue($dbman->field_exists($table, $this->erasure_field()));
         $this->assertTrue($dbman->index_exists($table, $this->erasure_index()));
-        // The upgrade runs on to the latest step (2026112000, 1.8.15).
-        $this->assertSame('2026112000', get_config('local_coursedynamicrules', 'version'));
+        // The upgrade runs on to the latest step (2026112001, 1.8.15).
+        $this->assertSame('2026112001', get_config('local_coursedynamicrules', 'version'));
     }
 
     /**
@@ -197,7 +197,7 @@ final class upgrade_reaches_1812_sites_test extends \advanced_testcase {
         $this->assertNull($row->clientrequestid);
         $this->assertSame(0, (int) $row->erasureattempts);
         $this->assertNull($row->erasurefailedat);
-        $this->assertSame('2026112000', get_config('local_coursedynamicrules', 'version'));
+        $this->assertSame('2026112001', get_config('local_coursedynamicrules', 'version'));
     }
 
     /**
