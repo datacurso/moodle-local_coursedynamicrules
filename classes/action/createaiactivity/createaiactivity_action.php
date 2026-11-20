@@ -112,6 +112,10 @@ class createaiactivity_action extends action {
 
         // The step being attempted, reported with a failure so the task log tells which call failed.
         $stage = 'init';
+        // Known once the service opened the thread, so a failure can keep it erasable.
+        $requestid = null;
+        $threadid = null;
+        $clientrequestid = null;
         try {
             require_once($CFG->dirroot . '/course/lib.php');
             require_once($CFG->dirroot . '/course/modlib.php');
@@ -291,7 +295,17 @@ class createaiactivity_action extends action {
             if ((string) $DB->get_field('course_modules', 'idnumber', ['id' => $newcm->coursemodule]) === '') {
                 self::set_generated_module_key((int) $newcm->coursemodule, $key);
             }
-            remote_erasure::attach_module($requestid, (int) $newcm->coursemodule);
+            // An erasure may have run while the generation used the thread: it is then recorded again,
+            // pending erasure.
+            $requestid = remote_erasure::attach_module(
+                $requestid,
+                (int) $newcm->coursemodule,
+                $threadid,
+                $actionid,
+                (int) $courseid,
+                (int) $userid,
+                $clientrequestid
+            );
 
             // Restrict the new activity to the current user only, and stamp the restriction as this
             // plugin's own. The stamp is what makes the student's id REACHABLE: nothing in core
@@ -329,6 +343,22 @@ class createaiactivity_action extends action {
                 get_string('error_unexpected_creating_aiactivity', 'local_coursedynamicrules', $e->getMessage()),
                 DEBUG_DEVELOPER
             );
+            if ($requestid !== null && is_string($threadid) && $threadid !== '') {
+                // The failed generation may have used the thread after an erasure removed its row.
+                try {
+                    remote_erasure::release_thread(
+                        $requestid,
+                        $threadid,
+                        $actionid,
+                        (int) $courseid,
+                        (int) $userid,
+                        $clientrequestid
+                    );
+                } catch (\Throwable $releaseerror) {
+                    mtrace('local_coursedynamicrules createaiactivity could not keep the thread erasable: '
+                        . $releaseerror->getMessage());
+                }
+            }
         } finally {
             $lock->release();
         }
