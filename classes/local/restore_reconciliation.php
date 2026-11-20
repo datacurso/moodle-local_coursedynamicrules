@@ -31,7 +31,11 @@ use local_coursedynamicrules\action\enableactivity\enableactivity_action;
  * - the module carries exactly one node the restore deduced for that action (is_adopted(), with that
  *   action's marker);
  * - that node has the shape apply_availability() writes: a direct child of an AND root, hidden when
- *   not met.
+ *   not met;
+ * - every user the node lists is someone the rule can grant access to: an active student of the
+ *   course, the population the rule engine runs for (helper\enrolled_users). The plugin keeps no
+ *   other record of whom an action granted, so a node listing anyone else is left unattributed
+ *   (internal security review, 2026-11-20).
  *
  * An unmarked node is never promoted, whatever its shape: it may be a teacher's restriction, and
  * nothing on the module says otherwise (internal security review, 2026-11-20). When a node is
@@ -122,7 +126,11 @@ class restore_reconciliation {
 
         if (count($pending) === 1 && !empty($active[$pending[0]])) {
             $mine = $adopted[$pending[0]] ?? [];
-            if (count($mine) === 1 && self::has_plugin_shape($root, $mine[0])) {
+            if (
+                count($mine) === 1
+                && self::has_plugin_shape($root, $mine[0])
+                && self::lists_only_course_students($courseid, $mine[0])
+            ) {
                 enableactivity_action::mark_node($mine[0], $pending[0]);
                 $DB->set_field('course_modules', 'availability', json_encode($root), ['id' => $cm->id]);
                 restore_note::forget_inferred((int) $cm->id, [$pending[0]]);
@@ -167,6 +175,32 @@ class restore_reconciliation {
         $showc = is_array($root->showc ?? null) ? array_values($root->showc) : [];
 
         return empty($showc[$index]);
+    }
+
+    /**
+     * Whether every user a node lists is an active student of the course, whom the rule can act for.
+     *
+     * The same population as helper\enrolled_users (get_enrolled_sql(), active enrolments only).
+     *
+     * @param int $courseid The course.
+     * @param \stdClass $node The node.
+     * @return bool False for a node listing nobody.
+     */
+    private static function lists_only_course_students(int $courseid, \stdClass $node): bool {
+        global $DB;
+
+        $userids = array_values(array_unique(array_map('intval', owned_gate_eraser::userids_of($node))));
+        if ($userids === []) {
+            return false;
+        }
+        [$enrolledsql, $params] = get_enrolled_sql(\context_course::instance($courseid), '', 0, true);
+        [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'listed');
+        $found = $DB->count_records_sql(
+            "SELECT COUNT(1) FROM ($enrolledsql) je WHERE je.id $insql",
+            $params + $inparams
+        );
+
+        return $found === count($userids);
     }
 
     /**

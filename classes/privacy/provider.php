@@ -138,9 +138,10 @@ use local_coursedynamicrules\local\tenant_context;
  *
  *    One case the reconciliation cannot get right, stated rather than hidden: with an active rule,
  *    when a teacher deleted the plugin's gate by hand and the restore deduced the teacher's own
- *    restriction - hidden when not met, directly under an AND root - a backup made before 1.8.13
- *    holds nothing that tells the two apart, and the reconciliation can attribute the teacher's
- *    restriction to the plugin. Trees of more than gate_fingerprint::MAX_TREE_NODES nodes get no
+ *    restriction - hidden when not met, directly under an AND root, listing only active students of
+ *    the course - a backup made before 1.8.13 holds nothing that tells the two apart, and the
+ *    reconciliation can attribute the teacher's restriction to the plugin. A restriction listing
+ *    anyone else is never attributed. Trees of more than gate_fingerprint::MAX_TREE_NODES nodes get no
  *    fingerprint in the backup; their restore leaves the restriction deduced and noted, never claimed.
  *
  *    A re-adopted marker is not attributable either, and this class refuses it. The re-adoption
