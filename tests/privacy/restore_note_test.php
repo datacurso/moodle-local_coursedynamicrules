@@ -166,6 +166,48 @@ final class restore_note_test extends \core_privacy\tests\provider_testcase {
     }
 
     /**
+     * After the reconciliation, the attributed restriction is exported and erased like any gate.
+     *
+     * The teacher's ambiguous restriction is never touched: it keeps the student's id, as documented.
+     *
+     * CDR-PRIV-002-R2.
+     *
+     * @return void
+     */
+    public function test_a_reconciled_gate_is_exported_and_erased(): void {
+        global $DB;
+
+        [$student, , $uniquecmid, $ambiguouscmid] = $this->pre_fingerprint_restore();
+        $this->expectOutputRegex('/restore reconciliation of course \d+: 1 restriction\(s\) attributed/');
+        $this->runAdhocTasks(\local_coursedynamicrules\task\restore_reconciliation_task::class);
+
+        $context = \context_module::instance($uniquecmid);
+        $contextids = array_map('intval', provider::get_contexts_for_userid((int) $student->id)->get_contextids());
+        $this->assertContains((int) $context->id, $contextids, 'The reconciled gate is not in the student\'s contextlist.');
+
+        $approved = new approved_contextlist($student, 'local_coursedynamicrules', $contextids);
+        provider::export_user_data($approved);
+        $exported = writer::with_context($context)->get_data(
+            [get_string('privacy:export:activityaccess', 'local_coursedynamicrules')]
+        );
+        $this->assertNotEmpty($exported, 'The reconciled gate is missing from the export.');
+        $this->assertSame(1, $exported->restrictions);
+
+        provider::delete_data_for_user($approved);
+
+        $this->assertNotContains(
+            (int) $student->id,
+            $this->user_ids_in((string) $DB->get_field('course_modules', 'availability', ['id' => $uniquecmid])),
+            'After the erasure the reconciled gate still lists the student.'
+        );
+        $this->assertContains(
+            (int) $student->id,
+            $this->user_ids_in((string) $DB->get_field('course_modules', 'availability', ['id' => $ambiguouscmid])),
+            'The erasure touched a restriction the plugin could not attribute.'
+        );
+    }
+
+    /**
      * Deleting the module, or the course, removes its notes.
      *
      * CDR-PRIV-002-R2.
@@ -265,6 +307,30 @@ final class restore_note_test extends \core_privacy\tests\provider_testcase {
         provider::get_users_in_context($userlist);
 
         return $userlist;
+    }
+
+    /**
+     * Every user id listed by a user condition anywhere in an availability tree.
+     *
+     * @param string $availability The availability JSON.
+     * @return int[]
+     */
+    private function user_ids_in(string $availability): array {
+        $ids = [];
+        $walk = function ($node) use (&$walk, &$ids): void {
+            if (!is_object($node)) {
+                return;
+            }
+            if (($node->type ?? null) === 'user') {
+                $ids = array_merge($ids, array_map('intval', (array) ($node->userids ?? [])));
+            }
+            foreach ((array) ($node->c ?? []) as $child) {
+                $walk($child);
+            }
+        };
+        $walk(json_decode($availability));
+
+        return $ids;
     }
 
     /**
