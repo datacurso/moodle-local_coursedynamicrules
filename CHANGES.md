@@ -1,6 +1,6 @@
 ## 1.8.15
 
-**Released on:** 2026-11-20
+**Released on:** 2026-11-23
 
 **Compatibility note:** This version is compatible only with **Moodle 4.5**.
 
