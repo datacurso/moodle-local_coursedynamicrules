@@ -67,6 +67,11 @@ final class upgrade_reaches_1812_sites_test extends \advanced_testcase {
         if (!$dbman->index_exists($table, $index)) {
             $dbman->add_index($table, $index);
         }
+        foreach ($this->fields_of_1815() as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
 
         parent::tearDown();
     }
@@ -78,6 +83,19 @@ final class upgrade_reaches_1812_sites_test extends \advanced_testcase {
      */
     private function erasure_field(): \xmldb_field {
         return new \xmldb_field('erasurerequested', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'timecreated');
+    }
+
+    /**
+     * The columns 1.8.15 adds (CDR-PRIV-001-R2), as install.xml declares them.
+     *
+     * @return \xmldb_field[]
+     */
+    private function fields_of_1815(): array {
+        return [
+            new \xmldb_field('clientrequestid', XMLDB_TYPE_CHAR, '36', null, null, null, null, 'threadid'),
+            new \xmldb_field('erasureattempts', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'erasurerequested'),
+            new \xmldb_field('erasurefailedat', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'erasureattempts'),
+        ];
     }
 
     /**
@@ -122,7 +140,8 @@ final class upgrade_reaches_1812_sites_test extends \advanced_testcase {
         $this->assertTrue($dbman->table_exists($table), 'the upgrade has to CREATE the table on a 1.8.12 site');
         $this->assertTrue($dbman->field_exists($table, $this->erasure_field()));
         $this->assertTrue($dbman->index_exists($table, $this->erasure_index()));
-        $this->assertSame('2026111000', get_config('local_coursedynamicrules', 'version'));
+        // The upgrade runs on to the latest step (2026112001, 1.8.15).
+        $this->assertSame('2026112001', get_config('local_coursedynamicrules', 'version'));
     }
 
     /**
@@ -142,6 +161,43 @@ final class upgrade_reaches_1812_sites_test extends \advanced_testcase {
 
         $this->assertTrue($dbman->field_exists($table, $this->erasure_field()));
         $this->assertTrue($dbman->index_exists($table, $this->erasure_index()));
+    }
+
+    /**
+     * A 1.8.14 table gets the client request id and the failure columns, and keeps its rows.
+     *
+     * CDR-PRIV-001-R2.
+     */
+    public function test_a_1814_table_gets_the_client_request_id_and_failure_columns(): void {
+        global $CFG, $DB;
+        $this->resetAfterTest(true);
+        require_once($CFG->libdir . '/upgradelib.php');
+        require_once($CFG->dirroot . '/local/coursedynamicrules/db/upgrade.php');
+
+        $dbman = $DB->get_manager();
+        $table = new \xmldb_table(self::TABLE);
+        foreach (array_reverse($this->fields_of_1815()) as $field) {
+            $dbman->drop_field($table, $field);
+        }
+        $id = (int) $DB->insert_record(self::TABLE, (object) [
+            'actionid' => 1,
+            'courseid' => (int) $this->getDataGenerator()->create_course()->id,
+            'userid' => 2,
+            'threadid' => 'thread-1',
+            'timecreated' => 1000,
+        ]);
+
+        set_config('version', 2026111200, 'local_coursedynamicrules');
+        xmldb_local_coursedynamicrules_upgrade(2026111200);
+
+        foreach ($this->fields_of_1815() as $field) {
+            $this->assertTrue($dbman->field_exists($table, $field), $field->getName() . ' was not added');
+        }
+        $row = $DB->get_record(self::TABLE, ['id' => $id], '*', MUST_EXIST);
+        $this->assertNull($row->clientrequestid);
+        $this->assertSame(0, (int) $row->erasureattempts);
+        $this->assertNull($row->erasurefailedat);
+        $this->assertSame('2026112001', get_config('local_coursedynamicrules', 'version'));
     }
 
     /**

@@ -25,11 +25,13 @@ use aiprovider_datacurso\httpclient\ai_course_api;
  * URL as /activity/init and /privacy/erase, so the transport pseudonymises the user id and adds
  * site_id and site_url. The contract is described in remote_export_client.
  *
- * The service takes at most MAX_THREADS thread ids per call, so a longer list is sent in several calls
- * and their answers are merged in order. The export is returned only when every call answers
- * {"status": "exported"} with a data object; anything else - an error answer, a transport failure, the
- * provider missing or disabled, any other status - is reported as null and never thrown, so the
- * privacy export it feeds still completes. Nothing about the request or the answer is logged.
+ * The service takes at most MAX_THREADS thread ids and MAX_THREADS client request ids per call, so
+ * longer lists are sent in several calls (course_service_remote_erasure_client::slices()) and their
+ * answers are merged in order. The client_request_ids key is sent only when there are keys. The
+ * export is returned only when every call answers {"status": "exported"} with a data object carrying
+ * the requests and threads lists; anything else - an error answer, a transport failure, the provider
+ * missing or disabled, any other status - is reported as null and never thrown, so the privacy export
+ * it feeds still completes. Nothing about the request or the answer is logged.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -39,7 +41,7 @@ class course_service_remote_export_client implements remote_export_client {
     /** @var string The export endpoint, relative to the course service base URL. */
     public const PATH = '/privacy/export';
 
-    /** @var int The most thread ids the service accepts in one call. */
+    /** @var int The most thread ids, and the most client request ids, the service accepts in one call. */
     public const MAX_THREADS = 1000;
 
     /** @var string[] The lists the service answers with. */
@@ -58,25 +60,31 @@ class course_service_remote_export_client implements remote_export_client {
     }
 
     #[\Override]
-    public function export(string $serviceid, int $userid, array $threadids): ?array {
+    public function export(string $serviceid, int $userid, array $threadids, array $clientrequestids = []): ?array {
         $data = array_fill_keys(self::LISTS, []);
         $threadids = array_values($threadids);
-        if ($threadids === []) {
-            // The service refuses a thread-scoped request without threads, and there is nothing to ask.
+        $clientrequestids = array_values($clientrequestids);
+        if ($threadids === [] && $clientrequestids === []) {
+            // The service refuses a thread-scoped request naming nothing, and there is nothing to ask.
             return $data;
         }
 
         try {
             $client = $this->client();
-            foreach (array_chunk($threadids, self::MAX_THREADS) as $chunk) {
-                $response = $client->request('POST', self::PATH, [
+            $slices = course_service_remote_erasure_client::slices($threadids, $clientrequestids, self::MAX_THREADS);
+            foreach ($slices as [$threadchunk, $keychunk]) {
+                $body = [
                     'userid' => $userid,
                     'service_id' => $serviceid,
                     'scope' => remote_erasure_client::SCOPE_THREADS,
-                    'thread_ids' => $chunk,
-                ]);
+                    'thread_ids' => $threadchunk,
+                ];
+                if ($keychunk !== []) {
+                    $body['client_request_ids'] = $keychunk;
+                }
+                $response = $client->request('POST', self::PATH, $body);
                 $exported = is_array($response) && ($response['status'] ?? null) === 'exported';
-                if (!$exported || !is_array($response['data'] ?? null)) {
+                if (!$exported || !self::is_complete($response['data'] ?? null)) {
                     return null;
                 }
                 foreach (self::LISTS as $list) {
@@ -92,6 +100,22 @@ class course_service_remote_export_client implements remote_export_client {
         }
 
         return $data;
+    }
+
+    /**
+     * Whether an answer's data carries the requests and threads lists.
+     *
+     * An erasure is verified on these two lists being empty, so an answer missing either one, or
+     * carrying something else in its place, proves nothing and is not an export (internal security
+     * review, 2026-11-20). token_usage may be left out.
+     *
+     * @param mixed $data The data object of the answer.
+     * @return bool
+     */
+    private static function is_complete($data): bool {
+        return is_array($data)
+            && is_array($data['requests'] ?? null)
+            && is_array($data['threads'] ?? null);
     }
 
     /**
