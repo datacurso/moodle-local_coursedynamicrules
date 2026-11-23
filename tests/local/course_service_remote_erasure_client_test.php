@@ -88,12 +88,15 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
             'thread_ids' => $threadids,
         ], $handed[0]['body']);
 
-        // On the wire the transport adds the site. The provider's 5.x line sends the Moodle user id
-        // as it is (its README: "this version does not pseudonymise it").
+        // On the wire the transport adds the site. The provider's 5.x line pseudonymises the student
+        // from 2.2.2 on; an older 5.x provider (2.2.0 or later is required) sends the Moodle user id as it is.
         $sent = $wire->wire_to(self::PATH);
         $this->assertCount(1, $sent);
         $this->assertSame(wire_capturing_ai_course_api::BASE_URL . self::PATH, $sent[0]['url']);
-        $this->assertSame((string) $student->id, (string) $sent[0]['body']['userid']);
+        $expected = class_exists(\aiprovider_datacurso\local\outbound_privacy::class)
+            ? \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id)
+            : (string) $student->id;
+        $this->assertSame($expected, (string) $sent[0]['body']['userid']);
         $this->assertSame($threadids, $sent[0]['body']['thread_ids']);
         $this->assertArrayHasKey('site_id', $sent[0]['body']);
     }

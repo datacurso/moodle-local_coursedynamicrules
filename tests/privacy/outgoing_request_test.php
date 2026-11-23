@@ -251,8 +251,11 @@ final class outgoing_request_test extends \advanced_testcase {
         [$client, $student] = $this->run_action(true);
 
         $this->assertNotEquals((int) $student->id, (int) $USER->id, 'Sanity: the action must run as someone else.');
-        // The provider's 5.x line sends the Moodle user id as it is (it does not pseudonymise it).
-        $expected = (string) $student->id;
+        // The provider's 5.x line replaces the raw id with the site-scoped pseudonym of the student from
+        // 2.2.2 on; an older 5.x provider (2.2.0 or later is required) sends the Moodle user id as it is.
+        $expected = class_exists(\aiprovider_datacurso\local\outbound_privacy::class)
+            ? \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id)
+            : (string) $student->id;
         foreach (['/activity/init', '/activity/feedback'] as $path) {
             $this->assertSame($expected, (string) $client->wire_to($path)[0]['body']['userid'], $path);
         }

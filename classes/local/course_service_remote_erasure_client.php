@@ -23,7 +23,8 @@ use aiprovider_datacurso\httpclient\ai_course_api;
  *
  * It sends POST /privacy/erase through aiprovider_datacurso's course client, the same client and base
  * URL as /activity/init, so the transport adds site_id and site_url as it does for every request (the
- * provider's 5.x line sends the Moodle user id as it is). The contract is described in remote_erasure_client.
+ * provider's 5.x line pseudonymises the user id from 2.2.2 on and sends it as it is before). The
+ * contract is described in remote_erasure_client.
  *
  * The service takes at most MAX_THREADS thread ids and MAX_THREADS client request ids per call, so
  * longer lists are sent in several calls in the same scope - call n carries the n-th slice of each

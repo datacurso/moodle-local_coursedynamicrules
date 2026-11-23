@@ -23,17 +23,17 @@ namespace local_coursedynamicrules\local;
  * implementation is course_service_remote_erasure_client.
  *
  * THE CONTRACT. POST /privacy/erase on the course service, relative to the same base URL as
- * /activity/init and sent through aiprovider_datacurso's course client, with the body
- * {"userid": <Moodle user id>, "service_id": <calling plugin>, "scope": "threads"|"user",
- * "thread_ids": [...], "client_request_ids": [...]}. The transport adds site_id and site_url (the
- * provider's 5.x line sends the Moodle user id as it is), so the service erases only this site's data
- * of that student, and only for that service id: the activity instructions, the request
- * configuration and the generated activity kept for those requests. The service accepts at most 1000 thread ids and 1000 client request ids
- * per call; client_request_ids is optional and merged with thread_ids, and a "threads" request must
- * name at least one of either (422 otherwise). It confirms with HTTP 200 and
- * {"status": "erased", "requests": n, "threads": m, "erased_thread_ids": [...]}. Anything else is not a
- * confirmation. The privacy routes do not check the site's token balance, so a site without balance
- * is not refused there.
+ * /activity/init and sent through aiprovider_datacurso's course client, with the body {"userid":
+ * <Moodle user id>, "service_id": <calling plugin>, "scope": "threads"|"user", "thread_ids": [...],
+ * "client_request_ids": [...]}. The transport adds site_id and site_url (the provider's 5.x line
+ * pseudonymises the user id from 2.2.2 on and sends it as it is before), so the service erases only
+ * this site's data of that student, and only for that service id: the activity instructions, the
+ * request configuration and the generated activity kept for those requests. The service accepts at
+ * most 1000 thread ids and 1000 client request ids per call; client_request_ids is optional and merged
+ * with thread_ids, and a "threads" request must name at least one of either (422 otherwise). It
+ * confirms with HTTP 200 and {"status": "erased", "requests": n, "threads": m, "erased_thread_ids":
+ * [...]}. Anything else is not a confirmation. The privacy routes do not check the site's token
+ * balance, so a site without balance is not refused there.
  *
  * THE CLIENT REQUEST ID. Since 1.8.15 every /activity/init carries a random client_request_id (a UUID
  * v4) that the service stores before any run, and the request is recorded on this site under that
