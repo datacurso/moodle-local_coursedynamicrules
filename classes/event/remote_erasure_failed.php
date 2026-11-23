@@ -83,6 +83,15 @@ class remote_erasure_failed extends \core\event\base {
     }
 
     /**
+     * The event is about no object (system context, counts only), so there is no objectid to map.
+     *
+     * @return bool
+     */
+    public static function get_objectid_mapping() {
+        return false;
+    }
+
+    /**
      * Map the other fields for restore; they are plain counts.
      *
      * @return bool
