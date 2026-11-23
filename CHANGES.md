@@ -1,6 +1,6 @@
 ## 2.0.2
 
-**Released on:** 2026-11-20
+**Released on:** 2026-11-23
 
 **Compatibility note:** This version is compatible from **Moodle 5.0** to **Moodle 5.3**.
 
