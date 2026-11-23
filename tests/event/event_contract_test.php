@@ -37,6 +37,7 @@ namespace local_coursedynamicrules\event;
  *
  * @package    local_coursedynamicrules
  * @covers     \local_coursedynamicrules\event\rule_autodeactivated::get_objectid_mapping
+ * @covers     \local_coursedynamicrules\event\remote_erasure_failed::get_objectid_mapping
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -58,7 +59,9 @@ final class event_contract_test extends \advanced_testcase {
 
     /**
      * Each event answers with the table its objectid lives in, so a restored log points at the
-     * destination course's row instead of the source site's.
+     * destination course's row instead of the source site's. An event about no object (such as
+     * remote_erasure_failed, which carries only counts) answers false instead, without the base
+     * class warning.
      */
     public function test_every_event_maps_its_objectid_for_restore(): void {
         $this->resetAfterTest(true);
@@ -68,12 +71,18 @@ final class event_contract_test extends \advanced_testcase {
 
         foreach ($classes as $class) {
             $objecttable = $class::get_static_info()['objecttable'];
-            $this->assertNotEmpty($objecttable, "{$class} declares an objecttable.");
 
             $mapping = $class::get_objectid_mapping();
             $this->assertDebuggingNotCalled(
                 "{$class} must define get_objectid_mapping(); the base class only warns and gives up."
             );
+
+            if (empty($objecttable)) {
+                // An event about no object never stores an objectid, and the log restore consults the
+                // mapping only for a non-empty one; it answers that there is nothing to map.
+                $this->assertFalse($mapping, "{$class} points at no object, so it maps nothing.");
+                continue;
+            }
 
             $this->assertIsArray($mapping, "{$class} must answer with a mapping array.");
             $this->assertSame($objecttable, $mapping['db'] ?? null, "{$class} names its own table under 'db'.");
@@ -102,6 +111,9 @@ final class event_contract_test extends \advanced_testcase {
 
         foreach ($this->event_classes() as $class) {
             $table = $class::get_static_info()['objecttable'];
+            if (empty($table)) {
+                continue;
+            }
             $this->assertStringContainsString(
                 "set_mapping('{$table}'",
                 $restore,
