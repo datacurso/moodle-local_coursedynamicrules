@@ -131,8 +131,10 @@ final class outgoing_request_test extends \advanced_testcase {
     /**
      * The final /activity/init body carries exactly the documented keys, transport fields included.
      *
-     * CDR-PRIV-001-R2. instructions, lang, with_images, userid, auto_approve and service_id come from
-     * this plugin; site_id, timezone and site_url are added by aiprovider_datacurso's transport. A
+     * CDR-PRIV-001-R2. instructions, lang, with_images, userid, auto_approve, service_id and
+     * client_request_id (the random key the request is recorded under before the call, so it can be
+     * erased even when the answer is lost) come from this plugin; site_id, timezone and site_url are
+     * added by aiprovider_datacurso's transport. A
      * new key on the wire, from either side, turns this red.
      *
      * @return void
@@ -146,7 +148,8 @@ final class outgoing_request_test extends \advanced_testcase {
         $keys = array_keys($client->wire_to('/activity/init')[0]['body']);
         sort($keys);
         $this->assertSame(
-            ['auto_approve', 'instructions', 'lang', 'service_id', 'site_id', 'site_url', 'timezone', 'userid', 'with_images'],
+            ['auto_approve', 'client_request_id', 'instructions', 'lang', 'service_id', 'site_id', 'site_url', 'timezone',
+                'userid', 'with_images'],
             $keys
         );
     }
@@ -248,8 +251,11 @@ final class outgoing_request_test extends \advanced_testcase {
         [$client, $student] = $this->run_action(true);
 
         $this->assertNotEquals((int) $student->id, (int) $USER->id, 'Sanity: the action must run as someone else.');
-        // The provider's 5.x line sends the Moodle user id as it is (it does not pseudonymise it).
-        $expected = (string) $student->id;
+        // The provider's 5.x line replaces the raw id with the site-scoped pseudonym of the student from
+        // 2.2.2 on; an older 5.x provider (2.2.0 or later is required) sends the Moodle user id as it is.
+        $expected = class_exists(\aiprovider_datacurso\local\outbound_privacy::class)
+            ? \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id)
+            : (string) $student->id;
         foreach (['/activity/init', '/activity/feedback'] as $path) {
             $this->assertSame($expected, (string) $client->wire_to($path)[0]['body']['userid'], $path);
         }

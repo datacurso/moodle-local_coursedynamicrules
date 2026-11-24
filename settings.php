@@ -17,11 +17,12 @@
 /**
  * Administration settings for the plugin.
  *
- * One setting, and it is the operational one: the number of enrolled users a scheduled task holds
+ * The operational settings. taskbatchsize is the number of enrolled users a scheduled task holds
  * in memory at a time while it walks a course. It existed before this page did, readable only
  * through set_config() or $CFG->forced_plugin_settings, which meant the threshold that decides how
  * much work a run costs could not be seen, let alone tuned, by the administrator responsible for
- * the site's cron.
+ * the site's cron. remoteerasurependingdays decides after how many days a pending erasure of AI
+ * requests on the course service is listed, read-only, right below it (CDR-PRIV-001-R2).
  *
  * @package     local_coursedynamicrules
  * @copyright   2026 Industria Elearning <info@industriaelearning.com>
@@ -43,6 +44,10 @@ if ($hassiteconfig) {
         \local_coursedynamicrules\helper\task_batch::DEFAULT_SIZE,
         PARAM_INT
     ));
+
+    $settings->add(new \local_coursedynamicrules\admin\remote_erasure_days_setting());
+
+    $settings->add(new \local_coursedynamicrules\admin\remote_erasure_pending_setting());
 
     $ADMIN->add('localplugins', $settings);
 }

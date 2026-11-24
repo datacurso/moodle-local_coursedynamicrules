@@ -76,7 +76,7 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
         $student = $this->getDataGenerator()->create_user();
         [$erasure, $wire] = $this->client();
 
-        $this->assertTrue($erasure->erase('local_coursedynamicrules', (int) $student->id, $scope, $threadids));
+        $this->assertTrue($erasure->erase('local_coursedynamicrules', (int) $student->id, $scope, $threadids)->confirmed);
 
         $handed = $wire->handed_to(self::PATH);
         $this->assertCount(1, $handed);
@@ -88,12 +88,15 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
             'thread_ids' => $threadids,
         ], $handed[0]['body']);
 
-        // On the wire the transport adds the site. The provider's 5.x line sends the Moodle user id
-        // as it is (its README: "this version does not pseudonymise it").
+        // On the wire the transport adds the site. The provider's 5.x line pseudonymises the student
+        // from 2.2.2 on; an older 5.x provider (2.2.0 or later is required) sends the Moodle user id as it is.
         $sent = $wire->wire_to(self::PATH);
         $this->assertCount(1, $sent);
         $this->assertSame(wire_capturing_ai_course_api::BASE_URL . self::PATH, $sent[0]['url']);
-        $this->assertSame((string) $student->id, (string) $sent[0]['body']['userid']);
+        $expected = class_exists(\aiprovider_datacurso\local\outbound_privacy::class)
+            ? \aiprovider_datacurso\local\outbound_privacy::pseudonymise_userid((int) $student->id)
+            : (string) $student->id;
+        $this->assertSame($expected, (string) $sent[0]['body']['userid']);
         $this->assertSame($threadids, $sent[0]['body']['thread_ids']);
         $this->assertArrayHasKey('site_id', $sent[0]['body']);
     }
@@ -119,7 +122,8 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
     public function test_anything_but_erased_is_not_confirmed(?array $response): void {
         [$erasure] = $this->client($response);
 
-        $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, ['thread-1']));
+        $result = $erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, ['thread-1']);
+        $this->assertFalse($result->confirmed);
     }
 
     /**
@@ -156,7 +160,7 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
             return $wire;
         });
 
-        $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_USER, []));
+        $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_USER, [])->confirmed);
         $this->assertSame([], $built, 'no course client could be built, so nothing left the site');
     }
 
@@ -173,7 +177,8 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
         [$erasure, $wire] = $this->client($response);
         $wire->httpcode = $httpcode;
 
-        $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, ['thread-1']));
+        $result = $erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, ['thread-1']);
+        $this->assertFalse($result->confirmed);
         $this->assertCount(1, $wire->wire_to(self::PATH), 'the request was sent and refused');
         // The transport reports the refusal to developers; that is its business, not this test's.
         $this->resetDebugging();
@@ -203,7 +208,7 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
         [$erasure, $wire] = $this->client();
         $threadids = array_map(fn(int $i): string => 'thread-' . $i, range(1, 2501));
 
-        $this->assertTrue($erasure->erase('local_coursedynamicrules', 2, $scope, $threadids));
+        $this->assertTrue($erasure->erase('local_coursedynamicrules', 2, $scope, $threadids)->confirmed);
 
         $handed = $wire->handed_to(self::PATH);
         $this->assertSame([1000, 1000, 501], array_map(fn(array $call): int => count($call['body']['thread_ids']), $handed));
@@ -222,7 +227,8 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
         $wire->sequences[self::PATH] = [['status' => 'erased'], ['status' => 'failed'], ['status' => 'erased']];
         $threadids = array_map(fn(int $i): string => 'thread-' . $i, range(1, 2001));
 
-        $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, $threadids));
+        $result = $erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, $threadids);
+        $this->assertFalse($result->confirmed);
     }
 
     /**
@@ -232,7 +238,8 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
         [$erasure, $wire] = $this->client();
         $threadids = array_map(fn(int $i): string => 'thread-' . $i, range(1, 1000));
 
-        $this->assertTrue($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, $threadids));
+        $result = $erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, $threadids);
+        $this->assertTrue($result->confirmed);
         $this->assertCount(1, $wire->handed_to(self::PATH));
     }
 
@@ -242,8 +249,95 @@ final class course_service_remote_erasure_client_test extends \advanced_testcase
     public function test_an_empty_thread_scoped_erasure_is_not_sent(): void {
         [$erasure, $wire] = $this->client();
 
-        $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, []));
+        $this->assertFalse($erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, [])->confirmed);
         $this->assertSame([], $wire->handed_to(self::PATH));
+    }
+
+    /**
+     * Client request ids go out as client_request_ids next to the thread ids, at most 1000 of each per call.
+     *
+     * CDR-PRIV-001-R2. A request recorded before /activity/init answered is reachable by its key; the
+     * service merges both lists. The key list is left out when there is none, so the body of an
+     * erasure without keys is the one older services already know.
+     */
+    public function test_client_request_ids_are_sent_next_to_the_thread_ids(): void {
+        [$erasure, $wire] = $this->client();
+        $keys = array_map(fn(int $i): string => sprintf('00000000-0000-4000-8000-%012d', $i), range(1, 1001));
+
+        $this->assertTrue($erasure->erase(
+            'local_coursedynamicrules',
+            2,
+            remote_erasure_client::SCOPE_THREADS,
+            ['thread-1'],
+            $keys
+        )->confirmed);
+
+        $handed = $wire->handed_to(self::PATH);
+        $this->assertCount(2, $handed);
+        $this->assertSame(['thread-1'], $handed[0]['body']['thread_ids']);
+        $this->assertSame(array_slice($keys, 0, 1000), $handed[0]['body']['client_request_ids']);
+        $this->assertSame([], $handed[1]['body']['thread_ids']);
+        $this->assertSame([$keys[1000]], $handed[1]['body']['client_request_ids']);
+        // The keys are random and name nobody: the transport sends them as they are.
+        $sent = array_map(fn(array $call): array => $call['body']['client_request_ids'], $wire->wire_to(self::PATH));
+        $this->assertSame($keys, array_merge(...$sent));
+    }
+
+    /**
+     * A thread-scoped erasure naming only client request ids is sent: the service accepts it.
+     */
+    public function test_a_thread_scoped_erasure_with_only_keys_is_sent(): void {
+        [$erasure, $wire] = $this->client();
+        $key = '6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f';
+
+        $result = $erasure->erase('local_coursedynamicrules', 2, remote_erasure_client::SCOPE_THREADS, [], [$key]);
+        $this->assertTrue($result->confirmed);
+
+        $handed = $wire->handed_to(self::PATH);
+        $this->assertCount(1, $handed);
+        $this->assertSame([
+            'userid' => 2,
+            'service_id' => 'local_coursedynamicrules',
+            'scope' => remote_erasure_client::SCOPE_THREADS,
+            'thread_ids' => [],
+            'client_request_ids' => [$key],
+        ], $handed[0]['body']);
+    }
+
+    /**
+     * erased_thread_ids in every answer is what shows the service understands client request ids.
+     *
+     * CDR-PRIV-001-R2. An older service confirms with {"status": "erased"} only, ignoring the keys.
+     *
+     * @dataProvider key_awareness_provider
+     * @param array $response What the service answers.
+     * @param bool $understood Whether the keys count as understood.
+     */
+    public function test_erased_thread_ids_is_the_signal_that_keys_were_understood(array $response, bool $understood): void {
+        [$erasure] = $this->client($response);
+
+        $result = $erasure->erase(
+            'local_coursedynamicrules',
+            2,
+            remote_erasure_client::SCOPE_THREADS,
+            ['thread-1'],
+            ['6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f']
+        );
+
+        $this->assertTrue($result->confirmed);
+        $this->assertSame($understood, $result->keysunderstood);
+    }
+
+    /**
+     * Erase answers with and without erased_thread_ids.
+     *
+     * @return array
+     */
+    public static function key_awareness_provider(): array {
+        return [
+            'old service' => [['status' => 'erased', 'requests' => 1, 'threads' => 1], false],
+            'key-aware service' => [['status' => 'erased', 'requests' => 1, 'threads' => 1, 'erased_thread_ids' => []], true],
+        ];
     }
 
     /**

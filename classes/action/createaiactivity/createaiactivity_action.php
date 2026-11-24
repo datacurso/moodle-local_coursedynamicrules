@@ -56,12 +56,14 @@ class createaiactivity_action extends action {
     /**
      * Execute the action
      *
-     * The thread the course service opens with /activity/init is recorded for the student
-     * (remote_erasure::record_request()) as soon as its id is known. Known limitation: when the service
-     * opened the thread but its answer never arrived (a timeout or a dropped connection), there is no
-     * thread id, so nothing is recorded for that request on this site and it cannot be listed in a
-     * privacy export or erased by thread. Only a user-wide erasure reaches such a thread
-     * (remote_erasure_client::SCOPE_USER), which is what an account deletion sends.
+     * The request is recorded for the student (remote_erasure::record_request()) BEFORE /activity/init
+     * is called, under a random client request id that the call carries as client_request_id; the
+     * thread id is added once the answer arrives. When the service opened the thread but its answer
+     * never arrived (a timeout or a dropped connection), the row stays with its key and no thread id,
+     * so the request is still listed in a privacy export and erased by key (CDR-PRIV-001-R2).
+     * Residual limit: a course service that predates client_request_id ignores the key, so against
+     * such a service the request whose answer was lost can neither be exported nor erased by it, and
+     * a user-wide erasure reaches its thread only if its run finished.
      *
      * @param object $context Context of the rule
      */
@@ -110,6 +112,10 @@ class createaiactivity_action extends action {
 
         // The step being attempted, reported with a failure so the task log tells which call failed.
         $stage = 'init';
+        // Known once the service opened the thread, so a failure can keep it erasable.
+        $requestid = null;
+        $threadid = null;
+        $clientrequestid = null;
         try {
             require_once($CFG->dirroot . '/course/lib.php');
             require_once($CFG->dirroot . '/course/modlib.php');
@@ -160,6 +166,12 @@ class createaiactivity_action extends action {
             $payload = $anonymized['payload'];
             $replacements = $anonymized['replacements'];
 
+            // The correlation key (CDR-PRIV-001-R2): a random UUID that names nobody, sent with the
+            // call and stored by the service before any run. Added after the anonymiser, which has
+            // nothing to mask in it.
+            $clientrequestid = remote_erasure::new_client_request_id();
+            $payload['client_request_id'] = $clientrequestid;
+
             // These calls may take a long time depending on prompt complexity.
             \core_php_time_limit::raise();
             raise_memory_limit(MEMORY_EXTRA);
@@ -169,17 +181,34 @@ class createaiactivity_action extends action {
             $baseurleu = get_config('local_coursegen', 'datacurso_service_url_eu') ?: null;
             $client = $this->get_api_client($baseurl, $baseurleu);
 
+            // From the call on, the course service may keep a thread for this student - the
+            // instructions, the request configuration and, later, the generated activity - whatever
+            // happens next, even if its answer is lost. The request is therefore recorded BEFORE the
+            // call, under its key, so a privacy request can always list it and ask the service to
+            // erase it (CDR-PRIV-001-R2).
+            $requestid = remote_erasure::record_request(
+                $actionid,
+                (int) $courseid,
+                (int) $userid,
+                null,
+                null,
+                $clientrequestid
+            );
+
             $init = $client->request('POST', '/activity/init', $payload);
             $threadid = is_array($init) ? ($init['thread_id'] ?? null) : null;
             if (!is_string($threadid) || $threadid === '') {
                 throw new \moodle_exception('error_unexpected_airesponse', 'local_coursedynamicrules');
             }
-
-            // From here the course service keeps a thread for this student - the instructions, the
-            // request configuration and, later, the generated activity - whatever happens next. It is
-            // recorded before anything else can fail, so a privacy request can always list it and ask
-            // the service to erase it (CDR-PRIV-001-R2).
-            $requestid = remote_erasure::record_request($actionid, (int) $courseid, (int) $userid, $threadid);
+            // An erasure may have run meanwhile: the thread is then recorded again, pending erasure.
+            $requestid = remote_erasure::attach_thread(
+                $requestid,
+                $threadid,
+                $actionid,
+                (int) $courseid,
+                (int) $userid,
+                $clientrequestid
+            );
 
             // The graph only advances while the stream is open: consume it until a lifecycle
             // event. The service ignores auto_approve and stops on review_needed once the plan
@@ -266,7 +295,17 @@ class createaiactivity_action extends action {
             if ((string) $DB->get_field('course_modules', 'idnumber', ['id' => $newcm->coursemodule]) === '') {
                 self::set_generated_module_key((int) $newcm->coursemodule, $key);
             }
-            remote_erasure::attach_module($requestid, (int) $newcm->coursemodule);
+            // An erasure may have run while the generation used the thread: it is then recorded again,
+            // pending erasure.
+            $requestid = remote_erasure::attach_module(
+                $requestid,
+                (int) $newcm->coursemodule,
+                $threadid,
+                $actionid,
+                (int) $courseid,
+                (int) $userid,
+                $clientrequestid
+            );
 
             // Restrict the new activity to the current user only, and stamp the restriction as this
             // plugin's own. The stamp is what makes the student's id REACHABLE: nothing in core
@@ -304,8 +343,50 @@ class createaiactivity_action extends action {
                 get_string('error_unexpected_creating_aiactivity', 'local_coursedynamicrules', $e->getMessage()),
                 DEBUG_DEVELOPER
             );
+            if ($requestid !== null) {
+                self::settle_failed_request($e, $requestid, $threadid, $actionid, (int) $courseid, (int) $userid, $clientrequestid);
+            }
         } finally {
             $lock->release();
+        }
+    }
+
+    /**
+     * Leave the request of a failed generation recorded exactly as far as it reached the service.
+     *
+     * Refused by the provider before /activity/init left the site, the request names nothing on the
+     * service and its row is forgotten. Once the service opened a thread, the failed generation may
+     * have used it after an erasure removed its row, so it is kept erasable (remote_erasure::
+     * release_thread()). Any other failure keeps the row, erasable by its key. Never throws: the
+     * caller is already handling a failure.
+     *
+     * @param \Throwable $error Why the generation failed.
+     * @param int $requestid The row recorded before /activity/init.
+     * @param mixed $threadid The thread id the service answered with, or null.
+     * @param int $actionid The action.
+     * @param int $courseid The course.
+     * @param int $userid The student.
+     * @param string|null $clientrequestid The client request id.
+     * @return void
+     */
+    private static function settle_failed_request(
+        \Throwable $error,
+        int $requestid,
+        $threadid,
+        int $actionid,
+        int $courseid,
+        int $userid,
+        ?string $clientrequestid
+    ): void {
+        try {
+            if ($threadid === null && remote_erasure::is_refused_before_sending($error)) {
+                remote_erasure::forget_unsent($requestid);
+            } else if (is_string($threadid) && $threadid !== '') {
+                remote_erasure::release_thread($requestid, $threadid, $actionid, $courseid, $userid, $clientrequestid);
+            }
+        } catch (\Throwable $settleerror) {
+            mtrace('local_coursedynamicrules createaiactivity could not settle the request record: '
+                . $settleerror->getMessage());
         }
     }
 

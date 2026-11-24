@@ -325,6 +325,59 @@ function xmldb_local_coursedynamicrules_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026111000, 'local', 'coursedynamicrules');
     }
 
+    if ($oldversion < 2026112000) {
+        // CDR-PRIV-001-R2: the client request id each request is recorded under before /activity/init,
+        // and the count and time of the failed or unverified erasure attempts.
+        $table = new xmldb_table('local_coursedynamicrules_aireq');
+        $fields = [
+            new xmldb_field('clientrequestid', XMLDB_TYPE_CHAR, '36', null, null, null, null, 'threadid'),
+            new xmldb_field('erasureattempts', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0', 'erasurerequested'),
+            new xmldb_field('erasurefailedat', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'erasureattempts'),
+        ];
+        foreach ($fields as $field) {
+            if (!$dbman->field_exists($table, $field)) {
+                $dbman->add_field($table, $field);
+            }
+        }
+
+        upgrade_plugin_savepoint(true, 2026112000, 'local', 'coursedynamicrules');
+    }
+
+    if ($oldversion < 2026112001) {
+        // CDR-PRIV-002-R2: the notes of what a restore left unattributed, and one reconciliation per
+        // course that still carries a marker a restore only deduced.
+        $table = new xmldb_table('local_coursedynamicrules_restnote');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('courseid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('cmid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('actionid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('reason', XMLDB_TYPE_CHAR, '20', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('courseid', XMLDB_KEY_FOREIGN, ['courseid'], 'course', ['id']);
+        $table->add_key('cmid', XMLDB_KEY_FOREIGN, ['cmid'], 'course_modules', ['id']);
+        $table->add_index('userid', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+        // Inlined so this step stays what it was when it shipped: the JSON substring only narrows the
+        // scan, the reconciliation decides on the decoded tree.
+        $courseids = $DB->get_fieldset_select(
+            'course_modules',
+            'DISTINCT course',
+            $DB->sql_like('availability', ':adopted'),
+            ['adopted' => '%' . $DB->sql_like_escape('"sourceadopted"') . '%']
+        );
+        foreach ($courseids as $courseid) {
+            $task = new \local_coursedynamicrules\task\restore_reconciliation_task();
+            $task->set_custom_data(['courseid' => (int) $courseid, 'actionids' => null]);
+            \core\task\manager::queue_adhoc_task($task, true);
+        }
+
+        upgrade_plugin_savepoint(true, 2026112001, 'local', 'coursedynamicrules');
+    }
+
     return true;
 }
 

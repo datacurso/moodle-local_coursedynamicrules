@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="local/coursedynamicrules/db" VERSION="20261109" COMMENT="XMLDB file for Moodle local/coursedynamicrules"
+<XMLDB PATH="local/coursedynamicrules/db" VERSION="20261120" COMMENT="XMLDB file for Moodle local/coursedynamicrules"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
 >
@@ -57,10 +57,13 @@
         <FIELD NAME="actionid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The createaiactivity action that made the request"/>
         <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
         <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The student the request was made for"/>
-        <FIELD NAME="threadid" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="The thread id returned by /activity/init. NULL for requests recorded by the upgrade, whose thread was never stored"/>
+        <FIELD NAME="threadid" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="The thread id returned by /activity/init. NULL for requests recorded by the upgrade, whose thread was never stored, and for requests whose answer was lost"/>
+        <FIELD NAME="clientrequestid" TYPE="char" LENGTH="36" NOTNULL="false" SEQUENCE="false" COMMENT="The random UUID sent as client_request_id with /activity/init, recorded before the call. NULL for requests made before 1.8.15"/>
         <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The generated course module, once it exists"/>
         <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
-        <FIELD NAME="erasurerequested" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="When the erasure of this request on the course service was asked for; the row is kept until the service confirms it"/>
+        <FIELD NAME="erasurerequested" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="When the erasure of this request on the course service was asked for; the row is kept until the service confirms it and an export no longer returns it"/>
+        <FIELD NAME="erasureattempts" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Consecutive failed or unverified erasure attempts"/>
+        <FIELD NAME="erasurefailedat" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="When the last failed or unverified erasure attempt happened"/>
       </FIELDS>
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
@@ -69,6 +72,25 @@
       <INDEXES>
         <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
         <INDEX NAME="erasurerequested" UNIQUE="false" FIELDS="erasurerequested"/>
+      </INDEXES>
+    </TABLE>
+    <TABLE NAME="local_coursedynamicrules_restnote" COMMENT="Restrictions a restore left unattributed (ambiguous) or attributed only by deduction (inferred), per user they list, so the user can be told in a privacy export">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The course of the module, so the notes go with the course"/>
+        <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The restored course module whose restriction lists the user"/>
+        <FIELD NAME="actionid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="The restored action the restriction may belong to, when one is known"/>
+        <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="The user the restriction lists"/>
+        <FIELD NAME="reason" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="ambiguous or inferred"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+        <KEY NAME="courseid" TYPE="foreign" FIELDS="courseid" REFTABLE="course" REFFIELDS="id"/>
+        <KEY NAME="cmid" TYPE="foreign" FIELDS="cmid" REFTABLE="course_modules" REFFIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="userid" UNIQUE="false" FIELDS="userid"/>
       </INDEXES>
     </TABLE>
   </TABLES>

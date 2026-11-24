@@ -176,7 +176,7 @@ final class remote_export_test extends \core_privacy\tests\provider_testcase {
         $this->export($student, [$coursecontext]);
 
         $this->assertSame([['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
-            'threadids' => ['thread-1']]], $fake->calls);
+            'threadids' => ['thread-1'], 'clientrequestids' => []]], $fake->calls);
         $data = writer::with_context($coursecontext)->get_data($this->subcontext());
         $this->assertNotEmpty($data, 'The data kept by the course service is missing from the export.');
         $this->assertSame([[
@@ -256,6 +256,28 @@ final class remote_export_test extends \core_privacy\tests\provider_testcase {
 
         $this->assertSame([], $fake->calls);
         $this->assertEmpty(writer::with_context($coursecontext)->get_data($this->subcontext()));
+    }
+
+    /**
+     * A request whose /activity/init answer was lost has no thread id, but its key still asks the service.
+     *
+     * CDR-PRIV-001-R2. The row is recorded with its client request id before the call, so the export
+     * asks the service for it by that key, next to the thread ids of the other requests.
+     */
+    public function test_a_request_known_only_by_its_key_is_exported_by_key(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $actionid = $this->ai_action((int) $course->id);
+        $key = '6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f';
+        remote_erasure::record_request($actionid, (int) $course->id, (int) $student->id, null, null, $key);
+        remote_erasure::record_request($actionid, (int) $course->id, (int) $student->id, 'thread-1');
+        $fake = $this->use_client(new fake_remote_export_client($this->remote_data(['thread-1'])));
+
+        $this->export($student, [\context_course::instance($course->id)]);
+
+        $this->assertCount(1, $fake->calls);
+        $this->assertSame(['thread-1'], $fake->calls[0]['threadids']);
+        $this->assertSame([$key], $fake->calls[0]['clientrequestids']);
     }
 
     /**

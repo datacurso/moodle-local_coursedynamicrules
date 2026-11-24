@@ -20,14 +20,18 @@ use core_privacy\local\request\approved_contextlist;
 use core_privacy\local\request\approved_userlist;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
+use local_coursedynamicrules\event\remote_erasure_failed;
 use local_coursedynamicrules\local\fake_remote_erasure_client;
+use local_coursedynamicrules\local\fake_remote_export_client;
 use local_coursedynamicrules\local\remote_erasure;
 use local_coursedynamicrules\local\remote_erasure_client;
+use local_coursedynamicrules\local\remote_export_client;
 use local_coursedynamicrules\task\remote_erasure_task;
 
 defined('MOODLE_INTERNAL') || die();
 
 require_once(__DIR__ . '/../fixtures/fake_remote_erasure_client.php');
+require_once(__DIR__ . '/../fixtures/fake_remote_export_client.php');
 
 /**
  * A requested remote erasure is durable: it is recorded on the rows and sent until the service confirms.
@@ -46,6 +50,9 @@ require_once(__DIR__ . '/../fixtures/fake_remote_erasure_client.php');
  * @covers     \local_coursedynamicrules\privacy\provider
  * @covers     \local_coursedynamicrules\task\remote_erasure_task
  * @covers     \local_coursedynamicrules\observer\course_deleted
+ * @covers     \local_coursedynamicrules\event\remote_erasure_failed
+ * @covers     \local_coursedynamicrules\admin\remote_erasure_pending_setting
+ * @covers     \local_coursedynamicrules\admin\remote_erasure_days_setting
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -84,6 +91,7 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
 
         $answering = new fake_remote_erasure_client(true);
         \core\di::set(remote_erasure_client::class, $answering);
+        $this->use_export($this->nothing_left());
         $this->run_scheduled_task();
         $this->run_scheduled_task();
 
@@ -146,6 +154,7 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
         global $DB;
         $fake = new fake_remote_erasure_client(true);
         \core\di::set(remote_erasure_client::class, $fake);
+        $this->use_export($this->nothing_left());
         $coursea = $this->getDataGenerator()->create_course();
         $courseb = $this->getDataGenerator()->create_course();
         $student = $this->getDataGenerator()->create_user();
@@ -160,7 +169,7 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
 
         $this->assertSame(
             [['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
-                'scope' => remote_erasure_client::SCOPE_THREADS, 'threadids' => ['thread-a']]],
+                'scope' => remote_erasure_client::SCOPE_THREADS, 'threadids' => ['thread-a'], 'clientrequestids' => []]],
             $fake->calls
         );
         $left = $DB->get_records(remote_erasure::TABLE, null, 'id ASC');
@@ -179,7 +188,7 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
         ));
         $this->assertSame(
             [['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
-                'scope' => remote_erasure_client::SCOPE_USER, 'threadids' => ['thread-b']]],
+                'scope' => remote_erasure_client::SCOPE_USER, 'threadids' => ['thread-b'], 'clientrequestids' => []]],
             $fake->calls
         );
         $this->assertSame(0, $DB->count_records(remote_erasure::TABLE));
@@ -257,7 +266,7 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
         $this->run_scheduled_task();
         $this->assertSame(
             [['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
-                'scope' => remote_erasure_client::SCOPE_THREADS, 'threadids' => ['thread-a']]],
+                'scope' => remote_erasure_client::SCOPE_THREADS, 'threadids' => ['thread-a'], 'clientrequestids' => []]],
             $fake->calls
         );
     }
@@ -278,6 +287,306 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
         $rows = remote_erasure::requests_of((int) $student->id);
         $this->assertCount(1, $rows);
         $this->assertNotNull($rows[0]->erasurerequested);
+    }
+
+    /**
+     * The service says "erased" but its export still returns the thread: the seal stays, a failure is counted.
+     *
+     * CDR-PRIV-001-R2. An "erased" answer is not taken on trust: the same threads and keys are exported
+     * right after, and anything still returned keeps the rows pending.
+     *
+     * @return void
+     */
+    public function test_a_confirmed_erasure_the_export_contradicts_keeps_the_seal_and_counts_a_failure(): void {
+        $this->mock_clock_with_frozen(1767225600);
+        $erasure = new fake_remote_erasure_client(true);
+        \core\di::set(remote_erasure_client::class, $erasure);
+        $export = $this->use_export([
+            'requests' => [['thread_id' => 'thread-1']],
+            'token_usage' => [],
+            'threads' => [['thread_id' => 'thread-1']],
+        ]);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        $key = '0b5f1d6e-8c2a-4f3b-9d7e-1a2b3c4d5e6f';
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1', null, $key);
+
+        $this->assertFalse(remote_erasure::erase((int) $student->id));
+
+        $this->assertCount(1, $erasure->calls);
+        $this->assertSame([$key], $erasure->calls[0]['clientrequestids']);
+        $this->assertSame(
+            [['serviceid' => 'local_coursedynamicrules', 'userid' => (int) $student->id,
+                'threadids' => ['thread-1'], 'clientrequestids' => [$key]]],
+            $export->calls,
+            'The erasure was not verified with an export of the same thread and key.'
+        );
+        $rows = remote_erasure::requests_of((int) $student->id);
+        $this->assertCount(1, $rows, 'The seal was deleted although the service still returns the thread.');
+        $this->assertNotNull($rows[0]->erasurerequested);
+        $this->assertSame(1, (int) $rows[0]->erasureattempts);
+        $this->assertSame(1767225600, (int) $rows[0]->erasurefailedat);
+    }
+
+    /**
+     * The service says "erased" and its export returns nothing for those threads and keys: the seal goes.
+     *
+     * @return void
+     */
+    public function test_a_confirmed_erasure_verified_by_an_empty_export_deletes_the_seal(): void {
+        global $DB;
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true));
+        $export = $this->use_export($this->nothing_left());
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        $key = '0b5f1d6e-8c2a-4f3b-9d7e-1a2b3c4d5e6f';
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1', null, $key);
+
+        $this->assertTrue(remote_erasure::erase((int) $student->id));
+
+        $this->assertCount(1, $export->calls);
+        $this->assertSame(0, $DB->count_records(remote_erasure::TABLE));
+    }
+
+    /**
+     * An "exported" answer without the requests and threads lists does not verify the erasure.
+     *
+     * @return void
+     */
+    public function test_an_export_answer_without_its_lists_keeps_the_seal(): void {
+        global $DB;
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true));
+        $this->use_export(['token_usage' => []]);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1');
+
+        $this->assertFalse(remote_erasure::erase((int) $student->id));
+
+        $row = $DB->get_record(remote_erasure::TABLE, ['threadid' => 'thread-1'], '*', MUST_EXIST);
+        $this->assertNotNull($row->erasurerequested, 'An incomplete export answer verified the erasure.');
+        $this->assertSame(1, (int) $row->erasureattempts);
+    }
+
+    /**
+     * An old service (no erased_thread_ids) never proves a row known only by its key, even with an empty export.
+     *
+     * CDR-PRIV-001-R2. A service that predates client_request_id ignores the key, so its "erased" and its
+     * empty export say nothing about that request. The row with a thread id still goes the verified way.
+     *
+     * @return void
+     */
+    public function test_an_old_service_answer_never_proves_a_key_only_row(): void {
+        global $DB;
+        $this->mock_clock_with_frozen(1767225600);
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true, false));
+        $this->use_export($this->nothing_left());
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        $threaded = remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1');
+        $keyonly = remote_erasure::record_request(
+            9001,
+            (int) $course->id,
+            (int) $student->id,
+            null,
+            null,
+            '0b5f1d6e-8c2a-4f3b-9d7e-1a2b3c4d5e6f'
+        );
+
+        $this->assertFalse(remote_erasure::erase((int) $student->id));
+
+        $this->assertFalse($DB->record_exists(remote_erasure::TABLE, ['id' => $threaded]), 'The verified thread row stayed.');
+        $row = $DB->get_record(remote_erasure::TABLE, ['id' => $keyonly]);
+        $this->assertNotEmpty($row, 'A key-only row was taken as erased by a service that ignores keys.');
+        $this->assertNotNull($row->erasurerequested);
+        $this->assertSame(1, (int) $row->erasureattempts);
+        $this->assertSame(1767225600, (int) $row->erasurefailedat);
+    }
+
+    /**
+     * A service that answers erased_thread_ids understands keys: with an empty export a key-only row goes.
+     *
+     * @return void
+     */
+    public function test_a_key_aware_service_answer_with_an_empty_export_deletes_a_key_only_row(): void {
+        global $DB;
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true, true));
+        $this->use_export($this->nothing_left());
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        remote_erasure::record_request(
+            9001,
+            (int) $course->id,
+            (int) $student->id,
+            null,
+            null,
+            '0b5f1d6e-8c2a-4f3b-9d7e-1a2b3c4d5e6f'
+        );
+
+        $this->assertTrue(remote_erasure::erase((int) $student->id));
+        $this->assertSame(0, $DB->count_records(remote_erasure::TABLE));
+    }
+
+    /**
+     * When the verifying export cannot be retrieved, nothing is taken as erased.
+     *
+     * @return void
+     */
+    public function test_an_unavailable_verifying_export_keeps_the_seal(): void {
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(true));
+        $this->use_export(null);
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1');
+
+        $this->assertFalse(remote_erasure::erase((int) $student->id));
+
+        $rows = remote_erasure::requests_of((int) $student->id);
+        $this->assertCount(1, $rows, 'The seal was deleted without a verifying export.');
+        $this->assertSame(1, (int) $rows[0]->erasureattempts);
+    }
+
+    /**
+     * The third consecutive failure fires remote_erasure_failed, once: later failures do not repeat it.
+     *
+     * @return void
+     */
+    public function test_the_third_consecutive_failure_fires_the_event_exactly_once(): void {
+        \core\di::set(remote_erasure_client::class, new fake_remote_erasure_client(false));
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1');
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-2');
+        remote_erasure::request_erasure((int) $student->id);
+
+        $sink = $this->redirectEvents();
+        for ($run = 1; $run <= 5; $run++) {
+            $this->assertFalse(remote_erasure::send_pending((int) $student->id));
+        }
+        $events = array_values(array_filter(
+            $sink->get_events(),
+            fn($event) => $event instanceof remote_erasure_failed
+        ));
+        $sink->close();
+
+        $this->assertCount(1, $events, 'The failure event must fire once, when the threshold is crossed.');
+        $this->assertSame((int) $student->id, (int) $events[0]->relateduserid);
+        $this->assertSame(\context_system::instance()->id, $events[0]->get_context()->id);
+        $this->assertSame(remote_erasure::FAILURE_THRESHOLD, $events[0]->other['attempts']);
+        $this->assertSame(2, $events[0]->other['requests']);
+        $this->assertStringNotContainsString('thread-', $events[0]->get_description());
+        foreach (remote_erasure::requests_of((int) $student->id) as $row) {
+            $this->assertSame(5, (int) $row->erasureattempts);
+        }
+    }
+
+    /**
+     * Erasures pending longer than the configured number of days are listed for the administrator.
+     *
+     * @return void
+     */
+    public function test_erasures_pending_longer_than_the_setting_are_listed(): void {
+        $clock = $this->mock_clock_with_frozen(1767225600);
+        set_config('remoteerasurependingdays', 7, 'local_coursedynamicrules');
+        $course = $this->getDataGenerator()->create_course();
+        $old = $this->getDataGenerator()->create_user();
+        $recent = $this->getDataGenerator()->create_user();
+        $untouched = $this->getDataGenerator()->create_user();
+        remote_erasure::record_request(9001, (int) $course->id, (int) $old->id, 'thread-old');
+        remote_erasure::record_request(9001, (int) $course->id, (int) $recent->id, 'thread-recent');
+        remote_erasure::record_request(9001, (int) $course->id, (int) $untouched->id, 'thread-untouched');
+
+        remote_erasure::request_erasure((int) $old->id);
+        $clock->bump(6 * DAYSECS);
+        remote_erasure::request_erasure((int) $recent->id);
+        $clock->bump(2 * DAYSECS);
+
+        $overdue = remote_erasure::overdue_pending();
+
+        $this->assertSame([(int) $old->id], array_map(fn($item) => (int) $item->userid, $overdue));
+        $this->assertSame(1, (int) $overdue[0]->requests);
+        $this->assertSame(1767225600, (int) $overdue[0]->firstrequested);
+        $this->assertSame(1, remote_erasure::count_overdue_pending());
+    }
+
+    /**
+     * The overdue list is capped at the rows the page shows; the count still covers every student.
+     *
+     * Internal security review (2026-11-20).
+     *
+     * @return void
+     */
+    public function test_the_overdue_list_is_capped_while_the_count_covers_everyone(): void {
+        $clock = $this->mock_clock_with_frozen(1767225600);
+        $course = $this->getDataGenerator()->create_course();
+        $ids = [];
+        for ($i = 0; $i < 3; $i++) {
+            $user = $this->getDataGenerator()->create_user();
+            remote_erasure::record_request(9001, (int) $course->id, (int) $user->id, 'thread-' . $i);
+            remote_erasure::request_erasure((int) $user->id);
+            $ids[] = (int) $user->id;
+            $clock->bump(60);
+        }
+        $clock->bump(8 * DAYSECS);
+
+        $listed = remote_erasure::overdue_pending(7, 2);
+
+        $this->assertSame(array_slice($ids, 0, 2), array_map(fn($item) => (int) $item->userid, $listed));
+        $this->assertSame(3, remote_erasure::count_overdue_pending(7));
+    }
+
+    /**
+     * The pending-days setting refuses anything below one day.
+     *
+     * Internal security review (2026-11-20).
+     *
+     * @dataProvider pending_days_provider
+     * @param string $value The value typed.
+     * @param bool $valid Whether it is accepted.
+     */
+    public function test_the_pending_days_setting_accepts_only_whole_days_from_one(string $value, bool $valid): void {
+        $setting = new \local_coursedynamicrules\admin\remote_erasure_days_setting();
+
+        $this->assertSame($valid, $setting->validate($value) === true);
+    }
+
+    /**
+     * Values for the pending-days setting.
+     *
+     * @return array
+     */
+    public static function pending_days_provider(): array {
+        return [
+            'one' => ['1', true],
+            'default' => ['7', true],
+            'zero' => ['0', false],
+            'negative' => ['-3', false],
+            'text' => ['abc', false],
+        ];
+    }
+
+    /**
+     * The settings page shows the overdue erasures read-only, with counts and dates but no thread id.
+     *
+     * @return void
+     */
+    public function test_the_settings_page_lists_the_overdue_erasures_without_thread_ids(): void {
+        $clock = $this->mock_clock_with_frozen(1767225600);
+        set_config('remoteerasurependingdays', 3, 'local_coursedynamicrules');
+        $course = $this->getDataGenerator()->create_course();
+        $student = $this->getDataGenerator()->create_user();
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-secret');
+        remote_erasure::request_erasure((int) $student->id);
+        $clock->bump(4 * DAYSECS);
+
+        $data = (new \local_coursedynamicrules\admin\remote_erasure_pending_setting())->export_for_template();
+
+        $this->assertTrue($data['hasitems']);
+        $this->assertSame(1, $data['count']);
+        $this->assertSame((int) $student->id, $data['items'][0]['userid']);
+        $this->assertSame(0, $data['more']);
+        $this->assertStringContainsString('3', $data['description']);
+        $this->assertStringNotContainsString('thread-secret', json_encode($data));
     }
 
     /**
@@ -311,5 +620,26 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
         } finally {
             ob_end_clean();
         }
+    }
+
+    /**
+     * Answer the verifying export with the given data.
+     *
+     * @param array|null $data What the service exports; null when it cannot be retrieved.
+     * @return fake_remote_export_client
+     */
+    private function use_export(?array $data): fake_remote_export_client {
+        $fake = new fake_remote_export_client($data);
+        \core\di::set(remote_export_client::class, $fake);
+        return $fake;
+    }
+
+    /**
+     * An export in which nothing of the asked threads and keys is left.
+     *
+     * @return array
+     */
+    private function nothing_left(): array {
+        return ['requests' => [], 'token_usage' => [], 'threads' => []];
     }
 }

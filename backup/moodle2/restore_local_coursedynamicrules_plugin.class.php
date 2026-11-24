@@ -30,7 +30,7 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
     /** @var array<int, string> Source role id => source role shortname, from the backup file. */
     protected $notificationroleshortnames = [];
 
-    /** @var \stdClass[] The gates the backup recorded (cmid, actionid, fingerprint), in file order. */
+    /** @var \stdClass[] The gates the backup recorded (cmid, actionid, fingerprint, fingerprint2), in file order. */
     protected $gates = [];
 
     /**
@@ -126,8 +126,20 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $cmid = (int) ($data->cmid ?? 0);
         $actionid = (int) ($data->actionid ?? 0);
         $fingerprint = (string) ($data->fingerprint ?? '');
-        if ($cmid > 0 && $actionid > 0 && $fingerprint !== '') {
-            $this->gates[] = (object) ['cmid' => $cmid, 'actionid' => $actionid, 'fingerprint' => $fingerprint];
+        // Version 2 (CDR-PRIV-002-R2); a backup made by 1.8.13 or 1.8.14 carries only version 1. Anything
+        // but a SHA-256 hex digest is ignored, and the gate is matched on version 1 (internal security
+        // review, 2026-11-20).
+        $fingerprint2 = (string) ($data->fingerprint2 ?? '');
+        if (preg_match('/^[0-9a-f]{64}$/', $fingerprint2) !== 1) {
+            $fingerprint2 = '';
+        }
+        if ($cmid > 0 && $actionid > 0 && ($fingerprint !== '' || $fingerprint2 !== '')) {
+            $this->gates[] = (object) [
+                'cmid' => $cmid,
+                'actionid' => $actionid,
+                'fingerprint' => $fingerprint,
+                'fingerprint2' => $fingerprint2,
+            ];
         }
     }
 
@@ -385,6 +397,7 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
         $this->remap_ownership_markers();
         $this->reattribute_recorded_gates();
         $this->readopt_stripped_markers();
+        $this->queue_reconciliation();
         $this->rekey_generated_ai_activities();
         $this->report_restored_components();
     }
@@ -403,9 +416,12 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
      * key is rewritten for the restored action on THIS site too: the key is an HMAC keyed with the site
      * identifier, so on another site the copied key verifies nothing (CDR-PRIV-002-R1).
      *
-     * Two or more matching nodes - a teacher's restriction listing exactly the same students - are
-     * ambiguous: none is marked, they keep whatever the re-adoption decides, and the count goes to the
-     * restore log. A backup made before gates were recorded has none, and restores as it always did.
+     * The version 2 fingerprint also covers the node's position and its siblings, so a teacher's copy
+     * listing the same students no longer matches (CDR-PRIV-002-R2); a backup that carries only version
+     * 1 is matched on it as before. Two or more matching nodes are ambiguous: none is marked, they keep
+     * whatever the re-adoption decides, the count goes to the restore log and every user they list gets
+     * a durable note (restore_note). A backup made before gates were recorded has none; its deduced
+     * markers are reconciled once by an adhoc task (queue_reconciliation()).
      *
      * @return void
      */
@@ -431,10 +447,20 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
                 $root,
                 (int) $gate->actionid,
                 $newactionid,
-                $gate->fingerprint
+                (string) $gate->fingerprint,
+                (string) ($gate->fingerprint2 ?? '')
             );
             if (count($nodes) > 1) {
                 $ambiguous++;
+                foreach ($nodes as $node) {
+                    \local_coursedynamicrules\local\restore_note::record(
+                        (int) $courseid,
+                        (int) $cm->id,
+                        $newactionid,
+                        \local_coursedynamicrules\local\owned_gate_eraser::userids_of($node),
+                        \local_coursedynamicrules\local\restore_note::REASON_AMBIGUOUS
+                    );
+                }
                 continue;
             }
             if (count($nodes) === 0) {
@@ -733,6 +759,7 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
                 if ($adopted !== null && $adopted !== $availability) {
                     $DB->set_field('course_modules', 'availability', $adopted, ['id' => $cmid]);
                     $rewritten++;
+                    $this->note_adopted_nodes((int) $courseid, $cmid, (int) $action->id, $adopted);
                 }
             }
         }
@@ -750,6 +777,67 @@ class restore_local_coursedynamicrules_plugin extends restore_local_plugin {
                 backup::LOG_WARNING
             );
             rebuild_course_cache($courseid, true);
+        }
+    }
+
+    /**
+     * Note, for every user it lists, the node the re-adoption just deduced for an action.
+     *
+     * The privacy provider refuses a deduced marker, so the user's id stays in the restored course
+     * without being exported or erased as the plugin's; the note is what tells the user (CDR-PRIV-002-R2).
+     *
+     * @param int $courseid The restored course.
+     * @param int $cmid The module.
+     * @param int $actionid The restored action.
+     * @param string $availability The module's availability after the adoption.
+     * @return void
+     */
+    protected function note_adopted_nodes(int $courseid, int $cmid, int $actionid, string $availability): void {
+        $root = json_decode($availability);
+        if (!$root instanceof \stdClass) {
+            return;
+        }
+        foreach (\local_coursedynamicrules\local\gate_fingerprint::positions($root) as $located) {
+            $node = $located['node'];
+            if (
+                \local_coursedynamicrules\action\enableactivity\enableactivity_action::action_id_of($node) === $actionid
+                && \local_coursedynamicrules\action\enableactivity\enableactivity_action::is_adopted($node)
+            ) {
+                \local_coursedynamicrules\local\restore_note::record(
+                    $courseid,
+                    $cmid,
+                    $actionid,
+                    \local_coursedynamicrules\local\owned_gate_eraser::userids_of($node),
+                    \local_coursedynamicrules\local\restore_note::REASON_INFERRED
+                );
+            }
+        }
+    }
+
+    /**
+     * Queue the one-time reconciliation of a backup made before gates were fingerprinted.
+     *
+     * Such a backup records no gate, so the restore could only deduce the stripped markers. The adhoc
+     * task, run after the restore has finished, marks a node as written only when the evidence the
+     * course holds leaves one candidate (restore_reconciliation), and notes the rest (CDR-PRIV-002-R2).
+     * A backup that records gates is never reconciled: its fingerprints decided already.
+     *
+     * @return void
+     */
+    protected function queue_reconciliation(): void {
+        global $DB;
+
+        if ($this->gates !== []) {
+            return;
+        }
+        $actionids = [];
+        foreach ($this->get_restored_action_id_map() as $newactionid) {
+            if ($DB->get_field('local_coursedynamicrules_action', 'actiontype', ['id' => $newactionid]) === 'enableactivity') {
+                $actionids[] = (int) $newactionid;
+            }
+        }
+        if ($actionids !== []) {
+            \local_coursedynamicrules\task\restore_reconciliation_task::queue((int) $this->task->get_courseid(), $actionids);
         }
     }
 

@@ -23,14 +23,17 @@ use aiprovider_datacurso\httpclient\ai_course_api;
  *
  * It sends POST /privacy/erase through aiprovider_datacurso's course client, the same client and base
  * URL as /activity/init, so the transport adds site_id and site_url as it does for every request (the
- * provider's 5.x line sends the Moodle user id as it is). The contract is described in remote_erasure_client.
+ * provider's 5.x line pseudonymises the user id from 2.2.2 on and sends it as it is before). The
+ * contract is described in remote_erasure_client.
  *
- * The service takes at most MAX_THREADS thread ids per call, so a longer list is sent in several calls
- * in the same scope, and the erasure is confirmed only when every call answers {"status": "erased"}.
- * Anything else - an error answer (403 for a site without balance or subscription, 422 for a body the
- * service refuses), a transport failure, the provider missing or disabled, any other status - is
- * reported as not done and never thrown: the rows stay pending and remote_erasure_task sends them
- * again. Nothing about the request is logged.
+ * The service takes at most MAX_THREADS thread ids and MAX_THREADS client request ids per call, so
+ * longer lists are sent in several calls in the same scope - call n carries the n-th slice of each
+ * list - and the erasure is confirmed only when every call answers {"status": "erased"}. The
+ * client_request_ids key is sent only when there are keys, and the result says whether every answer
+ * carried erased_thread_ids, the sign of a service that understands them. Anything else - an error answer (such as 422
+ * for a body the service refuses), a transport failure, the
+ * provider missing or disabled, any other status - is reported as not done and never thrown: the rows
+ * stay pending and remote_erasure_task sends them again. Nothing about the request is logged.
  *
  * @package    local_coursedynamicrules
  * @copyright  2026 Industria Elearning <info@industriaelearning.com>
@@ -40,7 +43,7 @@ class course_service_remote_erasure_client implements remote_erasure_client {
     /** @var string The erasure endpoint, relative to the course service base URL. */
     public const PATH = '/privacy/erase';
 
-    /** @var int The most thread ids the service accepts in one call. */
+    /** @var int The most thread ids, and the most client request ids, the service accepts in one call. */
     public const MAX_THREADS = 1000;
 
     /** @var \Closure|null Builds the course client; null builds the production one. */
@@ -56,33 +59,66 @@ class course_service_remote_erasure_client implements remote_erasure_client {
     }
 
     #[\Override]
-    public function erase(string $serviceid, int $userid, string $scope, array $threadids): bool {
+    public function erase(
+        string $serviceid,
+        int $userid,
+        string $scope,
+        array $threadids,
+        array $clientrequestids = []
+    ): remote_erasure_result {
         $threadids = array_values($threadids);
-        if ($scope === self::SCOPE_THREADS && $threadids === []) {
-            // The service refuses a thread-scoped erasure without threads; it would never be confirmed.
-            return false;
+        $clientrequestids = array_values($clientrequestids);
+        if ($scope === self::SCOPE_THREADS && $threadids === [] && $clientrequestids === []) {
+            // The service refuses a thread-scoped erasure naming nothing; it would never be confirmed.
+            return new remote_erasure_result(false);
         }
-        $chunks = $threadids === [] ? [[]] : array_chunk($threadids, self::MAX_THREADS);
+        $keysunderstood = true;
 
         try {
             $client = $this->client();
-            foreach ($chunks as $chunk) {
-                $response = $client->request('POST', self::PATH, [
+            foreach (self::slices($threadids, $clientrequestids, self::MAX_THREADS) as [$threadchunk, $keychunk]) {
+                $body = [
                     'userid' => $userid,
                     'service_id' => $serviceid,
                     'scope' => $scope,
-                    'thread_ids' => $chunk,
-                ]);
-                if (!is_array($response) || ($response['status'] ?? null) !== 'erased') {
-                    return false;
+                    'thread_ids' => $threadchunk,
+                ];
+                if ($keychunk !== []) {
+                    $body['client_request_ids'] = $keychunk;
                 }
+                $response = $client->request('POST', self::PATH, $body);
+                if (!is_array($response) || ($response['status'] ?? null) !== 'erased') {
+                    return new remote_erasure_result(false);
+                }
+                // Only a service that understands client_request_ids answers erased_thread_ids.
+                $keysunderstood = $keysunderstood && is_array($response['erased_thread_ids'] ?? null);
             }
         } catch (\Throwable $e) {
             // Not done: the rows stay pending and the scheduled task sends them again.
-            return false;
+            return new remote_erasure_result(false);
         }
 
-        return true;
+        return new remote_erasure_result(true, $keysunderstood);
+    }
+
+    /**
+     * Split two lists into calls carrying at most $size items of each: call n gets the n-th slice of both.
+     *
+     * @param string[] $threadids The thread ids.
+     * @param string[] $clientrequestids The client request ids.
+     * @param int $size The most items of each list per call.
+     * @return array[] One [thread ids, client request ids] pair per call; one empty pair for empty lists.
+     */
+    public static function slices(array $threadids, array $clientrequestids, int $size): array {
+        $threadchunks = array_chunk($threadids, $size);
+        $keychunks = array_chunk($clientrequestids, $size);
+        $calls = max(1, count($threadchunks), count($keychunks));
+        $slices = [];
+        for ($i = 0; $i < $calls; $i++) {
+            $slices[] = [$threadchunks[$i] ?? [], $keychunks[$i] ?? []];
+        }
+
+        return $slices;
     }
 
     /**

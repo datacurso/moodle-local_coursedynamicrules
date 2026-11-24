@@ -27,6 +27,7 @@ use local_coursedynamicrules\local\owned_gate_eraser;
 use local_coursedynamicrules\local\provider_dependency;
 use local_coursedynamicrules\local\remote_erasure;
 use local_coursedynamicrules\local\remote_export_client;
+use local_coursedynamicrules\local\restore_note;
 
 /**
  * Privacy provider for local_coursedynamicrules.
@@ -119,11 +120,29 @@ use local_coursedynamicrules\local\remote_export_client;
  *    wrote, the module, the action and a fingerprint of the action and the ids the node lists
  *    (gate_fingerprint). The restore gives the marker back, as written rather than adopted, to the
  *    single node of the restored module that matches it - enable-activity and AI alike, on this site
- *    or another one - and rewrites an AI activity's key for the restored action on this site. Two
- *    identical matching nodes (a teacher's restriction listing exactly the same students) are
- *    ambiguous: neither is marked, and the restore log says so. What follows applies to those, and
- *    to backups made before the fingerprint existed: an AI-generated activity is still re-marked
- *    from its key when it verifies, and an enable-activity node is only re-adopted.
+ *    or another one - and rewrites an AI activity's key for the restored action on this site. Since
+ *    CDR-PRIV-002-R2 the fingerprint (version 2) also covers the node's position in the tree and a
+ *    summary of the conditions beside it, so a teacher's restriction listing exactly the same
+ *    students no longer matches it. A backup carrying only version 1 (1.8.13, 1.8.14) still matches
+ *    on the action and the ids, and two identical matching nodes are ambiguous: neither is marked,
+ *    and the restore log says so. What follows applies to those, and to backups made before the
+ *    fingerprint existed: an AI-generated activity is still re-marked from its key when it verifies,
+ *    and an enable-activity node is only re-adopted. For a backup made before the fingerprint, an
+ *    adhoc task then reconciles once (restore_reconciliation): a node is marked as written only when
+ *    it is the one candidate of its module in the shape apply_availability() writes and exactly one
+ *    restored action lists the module. Whatever stays ambiguous or deduced is recorded per user in
+ *    local_coursedynamicrules_restnote (restore_note); that module context is in the user's
+ *    contextlist, the export says the activity holds their id in a restriction that could not be
+ *    attributed, without anyone else's id, and an erasure removes the note but, by design, not the
+ *    id from a restriction this class cannot prove it wrote.
+ *
+ *    One case the reconciliation cannot get right, stated rather than hidden: with an active rule,
+ *    when a teacher deleted the plugin's gate by hand and the restore deduced the teacher's own
+ *    restriction - hidden when not met, directly under an AND root, listing only active students of
+ *    the course - a backup made before 1.8.13 holds nothing that tells the two apart, and the
+ *    reconciliation can attribute the teacher's restriction to the plugin. A restriction listing
+ *    anyone else is never attributed. Trees of more than gate_fingerprint::MAX_TREE_NODES nodes get no
+ *    fingerprint in the backup; their restore leaves the restriction deduced and noted, never claimed.
  *
  *    A re-adopted marker is not attributable either, and this class refuses it. The re-adoption
  *    claims the tree's single unmarked user node, which on a module the action still lists but whose
@@ -285,6 +304,7 @@ class provider implements
         $collection->add_external_location_link(
             'datacurso_ai',
             [
+                'client_request_id' => 'privacy:metadata:datacurso_ai:client_request_id',
                 'instructions' => 'privacy:metadata:datacurso_ai:instructions',
                 'lang' => 'privacy:metadata:datacurso_ai:lang',
                 'site_id' => 'privacy:metadata:datacurso_ai:site_id',
@@ -301,14 +321,31 @@ class provider implements
             remote_erasure::TABLE,
             [
                 'actionid' => 'privacy:metadata:local_coursedynamicrules_aireq:actionid',
+                'clientrequestid' => 'privacy:metadata:local_coursedynamicrules_aireq:clientrequestid',
                 'cmid' => 'privacy:metadata:local_coursedynamicrules_aireq:cmid',
                 'courseid' => 'privacy:metadata:local_coursedynamicrules_aireq:courseid',
+                'erasureattempts' => 'privacy:metadata:local_coursedynamicrules_aireq:erasureattempts',
+                'erasurefailedat' => 'privacy:metadata:local_coursedynamicrules_aireq:erasurefailedat',
                 'erasurerequested' => 'privacy:metadata:local_coursedynamicrules_aireq:erasurerequested',
                 'threadid' => 'privacy:metadata:local_coursedynamicrules_aireq:threadid',
                 'timecreated' => 'privacy:metadata:local_coursedynamicrules_aireq:timecreated',
                 'userid' => 'privacy:metadata:local_coursedynamicrules_aireq:userid',
             ],
             'privacy:metadata:local_coursedynamicrules_aireq'
+        );
+        // CDR-PRIV-002-R2: the restrictions a restore could not attribute to the plugin, noted per user
+        // they list so the user's export names the activity.
+        $collection->add_database_table(
+            restore_note::TABLE,
+            [
+                'actionid' => 'privacy:metadata:local_coursedynamicrules_restnote:actionid',
+                'cmid' => 'privacy:metadata:local_coursedynamicrules_restnote:cmid',
+                'courseid' => 'privacy:metadata:local_coursedynamicrules_restnote:courseid',
+                'reason' => 'privacy:metadata:local_coursedynamicrules_restnote:reason',
+                'timecreated' => 'privacy:metadata:local_coursedynamicrules_restnote:timecreated',
+                'userid' => 'privacy:metadata:local_coursedynamicrules_restnote:userid',
+            ],
+            'privacy:metadata:local_coursedynamicrules_restnote'
         );
         $collection->add_external_location_link(
             'datacurso_course_service',
@@ -369,7 +406,11 @@ class provider implements
             ['userlevel' => CONTEXT_USER, 'userid' => $userid, 'requestuserid' => $userid]
         );
 
-        $cmids = owned_gate_eraser::modules_holding($userid);
+        // The modules whose restriction a restore could not attribute, noted for the user (CDR-PRIV-002-R2).
+        $cmids = array_values(array_unique(array_merge(
+            owned_gate_eraser::modules_holding($userid),
+            restore_note::modules_of($userid)
+        )));
         if ($cmids === []) {
             return $contextlist;
         }
@@ -413,7 +454,10 @@ class provider implements
             return;
         }
 
-        $userids = owned_gate_eraser::users_in_module((int) $context->instanceid);
+        $userids = array_values(array_unique(array_merge(
+            owned_gate_eraser::users_in_module((int) $context->instanceid),
+            restore_note::users_in_module((int) $context->instanceid)
+        )));
         if ($userids !== []) {
             $userlist->add_users($userids);
         }
@@ -482,6 +526,7 @@ class provider implements
             if ((int) $context->contextlevel !== CONTEXT_MODULE) {
                 continue;
             }
+            self::export_restore_notes($context, $userid);
             $holdings = owned_gate_eraser::holdings((int) $context->instanceid, $userid);
             if ($holdings === null) {
                 continue;
@@ -553,6 +598,9 @@ class provider implements
                     }
                     continue;
                 }
+                if ((int) $context->contextlevel === CONTEXT_MODULE) {
+                    restore_note::forget_users_in_module((int) $context->instanceid, [$userid]);
+                }
                 $result = self::erase_in($context, [$userid]);
                 if ($result['courseid'] !== null) {
                     $courseids[$result['courseid']] = $result['courseid'];
@@ -593,6 +641,9 @@ class provider implements
             }
             return;
         }
+        if ((int) $context->contextlevel === CONTEXT_MODULE) {
+            restore_note::forget_users_in_module((int) $context->instanceid, array_map('intval', $userlist->get_userids()));
+        }
         $result = self::erase_in($userlist->get_context(), array_map('intval', $userlist->get_userids()));
         if ($result['courseid'] !== null) {
             rebuild_course_cache($result['courseid'], true);
@@ -625,11 +676,52 @@ class provider implements
             self::erase_remote_requests($userid, self::orphaned_courses_of($userid));
             return;
         }
+        if ((int) $context->contextlevel === CONTEXT_MODULE) {
+            restore_note::forget_users_in_module((int) $context->instanceid, null);
+        }
         $result = self::erase_in($context, null);
         if ($result['courseid'] !== null) {
             rebuild_course_cache($result['courseid'], true);
         }
         self::report_ambiguous($result['ambiguous'] ? [(int) $context->instanceid] : []);
+    }
+
+    /**
+     * Export the notes of the restrictions a restore could not attribute, on one module.
+     *
+     * Each note says why (ambiguous or deduced) and when; it names no other user (CDR-PRIV-002-R2).
+     *
+     * @param \context $context The module context.
+     * @param int $userid The user.
+     * @return void
+     */
+    private static function export_restore_notes(\context $context, int $userid): void {
+        $notes = [];
+        foreach (restore_note::of_user_in_module($userid, (int) $context->instanceid) as $row) {
+            $inferred = $row->reason === restore_note::REASON_INFERRED;
+            $notes[] = (object) [
+                'reason' => $inferred ? restore_note::REASON_INFERRED : restore_note::REASON_AMBIGUOUS,
+                'explained' => get_string(
+                    $inferred ? 'privacy:export:restorenote:inferred' : 'privacy:export:restorenote:ambiguous',
+                    'local_coursedynamicrules'
+                ),
+                'timecreated' => transform::datetime((int) $row->timecreated),
+            ];
+        }
+        if ($notes === []) {
+            return;
+        }
+        // The writer shortens a folder name longer than 100 characters with filelib.php functions, which
+        // the tool_dataprivacy export task does not load: a long translation must not break the export.
+        global $CFG;
+        require_once($CFG->libdir . '/filelib.php');
+        writer::with_context($context)->export_data(
+            [get_string('privacy:export:restorenote', 'local_coursedynamicrules')],
+            (object) [
+                'notes' => $notes,
+                'whatthismeans' => get_string('privacy:export:restorenoteexplained', 'local_coursedynamicrules'),
+            ]
+        );
     }
 
     /**
@@ -710,9 +802,11 @@ class provider implements
      * Export the AI requests the course service keeps for the user, in a course or in their own context.
      *
      * What is recorded on this site, as stored: the thread id the service gave each request (empty
-     * for a request recorded by the upgrade, whose thread was never stored), the course, the rule behind
-     * it, the activity it generated, when it was made and when its erasure was requested (empty when
-     * it was not). The rule of a deleted course is gone with it and reads as unknown.
+     * for a request recorded by the upgrade, whose thread was never stored, or one whose answer was
+     * lost), the client request id sent with it (empty before 1.8.15), the course, the rule behind it,
+     * the activity it generated, when it was made, when its erasure was requested (empty when it was
+     * not) and, while it is pending, how many attempts failed and when the last one did. The rule of a
+     * deleted course is gone with it and reads as unknown.
      *
      * @param \context $context The course context, or the user's own context for deleted courses.
      * @param \stdClass[] $rows The requests to export.
@@ -723,11 +817,14 @@ class provider implements
         foreach ($rows as $row) {
             $requests[] = [
                 'threadid' => $row->threadid === null ? '' : (string) $row->threadid,
+                'clientrequestid' => (string) ($row->clientrequestid ?? ''),
                 'course' => (int) $row->courseid,
                 'rule' => self::rule_name_behind((int) $row->actionid, (int) $row->courseid),
                 'activity' => $row->cmid === null ? null : (int) $row->cmid,
                 'timecreated' => transform::datetime((int) $row->timecreated),
                 'erasurerequested' => $row->erasurerequested === null ? '' : transform::datetime((int) $row->erasurerequested),
+                'erasureattempts' => (int) ($row->erasureattempts ?? 0),
+                'erasurefailedat' => empty($row->erasurefailedat) ? '' : transform::datetime((int) $row->erasurefailedat),
             ];
         }
         if ($requests === []) {
@@ -746,8 +843,8 @@ class provider implements
     /**
      * Ask the course service for what it keeps about the user's threads in a context, and write it there.
      *
-     * Only the thread ids recorded on this site for the user in that context are sent; requests
-     * recorded without one have nothing to ask for. The answer is written with plain keys, the request
+     * Only the thread ids and client request ids recorded on this site for the user in that context
+     * are sent; requests recorded with neither have nothing to ask for. The answer is written with plain keys, the request
      * settings stripped of secrets and identifiers (readable_settings()). When the plugin is not
      * enabled in the provider, or the service cannot be asked or does not answer, the export is not
      * failed: a note saying the data could not be retrieved is written instead. Nothing is logged.
@@ -759,12 +856,16 @@ class provider implements
      */
     private static function export_remote_data(\context $context, int $userid, array $rows): void {
         $threadids = [];
+        $keys = [];
         foreach ($rows as $row) {
             if ($row->threadid !== null && $row->threadid !== '') {
                 $threadids[(string) $row->threadid] = (string) $row->threadid;
             }
+            if (!empty($row->clientrequestid)) {
+                $keys[(string) $row->clientrequestid] = (string) $row->clientrequestid;
+            }
         }
-        if ($threadids === []) {
+        if ($threadids === [] && $keys === []) {
             return;
         }
 
@@ -772,7 +873,7 @@ class provider implements
         if (provider_dependency::is_enabled()) {
             try {
                 $data = \core\di::get(remote_export_client::class)
-                    ->export(remote_erasure::SERVICE_ID, $userid, array_values($threadids));
+                    ->export(remote_erasure::SERVICE_ID, $userid, array_values($threadids), array_values($keys));
             } catch (\Throwable $e) {
                 $data = null;
             }
