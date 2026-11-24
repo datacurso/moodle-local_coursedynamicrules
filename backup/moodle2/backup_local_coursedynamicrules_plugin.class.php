@@ -106,10 +106,14 @@ class backup_local_coursedynamicrules_plugin extends backup_local_plugin {
         // and not read from a table a nested element could select by its parent action.
         $gates = new backup_nested_element('coursedynamicrules_gates');
         $pluginwrapper->add_child($gates);
+        // The fingerprint field is version 1 (action and ids), kept for older plugin versions reading this
+        // backup; fingerprint2 adds the node's position and its siblings, so a teacher's copy of the
+        // gate no longer matches it (CDR-PRIV-002-R2).
         $gate = new backup_nested_element('coursedynamicrules_gate', ['id'], [
             'cmid',
             'actionid',
             'fingerprint',
+            'fingerprint2',
         ]);
         $gates->add_child($gate);
 
