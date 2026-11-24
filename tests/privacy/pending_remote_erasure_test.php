@@ -26,6 +26,7 @@ use local_coursedynamicrules\local\fake_remote_export_client;
 use local_coursedynamicrules\local\remote_erasure;
 use local_coursedynamicrules\local\remote_erasure_client;
 use local_coursedynamicrules\local\remote_export_client;
+use local_coursedynamicrules\local\tenant_context;
 use local_coursedynamicrules\task\remote_erasure_task;
 
 defined('MOODLE_INTERNAL') || die();
@@ -620,6 +621,45 @@ final class pending_remote_erasure_test extends \core_privacy\tests\provider_tes
         } finally {
             ob_end_clean();
         }
+    }
+
+    /**
+     * Workplace: a student whose tenant switched the plugin off is still erased, and the erasure verified.
+     *
+     * The tenant check of the privacy export (tenant_context) only decides whether the student's data is
+     * read back for an export request. Erasing and verifying the erasure never depend on it: switching the
+     * plugin off does not erase what the course service keeps, so the erasure is sent, verified by an export
+     * of the same threads and keys, and the rows are forgotten, instead of failing on every run.
+     *
+     * @return void
+     */
+    public function test_a_tenant_that_disabled_the_plugin_still_gets_its_erasure_verified(): void {
+        global $DB;
+        if (!class_exists(\tool_tenant\tenancy::class)) {
+            $this->markTestSkipped('tool_tenant is not installed.');
+        }
+        if (!class_exists(\aiprovider_datacurso\local\plugin_settings::class)) {
+            $this->markTestSkipped('The installed provider has no plugin state API.');
+        }
+        $generator = $this->getDataGenerator();
+        $tenantgenerator = $generator->get_plugin_generator('tool_tenant');
+        $category = $generator->create_category(['name' => 'Student tenant category']);
+        $tenant = $tenantgenerator->create_tenant(['name' => 'Student tenant', 'categoryid' => $category->id]);
+        $course = $generator->create_course(['category' => $category->id]);
+        $student = $tenantgenerator->create_user(['tenantid' => $tenant->id]);
+        $key = '0b5f1d6e-8c2a-4f3b-9d7e-1a2b3c4d5e6f';
+        remote_erasure::record_request(9001, (int) $course->id, (int) $student->id, 'thread-1', null, $key);
+        \aiprovider_datacurso\local\plugin_settings::set_enabled('local_coursedynamicrules', false, (int) $tenant->id);
+        $this->assertFalse(tenant_context::is_enabled_for_user((int) $student->id));
+        $erasure = new fake_remote_erasure_client(true);
+        \core\di::set(remote_erasure_client::class, $erasure);
+        $export = $this->use_export($this->nothing_left());
+
+        $this->assertTrue(remote_erasure::erase((int) $student->id));
+
+        $this->assertCount(1, $erasure->calls);
+        $this->assertCount(1, $export->calls, 'The erasure was not verified for a tenant that disabled the plugin.');
+        $this->assertSame(0, $DB->count_records(remote_erasure::TABLE));
     }
 
     /**
